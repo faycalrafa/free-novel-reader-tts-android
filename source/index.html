@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b1020">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NovelArrow Reader Pro</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <div class="top-bar">
+        <button class="btn icon ghost" id="btn-library" title="Library"><i class="fa-solid fa-bars"></i></button>
+        <div class="title">
+            <span id="page-title">NovelArrow Reader Pro</span>
+            <span class="sub" id="page-sub">Ready to read</span>
+        </div>
+        <button class="btn icon ghost" id="btn-tts-toggle" title="TTS Dock"><i class="fa-solid fa-headphones"></i></button>
+        <button class="btn icon ghost" id="btn-loop" title="Auto-next loop"><i class="fa-solid fa-rotate"></i></button>
+        <button class="btn icon ghost" id="btn-settings" title="Settings"><i class="fa-solid fa-gear"></i></button>
+    </div>
+
+    <main class="viewport" id="viewport">
+        <div class="loading-overlay" id="loading">
+            <div class="spinner"></div>
+            <div id="loading-text">Loading…</div>
+        </div>
+
+        <div class="empty-state" id="empty-state">
+            <div class="logo"><i class="fa-solid fa-book-open"></i></div>
+            <h1>NovelArrow Reader Pro</h1>
+            <p>A local-only HTML reader with offline neural text-to-speech. Pick a root folder — every subfolder becomes its own playlist with individually tracked progress per chapter.</p>
+            <div class="actions">
+                <button class="btn primary" id="empty-open-folder"><i class="fa-solid fa-folder-open"></i> Set root folder</button>
+                <button class="btn" id="empty-open-files"><i class="fa-solid fa-file-lines"></i> Open files</button>
+                <button class="btn ghost" id="empty-open-library" style="border:1px solid var(--bg-3);"><i class="fa-solid fa-book-bookmark"></i> Open Library</button>
+            </div>
+            <div id="resume-container"></div>
+        </div>
+
+        <div id="reader-content" class="dark"></div>
+
+        <button class="fab-next hidden" id="fab-next" title="Next chapter">
+            <i class="fa-solid fa-forward-step"></i>
+        </button>
+
+        <div class="tts-dock" id="tts-dock">
+            <div class="progress-wrap" id="tts-progress-wrap"><div id="tts-progress"></div></div>
+            <div class="now-playing" id="tts-now-playing">Idle</div>
+            <div class="now-meta">
+                <span class="chap-info" id="tts-chap-info">—</span>
+                <span id="tts-para-info">0 / 0</span>
+            </div>
+            <div class="tts-controls">
+                <button class="btn icon ghost" id="tts-prev-chapter" title="Prev chapter"><i class="fa-solid fa-backward-step"></i></button>
+                <button class="btn icon ghost" id="tts-prev-para" title="Prev paragraph"><i class="fa-solid fa-backward"></i></button>
+                <button class="btn primary round-lg" id="tts-playpause" title="Play/Pause"><i class="fa-solid fa-play"></i></button>
+                <button class="btn icon ghost" id="tts-next-para" title="Next paragraph"><i class="fa-solid fa-forward"></i></button>
+                <button class="btn icon ghost" id="tts-next-chapter" title="Next chapter"><i class="fa-solid fa-forward-step"></i></button>
+                <button class="btn icon ghost" id="tts-stop" title="Stop" style="margin-left:8px;"><i class="fa-solid fa-stop"></i></button>
+            </div>
+        </div>
+    </main>
+</div>
+
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<aside class="drawer" id="drawer">
+    <div class="head">
+        <h3>Library</h3>
+        <button class="btn small icon ghost" id="drawer-add-folder" title="Set root folder"><i class="fa-solid fa-folder-plus"></i></button>
+        <button class="btn small icon ghost" id="drawer-add-files" title="Add files"><i class="fa-solid fa-file-circle-plus"></i></button>
+        <button class="btn small icon ghost" id="drawer-refresh" title="Refresh / re-sync folders"><i class="fa-solid fa-rotate"></i></button>
+        <button class="btn small icon ghost" id="drawer-close"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="drawer-tabs">
+        <button data-tab="library" class="active">Library</button>
+        <button data-tab="playlist">Chapters</button>
+    </div>
+    <div class="body" id="drawer-body"></div>
+    <div class="foot">
+        <button class="btn-sm" id="btn-download-mp3" style="flex:1;"><i class="fa-solid fa-download"></i> MP3</button>
+        <button class="btn-sm ghost" id="btn-clear-progress" style="flex:1;"><i class="fa-solid fa-eraser"></i> Clear all</button>
+    </div>
+</aside>
+
+<input type="file" id="file-input-multi" multiple accept=".txt,.md,.html,.htm,.xhtml,.xml,.json,.csv,.log,.rtf,text/*" style="display:none">
+
+<div class="piper-overlay" id="piper-overlay">
+    <div class="card">
+        <span class="badge">✨ Piper Neural TTS</span>
+        <h3 id="piper-title">Downloading voice model…</h3>
+        <div class="subtitle" id="piper-subtitle">
+            First time only — the neural voice model is being downloaded to your device. It will be cached persistently for future use, even offline.
+        </div>
+        <div id="piper-progress-list"></div>
+        <div style="display:flex;gap:6px;margin-top:14px;justify-content:flex-end;">
+            <button class="btn-sm" id="piper-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<audio id="silent-audio" loop preload="auto" style="display:none;" src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAAA"></audio>
+<audio id="tts-audio" preload="auto" style="display:none;" playsinline></audio>
+
+<script src="js/storage.js"></script>
+<script src="js/piper.js"></script>
+<script src="js/library.js"></script>
+<script src="js/tts.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
