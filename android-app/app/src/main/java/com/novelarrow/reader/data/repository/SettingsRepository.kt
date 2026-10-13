@@ -5,6 +5,7 @@ import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.ThemeMode
+import com.novelarrow.reader.data.model.WebBrowserSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,6 +80,69 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSleepTimerMinutes(minutes: Int) = updateSettings { it.copy(sleepTimerMinutes = minutes) }
 
+    private val browserSettingsFile: File
+        get() = File(context.filesDir, "novel_browser_settings_v1.json")
+
+    private val _browserSettingsFlow = MutableStateFlow(loadBrowserSettings())
+    val browserSettingsFlow: StateFlow<WebBrowserSettings> = _browserSettingsFlow.asStateFlow()
+
+    fun getBrowserSettings(): WebBrowserSettings = _browserSettingsFlow.value
+
+    suspend fun updateBrowserSettings(transform: (WebBrowserSettings) -> WebBrowserSettings) = withContext(Dispatchers.IO) {
+        val updated = transform(_browserSettingsFlow.value)
+        saveBrowserSettings(updated)
+        _browserSettingsFlow.value = updated
+    }
+
+    suspend fun setBrowserVoice(voice: String?) = updateBrowserSettings { it.copy(ttsVoice = voice) }
+
+    suspend fun setBrowserRate(rate: Float) = updateBrowserSettings { it.copy(ttsRate = rate) }
+
+    suspend fun setBrowserPitch(pitch: Float) = updateBrowserSettings { it.copy(ttsPitch = pitch) }
+
+    suspend fun setBrowserAutoScroll(enabled: Boolean) = updateBrowserSettings { it.copy(ttsAutoScroll = enabled) }
+
+    suspend fun setBrowserTtsAutoStart(enabled: Boolean) = updateBrowserSettings { it.copy(ttsAutoStart = enabled) }
+
+    suspend fun setBrowserSynthByParagraph(enabled: Boolean) = updateBrowserSettings { it.copy(ttsSynthByParagraph = enabled) }
+
+    suspend fun setBrowserSleepTimerMinutes(minutes: Int) = updateBrowserSettings { it.copy(sleepTimerMinutes = minutes) }
+
+    suspend fun addBrowserIgnoredSelector(selector: String) = updateBrowserSettings {
+        val trimmed = selector.trim()
+        if (trimmed.isNotBlank() && !it.ignoredSelectors.contains(trimmed)) {
+            it.copy(ignoredSelectors = it.ignoredSelectors + trimmed)
+        } else it
+    }
+
+    suspend fun removeBrowserIgnoredSelector(selector: String) = updateBrowserSettings {
+        it.copy(ignoredSelectors = it.ignoredSelectors.filter { s -> s != selector })
+    }
+
+    suspend fun resetBrowserIgnoredSelectors() = updateBrowserSettings {
+        it.copy(ignoredSelectors = WebBrowserSettings().ignoredSelectors)
+    }
+
+    suspend fun addBrowserSkipWord(skip: SkipWord) = updateBrowserSettings {
+        it.copy(skipWords = it.skipWords + skip)
+    }
+
+    suspend fun removeBrowserSkipWord(index: Int) = updateBrowserSettings {
+        it.copy(skipWords = it.skipWords.filterIndexed { i, _ -> i != index })
+    }
+
+    suspend fun addBrowserPronunciationRule(rule: PronunciationRule) = updateBrowserSettings {
+        it.copy(pronunciationRules = it.pronunciationRules + rule)
+    }
+
+    suspend fun removeBrowserPronunciationRule(index: Int) = updateBrowserSettings {
+        it.copy(pronunciationRules = it.pronunciationRules.filterIndexed { i, _ -> i != index })
+    }
+
+    suspend fun resetBrowserSettingsToDefaults() = updateBrowserSettings {
+        WebBrowserSettings()
+    }
+
     private fun loadSettings(): ReaderSettings {
         return try {
             if (!settingsFile.exists()) return ReaderSettings()
@@ -93,6 +157,25 @@ class SettingsRepository(private val context: Context) {
         try {
             val text = json.encodeToString(settings)
             settingsFile.writeText(text)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadBrowserSettings(): WebBrowserSettings {
+        return try {
+            if (!browserSettingsFile.exists()) return WebBrowserSettings()
+            val text = browserSettingsFile.readText()
+            json.decodeFromString<WebBrowserSettings>(text)
+        } catch (e: Exception) {
+            WebBrowserSettings()
+        }
+    }
+
+    private fun saveBrowserSettings(settings: WebBrowserSettings) {
+        try {
+            val text = json.encodeToString(settings)
+            browserSettingsFile.writeText(text)
         } catch (e: Exception) {
             e.printStackTrace()
         }

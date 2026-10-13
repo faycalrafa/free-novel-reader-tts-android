@@ -35,7 +35,7 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v1.0.$(date +'%Y%m%d%H%M%S')"
+          DATE_TAG="v2.0.0-unstable.$(date +'%Y%m%d%H%M%S')"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
@@ -49,19 +49,23 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader ${{ env.RELEASE_TAG }}
+          name: NovelArrow Reader v2.0.0 (Unstable)
+          prerelease: true
           body: |
-            ### NovelArrow Reader Release (${{ env.RELEASE_TAG }}) 📖🚀
+            ### NovelArrow Reader v2.0.0 (Unstable) 📖🚀
+
+            > ⚠️ **Note: This release is marked as UNSTABLE.** Experimental browser TTS, live web extraction, batch page downloads, and tab management features are under active development.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Features in this release:
+            - **Embedded Web Browser with Tabs**: Multi-tab browsing directly integrated into the library sidebar drawer.
+            - **Full Page & Batch Downloads**: Offline snapshot capture matching the userscript (inlined stylesheets, base64 images, standalone next button `#na-floating-next`).
+            - **Live Browser TTS Reader**: Interactive reading aloud with continuous sentence/paragraph navigation; webpage buttons and links remain fully clickable.
+            - **Robust Content Extraction**: Fallback to first readable `<p>` when aggressive filters match no text.
+            - **Library Sidebar Redesign**: Folder refresh button next to folder picker, and deletion confirmation popup with optional file deletion checkbox (unchecked by default).
+            - **Synchronized Playback Controls**: Unified media notification and lockscreen/earbuds playback controls between offline reader and browser.
             - Automated Release APK build from branch `${{ github.ref_name }}` (`${{ github.sha }}`).
-            - Full offline Text-to-Speech playback with system media controls, lockscreen seekbar sync, and earbud buttons.
-            - Multi-keyword Auto Skip Header & Footer filters.
-            - Whole-word & substring Auto Skip Words and Pronunciation Correction dictionary.
-            - Responsive full-width popup dialogs for settings & content filters.
-            - Smart Sleep Timer with automatic reset on playback resumption.
 
             **Download and install `app-release.apk` below:**
           files: android-app/app/build/outputs/apk/release/app-release.apk

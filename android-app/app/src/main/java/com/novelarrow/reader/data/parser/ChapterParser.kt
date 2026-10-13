@@ -252,6 +252,21 @@ object ChapterParser {
             }
         }
 
+        if (pairs.isEmpty()) {
+            val fallbackDoc = Jsoup.parse(html)
+            fallbackDoc.select("script, style, noscript").remove()
+            val allPs = fallbackDoc.select("p")
+            val firstPIndex = allPs.indexOfFirst { it.text().trim().length >= 2 }
+            if (firstPIndex != -1) {
+                for (i in firstPIndex until allPs.size) {
+                    val pText = allPs[i].text().trim()
+                    if (pText.length >= 2 && !isNonContentText(pText)) {
+                        pairs.add(pText to false)
+                    }
+                }
+            }
+        }
+
         if (pairs.isEmpty() && rootElement.text().isNotBlank()) {
             return parsePlainText(rootElement.text())
         }
@@ -276,11 +291,11 @@ object ChapterParser {
         return pairs
     }
 
-    private fun containsPunctuation(text: String): Boolean {
+    fun containsPunctuation(text: String): Boolean {
         return text.any { it in ".!?。！？" }
     }
 
-    private fun splitIntoSentences(text: String): List<String> {
+    fun splitIntoSentences(text: String): List<String> {
         val sentences = mutableListOf<String>()
         val matcher = SENTENCE_PATTERN.matcher(text)
         while (matcher.find()) {

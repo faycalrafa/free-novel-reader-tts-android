@@ -60,10 +60,10 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "1.0.0"
+    val installedVersionName: String = "2.0.0"
 )
 
-class ReaderViewModel(application: Application) : AndroidViewModel(application) {
+class ReaderViewModel(application: Application) : AndroidViewModel(application), NovelAudioPlaybackService.PlaybackClient {
 
     private val libraryRepository = LibraryRepository(application)
     private val settingsRepository = SettingsRepository(application)
@@ -133,25 +133,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun setupPlaybackServiceCallbacks() {
-        NovelAudioPlaybackService.onPlayRequested = { playTts() }
-        NovelAudioPlaybackService.onPauseRequested = { pauseTts() }
-        NovelAudioPlaybackService.onStopRequested = { stopTts() }
-        NovelAudioPlaybackService.onNextParaRequested = { nextParagraph() }
-        NovelAudioPlaybackService.onPrevParaRequested = { previousParagraph() }
-        NovelAudioPlaybackService.onNextChapRequested = { nextChapter() }
-        NovelAudioPlaybackService.onPrevChapRequested = { previousChapter() }
+        NovelAudioPlaybackService.activeClient = this
         NovelAudioPlaybackService.onSeekToChapterRequested = { targetChapter ->
             selectChapter(targetChapter, forceStartAtBeginning = false)
         }
-        NovelAudioPlaybackService.onSeekToParaRequested = { targetPara ->
-            speakAtParagraph(targetPara)
-        }
     }
+
+    override fun onPlay() { playTts() }
+    override fun onPause() { pauseTts() }
+    override fun onStop() { stopTts() }
+    override fun onNextParagraph() { nextParagraph() }
+    override fun onPrevParagraph() { previousParagraph() }
+    override fun onNextChapter() { nextChapter() }
+    override fun onPrevChapter() { previousChapter() }
+    override fun onSeekToParagraph(index: Int) { speakAtParagraph(index) }
 
     private fun loadInitialLibrary() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val novels = libraryRepository.getNovels()
+            val novels = libraryRepository.scanDownloadedWebNovels()
             val lastActiveId = libraryRepository.getLastActiveNovelId()
             val targetNovel = novels.firstOrNull { it.id == lastActiveId } ?: novels.firstOrNull()
 
@@ -159,6 +159,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
             if (targetNovel != null) {
                 selectNovel(targetNovel)
+            }
+        }
+    }
+
+    fun refreshLibrary(targetNovelId: String? = null) {
+        viewModelScope.launch {
+            val novels = libraryRepository.scanDownloadedWebNovels()
+            val target = if (targetNovelId != null) {
+                novels.firstOrNull { it.id == targetNovelId }
+            } else {
+                _uiState.value.currentNovel ?: novels.firstOrNull()
+            }
+            _uiState.update { it.copy(novels = novels) }
+            if (target != null) {
+                selectNovel(target)
             }
         }
     }
@@ -358,6 +373,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun playTts() {
         if (_uiState.value.paragraphs.isEmpty()) return
+        NovelAudioPlaybackService.activeClient = this
         _uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true) }
         updatePlaybackServiceNotification()
         speakParagraph(_uiState.value.currentParagraphIndex)
@@ -556,10 +572,48 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(isTtsDockVisible = !it.isTtsDockVisible) }
     }
 
-    fun deleteNovel(novelId: String) {
+    fun deleteNovel(novelId: String, deleteFilesFromDisk: Boolean = false) {
         viewModelScope.launch {
-            libraryRepository.deleteNovel(novelId)
+            libraryRepository.deleteNovel(novelId, deleteFilesFromDisk)
             loadInitialLibrary()
+        }
+    }
+
+    fun refreshLinkedFolders() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLibraryScanning = true,
+                    scanProgress = 0f,
+                    scanCurrentIndex = 0,
+                    scanTotalItems = 0,
+                    scanCurrentItem = "Discovering linked folder files..."
+                )
+            }
+            val novels = libraryRepository.refreshAllLinkedFolders { current, total, name ->
+                val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
+                _uiState.update {
+                    it.copy(
+                        scanProgress = progress.coerceIn(0f, 1f),
+                        scanCurrentIndex = current,
+                        scanTotalItems = total,
+                        scanCurrentItem = name
+                    )
+                }
+            }
+            _uiState.update {
+                it.copy(
+                    novels = novels,
+                    isLibraryScanning = false,
+                    toastMessage = "Refreshed ${novels.size} folders"
+                )
+            }
+            _uiState.value.currentNovel?.let { cur ->
+                val updated = novels.firstOrNull { it.id == cur.id }
+                if (updated != null) {
+                    selectNovel(updated)
+                }
+            }
         }
     }
 

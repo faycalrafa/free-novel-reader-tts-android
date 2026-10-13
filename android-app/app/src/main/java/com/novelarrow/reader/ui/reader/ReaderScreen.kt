@@ -65,6 +65,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material.icons.filled.Tab
+import com.novelarrow.reader.ui.browser.BrowserTab
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -136,146 +139,109 @@ import kotlinx.coroutines.launch
 fun ReaderScreen(
     viewModel: ReaderViewModel,
     onNavigateToAbout: () -> Unit,
+    onNavigateToBrowser: (createNewTab: Boolean) -> Unit,
+    onOpenDrawer: () -> Unit = {},
+    onAddFolder: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showFilterDialog by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
 
-    val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.scanRootFolder(it) }
-    }
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.width(320.dp)
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            ReaderTopBar(
+                title = uiState.currentChapter?.title ?: "NovelArrow Reader Pro",
+                subtitle = uiState.currentNovel?.let { novel ->
+                    val chapIdx = (uiState.currentChapter?.orderIndex ?: 0) + 1
+                    "${novel.title} • $chapIdx/${uiState.chapters.size}"
+                } ?: "Ready to read",
+                isTtsDockVisible = uiState.isTtsDockVisible,
+                onMenuClick = onOpenDrawer,
+                onTtsToggleClick = { viewModel.toggleTtsDock() },
+                onFilterClick = { showFilterDialog = true },
+                onSettingsClick = { showSettingsDialog = true }
+            )
+        },
+        floatingActionButton = {
+            val hasNext = uiState.currentChapter != null &&
+                    (uiState.currentChapter?.orderIndex ?: 0) < uiState.chapters.size - 1
+            if (hasNext && !uiState.isTtsDockVisible) {
+                FloatingActionButton(
+                    onClick = { viewModel.nextChapter() },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color.White,
+                    shape = CircleShape,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                ) {
+                    Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter")
+                }
+            }
+        },
+        bottomBar = {
+            AnimatedVisibility(
+                visible = uiState.isTtsDockVisible,
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it })
             ) {
-                LibraryDrawerContent(
-                    novels = uiState.novels,
-                    currentNovel = uiState.currentNovel,
-                    chapters = uiState.chapters,
-                    currentChapter = uiState.currentChapter,
-                    installedVersionName = uiState.installedVersionName,
-                    onSelectNovel = {
-                        viewModel.selectNovel(it)
-                        scope.launch { drawerState.close() }
-                    },
-                    onSelectChapter = { index ->
-                        viewModel.selectChapter(index)
-                        scope.launch { drawerState.close() }
-                    },
-                    onDeleteNovel = { viewModel.deleteNovel(it.id) },
-                    onAddFolder = { folderPickerLauncher.launch(null) },
-                    onOpenAbout = {
-                        scope.launch { drawerState.close() }
-                        onNavigateToAbout()
-                    },
-                    onCloseDrawer = { scope.launch { drawerState.close() } }
+                TtsDock(
+                    currentParagraph = uiState.currentParagraphIndex,
+                    totalParagraphs = uiState.paragraphs.size,
+                    currentChapterIndex = uiState.currentChapter?.orderIndex ?: 0,
+                    totalChapters = uiState.chapters.size,
+                    isPlaying = uiState.isPlaying,
+                    speechRate = uiState.settings.speechRate,
+                    sleepTimerMinutes = uiState.sleepTimerMinutes,
+                    sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                    onPlayPauseClick = { viewModel.togglePlayPause() },
+                    onPrevChapterClick = { viewModel.previousChapter() },
+                    onNextChapterClick = { viewModel.nextChapter() },
+                    onSleepTimerClick = { showSleepTimerDialog = true },
+                    onSpeedClick = { viewModel.cycleSpeechRate() },
+                    onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) }
                 )
             }
-        }
-    ) {
-        Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                ReaderTopBar(
-                    title = uiState.currentChapter?.title ?: "NovelArrow Reader Pro",
-                    subtitle = uiState.currentNovel?.let { novel ->
-                        val chapIdx = (uiState.currentChapter?.orderIndex ?: 0) + 1
-                        "${novel.title} • $chapIdx/${uiState.chapters.size}"
-                    } ?: "Ready to read",
-                    isTtsDockVisible = uiState.isTtsDockVisible,
-                    onMenuClick = { scope.launch { drawerState.open() } },
-                    onTtsToggleClick = { viewModel.toggleTtsDock() },
-                    onFilterClick = { showFilterDialog = true },
-                    onSettingsClick = { showSettingsDialog = true }
+        },
+        modifier = modifier
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            if (uiState.currentNovel == null || uiState.paragraphs.isEmpty()) {
+                EmptyState(
+                    novels = uiState.novels,
+                    onOpenFolder = onAddFolder,
+                    onLoadSampleNovel = { viewModel.loadSampleNovel() },
+                    onResumeNovel = { viewModel.selectNovel(it) },
+                    onOpenDrawer = onOpenDrawer,
+                    onOpenBrowser = { onNavigateToBrowser(false) }
                 )
-            },
-            floatingActionButton = {
-                val hasNext = uiState.currentChapter != null &&
-                        (uiState.currentChapter?.orderIndex ?: 0) < uiState.chapters.size - 1
-                if (hasNext && !uiState.isTtsDockVisible) {
-                    FloatingActionButton(
-                        onClick = { viewModel.nextChapter() },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White,
-                        shape = CircleShape,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter")
-                    }
-                }
-            },
-            bottomBar = {
-                AnimatedVisibility(
-                    visible = uiState.isTtsDockVisible,
-                    enter = slideInVertically(initialOffsetY = { it }),
-                    exit = slideOutVertically(targetOffsetY = { it })
-                ) {
-                    TtsDock(
-                        currentParagraph = uiState.currentParagraphIndex,
-                        totalParagraphs = uiState.paragraphs.size,
-                        currentChapterIndex = uiState.currentChapter?.orderIndex ?: 0,
-                        totalChapters = uiState.chapters.size,
-                        isPlaying = uiState.isPlaying,
-                        speechRate = uiState.settings.speechRate,
-                        sleepTimerMinutes = uiState.sleepTimerMinutes,
-                        sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
-                        onPlayPauseClick = { viewModel.togglePlayPause() },
-                        onPrevChapterClick = { viewModel.previousChapter() },
-                        onNextChapterClick = { viewModel.nextChapter() },
-                        onSleepTimerClick = { showSleepTimerDialog = true },
-                        onSpeedClick = { viewModel.cycleSpeechRate() },
-                        onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) }
-                    )
-                }
-            },
-            modifier = modifier
-        ) { paddingValues ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                if (uiState.currentNovel == null || uiState.paragraphs.isEmpty()) {
-                    EmptyState(
-                        novels = uiState.novels,
-                        onOpenFolder = { folderPickerLauncher.launch(null) },
-                        onLoadSampleNovel = { viewModel.loadSampleNovel() },
-                        onResumeNovel = { viewModel.selectNovel(it) },
-                        onOpenDrawer = { scope.launch { drawerState.open() } }
-                    )
-                } else {
-                    ReaderContentView(
-                        paragraphs = uiState.paragraphs,
-                        currentIndex = uiState.currentParagraphIndex,
-                        isPlaying = uiState.isPlaying,
-                        fontSizeSp = uiState.settings.fontSizeSp,
-                        themeMode = uiState.settings.theme,
-                        autoScroll = uiState.settings.autoScroll,
-                        onParagraphClick = { index -> viewModel.speakAtParagraph(index) }
-                    )
-                }
+            } else {
+                ReaderContentView(
+                    paragraphs = uiState.paragraphs,
+                    currentIndex = uiState.currentParagraphIndex,
+                    isPlaying = uiState.isPlaying,
+                    fontSizeSp = uiState.settings.fontSizeSp,
+                    themeMode = uiState.settings.theme,
+                    autoScroll = uiState.settings.autoScroll,
+                    onParagraphClick = { index -> viewModel.speakAtParagraph(index) }
+                )
+            }
 
-                if (uiState.isLoading && !uiState.isLibraryScanning) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.35f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
+            if (uiState.isLoading && !uiState.isLibraryScanning) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -725,7 +691,8 @@ fun EmptyState(
     onOpenFolder: () -> Unit,
     onLoadSampleNovel: () -> Unit,
     onResumeNovel: (Novel) -> Unit,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onOpenBrowser: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -799,6 +766,20 @@ fun EmptyState(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Try Sample: Quantum Mechanics")
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = onOpenBrowser,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Language, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Browse & Download Web Novels")
+            }
         }
 
         if (novels.isNotEmpty()) {
@@ -859,15 +840,24 @@ fun LibraryDrawerContent(
     currentNovel: Novel?,
     chapters: List<Chapter>,
     currentChapter: Chapter?,
+    browserTabs: List<BrowserTab> = emptyList(),
+    currentTabId: String = "",
     installedVersionName: String,
     onSelectNovel: (Novel) -> Unit,
     onSelectChapter: (Int) -> Unit,
-    onDeleteNovel: (Novel) -> Unit,
+    onDeleteNovel: (Novel, deleteFromDisk: Boolean) -> Unit,
     onAddFolder: () -> Unit,
+    onRefreshFolders: () -> Unit,
+    onOpenBrowser: (createNewTab: Boolean) -> Unit,
+    onSelectTab: (String) -> Unit = {},
+    onNewTab: () -> Unit = {},
+    onCloseTab: (String) -> Unit = {},
     onOpenAbout: () -> Unit,
     onCloseDrawer: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var novelToDelete by remember { mutableStateOf<Novel?>(null) }
+    var deleteFilesFromDisk by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -888,8 +878,14 @@ fun LibraryDrawerContent(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Row {
+                IconButton(onClick = { onOpenBrowser(false) }) {
+                    Icon(Icons.Default.Language, contentDescription = "Open Web Browser")
+                }
                 IconButton(onClick = onAddFolder) {
                     Icon(Icons.Default.Folder, contentDescription = "Add root folder")
+                }
+                IconButton(onClick = onRefreshFolders) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh linked folders")
                 }
                 IconButton(onClick = onCloseDrawer) {
                     Icon(Icons.Default.Close, contentDescription = "Close")
@@ -914,75 +910,201 @@ fun LibraryDrawerContent(
         HorizontalDivider()
 
         if (selectedTab == 0) {
-            if (novels.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Book,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "No novels in library yet",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                if (novels.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Book,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "No novels in library yet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    items(novels.size) { i ->
+                        val novel = novels[i]
+                        val isCurrent = novel.id == currentNovel?.id
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectNovel(novel) }
+                                .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (novel.isWebNovel) Icons.Default.Language else Icons.Default.Book,
+                                contentDescription = null,
+                                tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = novel.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (novel.isWebNovel) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.secondaryContainer
+                                        ) {
+                                            Text(
+                                                text = "WEB",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = "${novel.chapterCount} chapters • ${novel.currentChapterIndex + 1}/${novel.chapterCount}",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                            IconButton(onClick = {
+                                novelToDelete = novel
+                                deleteFilesFromDisk = false
+                            }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
                     }
                 }
-            } else {
-                // Novels list
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                items(novels.size) { i ->
-                    val novel = novels[i]
-                    val isCurrent = novel.id == currentNovel?.id
+
+                // Demarking Line & Browser Tabs Section
+                item {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        thickness = 1.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelectNovel(novel) }
-                            .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Default.Book,
-                            contentDescription = null,
-                            tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = novel.title,
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Tab,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "${novel.chapterCount} chapters • ${novel.currentChapterIndex + 1}/${novel.chapterCount}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                text = "Browser Tabs (${browserTabs.size})",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                        IconButton(onClick = { onDeleteNovel(novel) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                        IconButton(
+                            onClick = onNewTab,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "New Tab",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                }
+
+                if (browserTabs.isEmpty()) {
+                    item {
+                        Text(
+                            text = "No open tabs",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                } else {
+                    items(browserTabs.size) { tIdx ->
+                        val tab = browserTabs[tIdx]
+                        val isSelectedTab = tab.id == currentTabId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectTab(tab.id) }
+                                .background(if (isSelectedTab) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Language,
+                                contentDescription = null,
+                                tint = if (isSelectedTab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = tab.title.ifBlank { "New Tab" },
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = if (isSelectedTab) FontWeight.Bold else FontWeight.Normal
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = tab.url.replace("https://", "").replace("http://", ""),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (browserTabs.size > 1) {
+                                IconButton(
+                                    onClick = { onCloseTab(tab.id) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Close Tab",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    }
                 }
             }
-        }
-    } else {
+        } else {
             // Chapters list
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(chapters.size) { i ->
@@ -1066,13 +1188,70 @@ fun LibraryDrawerContent(
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Text(
-                        text = "v$installedVersionName",
+                        text = "v$installedVersionName (Unstable)",
                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
+        }
+
+        if (novelToDelete != null) {
+            val novel = novelToDelete!!
+            AlertDialog(
+                onDismissRequest = { novelToDelete = null },
+                title = {
+                    Text(
+                        text = "Remove Folder",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Are you sure you want to remove \"${novel.title}\" from the library?",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { deleteFilesFromDisk = !deleteFilesFromDisk }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Checkbox(
+                                checked = deleteFilesFromDisk,
+                                onCheckedChange = { deleteFilesFromDisk = it }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Delete files in memory as well",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (deleteFilesFromDisk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            onDeleteNovel(novel, deleteFilesFromDisk)
+                            novelToDelete = null
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (deleteFilesFromDisk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { novelToDelete = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

@@ -37,6 +37,17 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class NovelAudioPlaybackService : MediaSessionService() {
 
+    interface PlaybackClient {
+        fun onPlay()
+        fun onPause()
+        fun onStop()
+        fun onNextParagraph()
+        fun onPrevParagraph()
+        fun onNextChapter()
+        fun onPrevChapter()
+        fun onSeekToParagraph(index: Int)
+    }
+
     inner class LocalBinder : Binder() {
         fun getService(): NovelAudioPlaybackService = this@NovelAudioPlaybackService
     }
@@ -93,7 +104,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
         private val _currentInfo = MutableStateFlow("Idle")
         val currentInfo: StateFlow<String> = _currentInfo.asStateFlow()
 
-        // Callbacks to ReaderViewModel coordinator
+        @Volatile
+        var activeClient: PlaybackClient? = null
+
+        // Callbacks to ViewModel coordinator
         var onPlayRequested: (() -> Unit)? = null
         var onPauseRequested: (() -> Unit)? = null
         var onStopRequested: (() -> Unit)? = null
@@ -103,6 +117,41 @@ class NovelAudioPlaybackService : MediaSessionService() {
         var onPrevChapRequested: (() -> Unit)? = null
         var onSeekToChapterRequested: ((Int) -> Unit)? = null
         var onSeekToParaRequested: ((Int) -> Unit)? = null
+
+        fun dispatchPlay() {
+            _isPlayingState.value = true
+            activeClient?.onPlay() ?: onPlayRequested?.invoke()
+        }
+
+        fun dispatchPause() {
+            _isPlayingState.value = false
+            activeClient?.onPause() ?: onPauseRequested?.invoke()
+        }
+
+        fun dispatchStop() {
+            _isPlayingState.value = false
+            activeClient?.onStop() ?: onStopRequested?.invoke()
+        }
+
+        fun dispatchNextPara() {
+            activeClient?.onNextParagraph() ?: onNextParaRequested?.invoke()
+        }
+
+        fun dispatchPrevPara() {
+            activeClient?.onPrevParagraph() ?: onPrevParaRequested?.invoke()
+        }
+
+        fun dispatchNextChap() {
+            activeClient?.onNextChapter() ?: onNextChapRequested?.invoke()
+        }
+
+        fun dispatchPrevChap() {
+            activeClient?.onPrevChapter() ?: onPrevChapRequested?.invoke()
+        }
+
+        fun dispatchSeekToPara(targetPara: Int) {
+            activeClient?.onSeekToParagraph(targetPara) ?: onSeekToParaRequested?.invoke(targetPara)
+        }
 
         fun startOrUpdateService(
             context: Context,
@@ -227,32 +276,30 @@ class NovelAudioPlaybackService : MediaSessionService() {
             }
 
             override fun play() {
-                _isPlayingState.value = true
                 super.play()
-                onPlayRequested?.invoke()
+                dispatchPlay()
             }
 
             override fun pause() {
-                _isPlayingState.value = false
                 super.pause()
-                onPauseRequested?.invoke()
+                dispatchPause()
             }
 
             // In notification and lockscreen, forward/backward skips chapters
             override fun seekToNext() {
-                onNextChapRequested?.invoke()
+                dispatchNextChap()
             }
 
             override fun seekToPrevious() {
-                onPrevChapRequested?.invoke()
+                dispatchPrevChap()
             }
 
             override fun seekToNextMediaItem() {
-                onNextChapRequested?.invoke()
+                dispatchNextChap()
             }
 
             override fun seekToPreviousMediaItem() {
-                onPrevChapRequested?.invoke()
+                dispatchPrevChap()
             }
 
             override fun getDuration(): Long {
@@ -273,7 +320,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
             override fun stop() {
                 super.stop()
-                onStopRequested?.invoke()
+                dispatchStop()
                 stopServicePlayback()
             }
 
@@ -347,17 +394,17 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 args: android.os.Bundle
             ): ListenableFuture<SessionResult> {
                 when (customCommand.customAction) {
-                    ACTION_PLAY -> onPlayRequested?.invoke()
-                    ACTION_PAUSE -> onPauseRequested?.invoke()
+                    ACTION_PLAY -> dispatchPlay()
+                    ACTION_PAUSE -> dispatchPause()
                     ACTION_PLAY_PAUSE -> {
-                        if (_isPlayingState.value) onPauseRequested?.invoke() else onPlayRequested?.invoke()
+                        if (_isPlayingState.value) dispatchPause() else dispatchPlay()
                     }
-                    ACTION_PREV_PARA -> onPrevParaRequested?.invoke()
-                    ACTION_NEXT_PARA -> onNextParaRequested?.invoke()
-                    ACTION_PREV_CHAP -> onPrevChapRequested?.invoke()
-                    ACTION_NEXT_CHAP -> onNextChapRequested?.invoke()
+                    ACTION_PREV_PARA -> dispatchPrevPara()
+                    ACTION_NEXT_PARA -> dispatchNextPara()
+                    ACTION_PREV_CHAP -> dispatchPrevChap()
+                    ACTION_NEXT_CHAP -> dispatchNextChap()
                     ACTION_STOP -> {
-                        onStopRequested?.invoke()
+                        dispatchStop()
                         stopServicePlayback()
                     }
                 }
@@ -378,7 +425,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
         if (totalParagraphsCount > 0 && virtualDurationMs > 0) {
             val targetPara = (positionMs.toFloat() / virtualDurationMs.toFloat() * totalParagraphsCount).toInt()
                 .coerceIn(0, totalParagraphsCount - 1)
-            onSeekToParaRequested?.invoke(targetPara)
+            dispatchSeekToPara(targetPara)
         }
     }
 
@@ -413,17 +460,17 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     totalParagraphs = totalParas
                 )
             }
-            ACTION_PLAY -> onPlayRequested?.invoke()
-            ACTION_PAUSE -> onPauseRequested?.invoke()
+            ACTION_PLAY -> dispatchPlay()
+            ACTION_PAUSE -> dispatchPause()
             ACTION_PLAY_PAUSE -> {
-                if (_isPlayingState.value) onPauseRequested?.invoke() else onPlayRequested?.invoke()
+                if (_isPlayingState.value) dispatchPause() else dispatchPlay()
             }
-            ACTION_PREV_PARA -> onPrevParaRequested?.invoke()
-            ACTION_NEXT_PARA -> onNextParaRequested?.invoke()
-            ACTION_PREV_CHAP -> onPrevChapRequested?.invoke()
-            ACTION_NEXT_CHAP -> onNextChapRequested?.invoke()
+            ACTION_PREV_PARA -> dispatchPrevPara()
+            ACTION_NEXT_PARA -> dispatchNextPara()
+            ACTION_PREV_CHAP -> dispatchPrevChap()
+            ACTION_NEXT_CHAP -> dispatchNextChap()
             ACTION_STOP -> {
-                onStopRequested?.invoke()
+                dispatchStop()
                 stopServicePlayback()
             }
         }
