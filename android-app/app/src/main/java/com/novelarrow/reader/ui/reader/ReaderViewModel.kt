@@ -108,6 +108,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         NovelAudioPlaybackService.onPrevParaRequested = { previousParagraph() }
         NovelAudioPlaybackService.onNextChapRequested = { nextChapter() }
         NovelAudioPlaybackService.onPrevChapRequested = { previousChapter() }
+        NovelAudioPlaybackService.onSeekToChapterRequested = { targetChapter ->
+            selectChapter(targetChapter, forceStartAtBeginning = false)
+        }
     }
 
     private fun loadInitialLibrary() {
@@ -173,16 +176,55 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun selectChapter(index: Int) {
+    fun saveCurrentChapterProgress() {
+        val novel = _uiState.value.currentNovel ?: return
+        val chapter = _uiState.value.currentChapter ?: return
+        val currentIdx = _uiState.value.currentParagraphIndex
+        val total = _uiState.value.paragraphs.size
+        val isCompleted = total > 0 && currentIdx >= total - 1
+
+        viewModelScope.launch {
+            libraryRepository.updateChapterProgress(
+                novelId = novel.id,
+                chapterIndex = chapter.orderIndex,
+                paragraphIndex = currentIdx,
+                scrollOffset = 0,
+                isCompleted = isCompleted
+            )
+        }
+
+        _uiState.update { state ->
+            val updatedChapters = state.chapters.map { chap ->
+                if (chap.id == chapter.id) {
+                    chap.copy(
+                        lastReadParagraphIndex = currentIdx,
+                        isCompleted = isCompleted || chap.isCompleted
+                    )
+                } else chap
+            }
+            state.copy(
+                chapters = updatedChapters,
+                currentChapter = chapter.copy(lastReadParagraphIndex = currentIdx)
+            )
+        }
+    }
+
+    fun selectChapter(index: Int, forceStartAtBeginning: Boolean = false) {
         val chapters = _uiState.value.chapters
         if (index !in chapters.indices) return
         val chapter = chapters[index]
         val wasPlaying = _uiState.value.isPlaying
 
+        val currentChap = _uiState.value.currentChapter
+        if (currentChap != null && currentChap.id != chapter.id) {
+            saveCurrentChapterProgress()
+        }
+
         viewModelScope.launch {
-            loadChapterContent(chapter, restoreProgress = !wasPlaying)
+            loadChapterContent(chapter, restoreProgress = !forceStartAtBeginning)
             if (wasPlaying) {
-                speakParagraph(0)
+                val startPara = if (forceStartAtBeginning) 0 else _uiState.value.currentParagraphIndex
+                speakParagraph(startPara)
             }
         }
     }
@@ -313,7 +355,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             } else {
                 // End of chapter reached
                 if (_uiState.value.settings.autoNextChapter || _uiState.value.isAutoLoopActive) {
-                    nextChapter()
+                    val chapters = _uiState.value.chapters
+                    val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
+                    if (currentIdx + 1 < chapters.size) {
+                        selectChapter(currentIdx + 1, forceStartAtBeginning = true)
+                    } else {
+                        _uiState.update { it.copy(toastMessage = "End of novel reached") }
+                        stopTts()
+                    }
                 } else {
                     pauseTts()
                 }
@@ -339,10 +388,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun nextChapter() {
+        saveCurrentChapterProgress()
         val chapters = _uiState.value.chapters
         val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
         if (currentIdx + 1 < chapters.size) {
-            selectChapter(currentIdx + 1)
+            selectChapter(currentIdx + 1, forceStartAtBeginning = false)
         } else {
             _uiState.update { it.copy(toastMessage = "End of novel reached") }
             stopTts()
@@ -350,9 +400,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun previousChapter() {
+        saveCurrentChapterProgress()
+        val chapters = _uiState.value.chapters
         val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
         if (currentIdx - 1 >= 0) {
-            selectChapter(currentIdx - 1)
+            selectChapter(currentIdx - 1, forceStartAtBeginning = false)
         }
     }
 
@@ -460,7 +512,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val chapter = state.currentChapter?.title ?: "No chapter loaded"
         val total = state.paragraphs.size
         val cur = (state.currentParagraphIndex + 1).coerceAtMost(total)
-        val progressText = if (total > 0) "¶ $cur / $total" else "Ready"
+        val currentChapIdx = state.currentChapter?.orderIndex ?: 0
+        val totalChaps = state.chapters.size
+        val progressText = if (totalChaps > 0) "Ch. ${currentChapIdx + 1}/$totalChaps • ¶ $cur/$total" else "Ready"
 
         NovelAudioPlaybackService.startOrUpdateService(
             context = context,
@@ -468,7 +522,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             novelTitle = novel,
             chapterTitle = chapter,
             progressText = progressText,
-            currentParagraph = cur,
+            currentChapterIndex = currentChapIdx,
+            totalChapters = totalChaps,
+            currentParagraph = state.currentParagraphIndex,
             totalParagraphs = total
         )
     }
@@ -481,6 +537,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         NovelAudioPlaybackService.onPrevParaRequested = null
         NovelAudioPlaybackService.onNextChapRequested = null
         NovelAudioPlaybackService.onPrevChapRequested = null
+        NovelAudioPlaybackService.onSeekToChapterRequested = null
         ttsManager?.shutdown()
         super.onCleared()
     }

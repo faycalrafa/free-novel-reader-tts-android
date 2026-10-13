@@ -70,6 +70,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -83,6 +84,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -205,6 +207,9 @@ fun ReaderScreen(
                     TtsDock(
                         currentParagraph = uiState.currentParagraphIndex,
                         totalParagraphs = uiState.paragraphs.size,
+                        currentChapterIndex = uiState.currentChapter?.orderIndex ?: 0,
+                        totalChapters = uiState.chapters.size,
+                        chapters = uiState.chapters,
                         chapterTitle = uiState.currentChapter?.title ?: "",
                         isPlaying = uiState.isPlaying,
                         speechRate = uiState.settings.speechRate,
@@ -215,6 +220,7 @@ fun ReaderScreen(
                         onNextChapterClick = { viewModel.nextChapter() },
                         onStopClick = { viewModel.stopTts() },
                         onSpeedClick = { viewModel.cycleSpeechRate() },
+                        onSeekChapter = { chapIdx -> viewModel.selectChapter(chapIdx, forceStartAtBeginning = false) },
                         onSeekPercent = { pct ->
                             val target = (pct * uiState.paragraphs.size).toInt()
                             viewModel.speakAtParagraph(target)
@@ -462,6 +468,9 @@ fun ReaderContentView(
 fun TtsDock(
     currentParagraph: Int,
     totalParagraphs: Int,
+    currentChapterIndex: Int = 0,
+    totalChapters: Int = 0,
+    chapters: List<Chapter> = emptyList(),
     chapterTitle: String,
     isPlaying: Boolean,
     speechRate: Float = 1.0f,
@@ -472,9 +481,21 @@ fun TtsDock(
     onNextChapterClick: () -> Unit,
     onStopClick: () -> Unit,
     onSpeedClick: () -> Unit = {},
+    onSeekChapter: (Int) -> Unit = {},
     onSeekPercent: (Float) -> Unit
 ) {
-    val progress = if (totalParagraphs > 0) {
+    var isDraggingChapter by remember { mutableStateOf(false) }
+    var dragChapterIndex by remember(currentChapterIndex) { mutableFloatStateOf(currentChapterIndex.toFloat()) }
+
+    val displayChapIdx = if (isDraggingChapter) {
+        dragChapterIndex.toInt().coerceIn(0, (totalChapters - 1).coerceAtLeast(0))
+    } else currentChapterIndex
+
+    val displayChapTitle = if (isDraggingChapter && displayChapIdx in chapters.indices) {
+        chapters[displayChapIdx].title
+    } else chapterTitle
+
+    val paragraphFraction = if (totalParagraphs > 0) {
         (currentParagraph + 1).toFloat() / totalParagraphs.toFloat()
     } else 0f
 
@@ -489,19 +510,60 @@ fun TtsDock(
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            // Clickable progress bar
+            // Interactive chapter slider (or paragraph slider if only 1 chapter)
+            if (totalChapters > 1) {
+                Slider(
+                    value = if (isDraggingChapter) dragChapterIndex else currentChapterIndex.toFloat(),
+                    onValueChange = { newVal ->
+                        isDraggingChapter = true
+                        dragChapterIndex = newVal
+                    },
+                    onValueChangeFinished = {
+                        isDraggingChapter = false
+                        val target = dragChapterIndex.toInt().coerceIn(0, totalChapters - 1)
+                        onSeekChapter(target)
+                    },
+                    valueRange = 0f .. (totalChapters - 1).toFloat(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(30.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                    )
+                )
+            } else {
+                Slider(
+                    value = currentParagraph.toFloat(),
+                    onValueChange = { newVal ->
+                        val pct = if (totalParagraphs > 0) newVal / totalParagraphs.toFloat() else 0f
+                        onSeekPercent(pct)
+                    },
+                    valueRange = 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(30.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                    )
+                )
+            }
+
+            // Subtle paragraph progress within current chapter
             LinearProgressIndicator(
-                progress = { progress },
+                progress = { paragraphFraction },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(5.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .clickable { onSeekPercent(progress) },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Metadata row
             Row(
@@ -509,13 +571,23 @@ fun TtsDock(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = chapterTitle,
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
+                Column(modifier = Modifier.weight(1f, fill = false)) {
+                    Text(
+                        text = if (totalChapters > 1) "Ch. ${displayChapIdx + 1}/$totalChapters • $displayChapTitle" else displayChapTitle,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (isDraggingChapter) {
+                        Text(
+                            text = "Release to jump to Chapter ${displayChapIdx + 1}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -538,7 +610,7 @@ fun TtsDock(
                     }
 
                     Text(
-                        text = "¶ ${currentParagraph + 1} / $totalParagraphs (${(progress * 100).toInt()}%)",
+                        text = "¶ ${currentParagraph + 1} / $totalParagraphs (${(paragraphFraction * 100).toInt()}%)",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                     )

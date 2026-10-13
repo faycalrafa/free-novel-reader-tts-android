@@ -50,6 +50,13 @@ class NovelAudioPlaybackService : MediaSessionService() {
     private var currentChapterTitle: String = "No chapter loaded"
     private var currentProgressText: String = "Ready"
 
+    private var currentChapterIndex: Int = 0
+    private var totalChaptersCount: Int = 0
+    private var currentParagraphIndex: Int = 0
+    private var totalParagraphsCount: Int = 0
+    private var virtualDurationMs: Long = 0L
+    private var virtualPositionMs: Long = 0L
+
     companion object {
         const val CHANNEL_ID = "novel_tts_channel"
         const val NOTIFICATION_ID = 1001
@@ -68,6 +75,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
         const val EXTRA_NOVEL_TITLE = "extra_novel_title"
         const val EXTRA_CHAPTER_TITLE = "extra_chapter_title"
         const val EXTRA_PROGRESS_TEXT = "extra_progress_text"
+        const val EXTRA_CHAPTER_INDEX = "extra_chapter_index"
+        const val EXTRA_TOTAL_CHAPTERS = "extra_total_chapters"
         const val EXTRA_PROGRESS_CURRENT = "extra_progress_current"
         const val EXTRA_PROGRESS_TOTAL = "extra_progress_total"
 
@@ -90,6 +99,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
         var onPrevParaRequested: (() -> Unit)? = null
         var onNextChapRequested: (() -> Unit)? = null
         var onPrevChapRequested: (() -> Unit)? = null
+        var onSeekToChapterRequested: ((Int) -> Unit)? = null
 
         fun startOrUpdateService(
             context: Context,
@@ -97,12 +107,23 @@ class NovelAudioPlaybackService : MediaSessionService() {
             novelTitle: String,
             chapterTitle: String,
             progressText: String,
+            currentChapterIndex: Int = 0,
+            totalChapters: Int = 0,
             currentParagraph: Int = 0,
             totalParagraphs: Int = 0
         ) {
             val service = instance
             if (service != null) {
-                service.updatePlaybackState(isPlaying, novelTitle, chapterTitle, progressText)
+                service.updatePlaybackState(
+                    isPlaying = isPlaying,
+                    novelTitle = novelTitle,
+                    chapterTitle = chapterTitle,
+                    paragraphProgress = progressText,
+                    chapterIndex = currentChapterIndex,
+                    totalChapters = totalChapters,
+                    currentParagraph = currentParagraph,
+                    totalParagraphs = totalParagraphs
+                )
             } else {
                 val intent = Intent(context, NovelAudioPlaybackService::class.java).apply {
                     action = ACTION_UPDATE_STATE
@@ -110,6 +131,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     putExtra(EXTRA_NOVEL_TITLE, novelTitle)
                     putExtra(EXTRA_CHAPTER_TITLE, chapterTitle)
                     putExtra(EXTRA_PROGRESS_TEXT, progressText)
+                    putExtra(EXTRA_CHAPTER_INDEX, currentChapterIndex)
+                    putExtra(EXTRA_TOTAL_CHAPTERS, totalChapters)
                     putExtra(EXTRA_PROGRESS_CURRENT, currentParagraph)
                     putExtra(EXTRA_PROGRESS_TOTAL, totalParagraphs)
                 }
@@ -179,7 +202,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
         basePlayer.repeatMode = Player.REPEAT_MODE_ALL
         basePlayer.prepare()
 
-        // ForwardingPlayer delegates lockscreen & earbud button controls to our TTS callbacks
+        // ForwardingPlayer delegates lockscreen, notification seekbar, & earbud button controls
         val forwardingPlayer = object : ForwardingPlayer(basePlayer) {
             override fun play() {
                 super.play()
@@ -191,20 +214,37 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 onPauseRequested?.invoke()
             }
 
+            // In notification and lockscreen, forward/backward skips chapters
             override fun seekToNext() {
-                onNextParaRequested?.invoke()
+                onNextChapRequested?.invoke()
             }
 
             override fun seekToPrevious() {
-                onPrevParaRequested?.invoke()
+                onPrevChapRequested?.invoke()
             }
 
             override fun seekToNextMediaItem() {
-                onNextParaRequested?.invoke()
+                onNextChapRequested?.invoke()
             }
 
             override fun seekToPreviousMediaItem() {
-                onPrevParaRequested?.invoke()
+                onPrevChapRequested?.invoke()
+            }
+
+            override fun getDuration(): Long {
+                return if (virtualDurationMs > 0) virtualDurationMs else super.getDuration()
+            }
+
+            override fun getCurrentPosition(): Long {
+                return if (virtualDurationMs > 0) virtualPositionMs else super.getCurrentPosition()
+            }
+
+            override fun seekTo(positionMs: Long) {
+                handleSeekTo(positionMs)
+            }
+
+            override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+                handleSeekTo(positionMs)
             }
 
             override fun stop() {
@@ -220,6 +260,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS)
                     .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                     .add(Player.COMMAND_STOP)
                     .build()
             }
@@ -231,6 +272,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                     Player.COMMAND_STOP -> true
                     else -> super.isCommandAvailable(command)
                 }
@@ -308,6 +350,14 @@ class NovelAudioPlaybackService : MediaSessionService() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NovelArrow::PlaybackWakeLock")
     }
 
+    private fun handleSeekTo(positionMs: Long) {
+        if (totalChaptersCount > 1 && virtualDurationMs > 0) {
+            val targetChap = (positionMs.toFloat() / virtualDurationMs.toFloat() * totalChaptersCount).toInt()
+                .coerceIn(0, totalChaptersCount - 1)
+            onSeekToChapterRequested?.invoke(targetChap)
+        }
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
@@ -324,7 +374,20 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 val novelTitle = intent.getStringExtra(EXTRA_NOVEL_TITLE) ?: currentNovelTitle
                 val chapterTitle = intent.getStringExtra(EXTRA_CHAPTER_TITLE) ?: currentChapterTitle
                 val progressText = intent.getStringExtra(EXTRA_PROGRESS_TEXT) ?: currentProgressText
-                updatePlaybackState(isPlaying, novelTitle, chapterTitle, progressText)
+                val chapIdx = intent.getIntExtra(EXTRA_CHAPTER_INDEX, currentChapterIndex)
+                val totalChaps = intent.getIntExtra(EXTRA_TOTAL_CHAPTERS, totalChaptersCount)
+                val curPara = intent.getIntExtra(EXTRA_PROGRESS_CURRENT, currentParagraphIndex)
+                val totalParas = intent.getIntExtra(EXTRA_PROGRESS_TOTAL, totalParagraphsCount)
+                updatePlaybackState(
+                    isPlaying = isPlaying,
+                    novelTitle = novelTitle,
+                    chapterTitle = chapterTitle,
+                    paragraphProgress = progressText,
+                    chapterIndex = chapIdx,
+                    totalChapters = totalChaps,
+                    currentParagraph = curPara,
+                    totalParagraphs = totalParas
+                )
             }
             ACTION_PLAY -> onPlayRequested?.invoke()
             ACTION_PAUSE -> onPauseRequested?.invoke()
@@ -347,11 +410,30 @@ class NovelAudioPlaybackService : MediaSessionService() {
         isPlaying: Boolean,
         novelTitle: String,
         chapterTitle: String,
-        paragraphProgress: String
+        paragraphProgress: String,
+        chapterIndex: Int = currentChapterIndex,
+        totalChapters: Int = totalChaptersCount,
+        currentParagraph: Int = currentParagraphIndex,
+        totalParagraphs: Int = totalParagraphsCount
     ) {
         currentNovelTitle = novelTitle
         currentChapterTitle = chapterTitle
         currentProgressText = paragraphProgress
+        currentChapterIndex = chapterIndex
+        totalChaptersCount = totalChapters
+        currentParagraphIndex = currentParagraph
+        totalParagraphsCount = totalParagraphs
+
+        // 10 seconds per chapter in the virtual progress timeline
+        val CHAPTER_UNIT_MS = 10_000L
+        if (totalChapters > 1) {
+            virtualDurationMs = totalChapters.toLong() * CHAPTER_UNIT_MS
+            val paraFrac = if (totalParagraphs > 0) currentParagraph.toFloat() / totalParagraphs.toFloat() else 0f
+            virtualPositionMs = ((chapterIndex.toFloat() + paraFrac) * CHAPTER_UNIT_MS).toLong().coerceIn(0L, virtualDurationMs)
+        } else {
+            virtualDurationMs = (totalParagraphs.coerceAtLeast(1) * 1_000L).toLong()
+            virtualPositionMs = (currentParagraph * 1_000L).toLong().coerceIn(0L, virtualDurationMs)
+        }
 
         _isPlayingState.value = isPlaying
         _currentInfo.value = "$novelTitle • $chapterTitle"
@@ -451,6 +533,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Actions: forward / backward skip chapters (Prev Chap & Next Chap)
         val prevChapPendingIntent = PendingIntent.getService(
             this, 1,
             Intent(this, NovelAudioPlaybackService::class.java).apply { action = ACTION_PREV_CHAP },
@@ -495,6 +578,12 @@ class NovelAudioPlaybackService : MediaSessionService() {
             ).build()
         }
 
+        // Action list order:
+        // 0: Prev Chap
+        // 1: Play/Pause
+        // 2: Next Chap
+        // 3: Prev Para
+        // 4: Next Para
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
             .setContentText("$novelTitle  ($progressText)")
@@ -504,14 +593,14 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(isPlaying)
             .addAction(android.R.drawable.ic_media_previous, "Prev Chap", prevChapPendingIntent) // action 0
-            .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)          // action 1
-            .addAction(playPauseAction)                                                            // action 2
-            .addAction(android.R.drawable.ic_media_ff, "Next ¶", nextParaPendingIntent)          // action 3
-            .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)      // action 4
+            .addAction(playPauseAction)                                                            // action 1
+            .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)      // action 2
+            .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)          // action 3
+            .addAction(android.R.drawable.ic_media_ff, "Next ¶", nextParaPendingIntent)          // action 4
 
         mediaSession?.let { session ->
             val mediaStyle = MediaStyleNotificationHelper.MediaStyle(session)
-                .setShowActionsInCompactView(1, 2, 3) // Compact view shows: Prev ¶, Play/Pause, Next ¶
+                .setShowActionsInCompactView(0, 1, 2) // Compact view: Prev Chap, Play/Pause, Next Chap
             builder.setStyle(mediaStyle)
         }
 
