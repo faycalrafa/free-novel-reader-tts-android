@@ -34,6 +34,11 @@ data class ReaderUiState(
     val currentParagraphIndex: Int = 0,
     val isPlaying: Boolean = false,
     val isLoading: Boolean = false,
+    val isLibraryScanning: Boolean = false,
+    val scanProgress: Float = 0f,
+    val scanCurrentIndex: Int = 0,
+    val scanTotalItems: Int = 0,
+    val scanCurrentItem: String = "",
     val settings: ReaderSettings = ReaderSettings(),
     val isTtsDockVisible: Boolean = false,
     val isAutoLoopActive: Boolean = false,
@@ -142,7 +147,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun scanRootFolder(treeUri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update {
+                it.copy(
+                    isLibraryScanning = true,
+                    scanProgress = 0f,
+                    scanCurrentIndex = 0,
+                    scanTotalItems = 0,
+                    scanCurrentItem = "Accessing folder..."
+                )
+            }
             try {
                 // Take persistable permission so it's permanently granted
                 getApplication<Application>().contentResolver.takePersistableUriPermission(
@@ -153,17 +166,44 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 e.printStackTrace()
             }
 
-            val novels = libraryRepository.scanRootDirectory(treeUri)
+            val novels = libraryRepository.scanRootDirectory(treeUri) { current, total, name ->
+                val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
+                _uiState.update {
+                    it.copy(
+                        scanProgress = progress.coerceIn(0f, 1f),
+                        scanCurrentIndex = current,
+                        scanTotalItems = total,
+                        scanCurrentItem = name
+                    )
+                }
+            }
+
             _uiState.update {
                 it.copy(
                     novels = novels,
-                    isLoading = false,
+                    isLibraryScanning = false,
                     toastMessage = "Loaded ${novels.size} playlists from folder"
                 )
             }
             if (novels.isNotEmpty()) {
                 selectNovel(novels.first())
             }
+        }
+    }
+
+    fun loadSampleNovel() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val sampleNovel = libraryRepository.createAndLoadSampleNovel()
+            val novels = libraryRepository.getNovels()
+            _uiState.update {
+                it.copy(
+                    novels = novels,
+                    isLoading = false,
+                    toastMessage = "Loaded sample: Introduction to Quantum Mechanics"
+                )
+            }
+            selectNovel(sampleNovel)
         }
     }
 
@@ -304,10 +344,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         updatePlaybackServiceNotification()
         speakParagraph(_uiState.value.currentParagraphIndex)
 
-        // Reset and restart sleep timer if configured
+        // Sleep timer:
+        // - If remaining <= 0 (e.g. previous timer finished and paused), restart timer from configured minutes.
+        // - If remaining > 0 (user paused mid-timer), continue where left off!
         val timerMinutes = _uiState.value.sleepTimerMinutes
         if (timerMinutes > 0) {
-            _uiState.update { it.copy(sleepTimerRemainingSeconds = timerMinutes * 60) }
+            val remainingSecs = _uiState.value.sleepTimerRemainingSeconds
+            if (remainingSecs <= 0) {
+                _uiState.update { it.copy(sleepTimerRemainingSeconds = timerMinutes * 60) }
+            }
             startSleepTimerCountdown()
         }
     }

@@ -52,9 +52,81 @@ class LibraryRepository(private val context: Context) {
         saveDatabase(current.copy(lastActiveNovelId = novelId))
     }
 
-    suspend fun scanRootDirectory(treeUri: Uri): List<Novel> = withContext(Dispatchers.IO) {
+    suspend fun createAndLoadSampleNovel(): Novel = withContext(Dispatchers.IO) {
+        val sampleDir = File(context.filesDir, "sample_novel_quantum")
+        if (!sampleDir.exists()) sampleDir.mkdirs()
+
+        val ch1File = File(sampleDir, "01_wave_particle_duality.txt")
+        val ch2File = File(sampleDir, "02_superposition_schrodinger_cat.txt")
+        val ch3File = File(sampleDir, "03_quantum_entanglement.txt")
+
+        ch1File.writeText(com.novelarrow.reader.data.util.SampleQuantumContent.CHAPTER_1)
+        ch2File.writeText(com.novelarrow.reader.data.util.SampleQuantumContent.CHAPTER_2)
+        ch3File.writeText(com.novelarrow.reader.data.util.SampleQuantumContent.CHAPTER_3)
+
+        val novelId = "sample_quantum_mechanics"
+        val chapters = listOf(
+            Chapter(
+                id = "${novelId}_1",
+                novelId = novelId,
+                title = "Chapter 1: The Wave-Particle Duality",
+                fileUri = ch1File.absolutePath,
+                orderIndex = 0,
+                sizeBytes = ch1File.length()
+            ),
+            Chapter(
+                id = "${novelId}_2",
+                novelId = novelId,
+                title = "Chapter 2: Superposition and Schrödinger's Cat",
+                fileUri = ch2File.absolutePath,
+                orderIndex = 1,
+                sizeBytes = ch2File.length()
+            ),
+            Chapter(
+                id = "${novelId}_3",
+                novelId = novelId,
+                title = "Chapter 3: Quantum Entanglement and Spooky Action",
+                fileUri = ch3File.absolutePath,
+                orderIndex = 2,
+                sizeBytes = ch3File.length()
+            )
+        )
+
+        val novel = Novel(
+            id = novelId,
+            title = "Introduction to Quantum Mechanics",
+            rootTreeUri = "sample://quantum_mechanics",
+            chapterCount = chapters.size,
+            completedCount = 0,
+            currentChapterIndex = 0
+        )
+
+        val currentDb = loadDatabase()
+        val filteredNovels = currentDb.novels.filter { it.id != novelId }
+        val updatedNovels = listOf(novel) + filteredNovels
+        val updatedChapters = currentDb.chapters.toMutableMap().apply {
+            put(novelId, chapters)
+        }
+
+        saveDatabase(
+            currentDb.copy(
+                novels = updatedNovels,
+                chapters = updatedChapters,
+                lastActiveNovelId = novelId
+            )
+        )
+
+        novel
+    }
+
+    suspend fun scanRootDirectory(
+        treeUri: Uri,
+        onProgress: (current: Int, total: Int, currentItemName: String) -> Unit = { _, _, _ -> }
+    ): List<Novel> = withContext(Dispatchers.IO) {
         val rootDoc = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext emptyList()
         val rootName = rootDoc.name ?: "Root Library"
+
+        onProgress(0, 0, "Inspecting folder: $rootName...")
 
         val subdirs = mutableListOf<DocumentFile>()
         val looseFiles = mutableListOf<DocumentFile>()
@@ -67,13 +139,22 @@ class LibraryRepository(private val context: Context) {
             }
         }
 
+        val totalItems = subdirs.size + (if (looseFiles.isNotEmpty()) 1 else 0)
+        var currentProgressIndex = 0
+
         val newNovels = mutableListOf<Novel>()
         val chaptersMap = mutableMapOf<String, List<Chapter>>()
 
         // Each subdirectory becomes its own novel playlist
         for (subdir in subdirs) {
+            val dirName = subdir.name ?: "Untitled Novel"
+            currentProgressIndex++
+            onProgress(currentProgressIndex, totalItems, "Scanning novel: $dirName")
+
             val novelFiles = mutableListOf<DocumentFile>()
-            collectFilesRecursively(subdir, novelFiles)
+            collectFilesRecursively(subdir, novelFiles) { file ->
+                onProgress(currentProgressIndex, totalItems, "$dirName / ${file.name ?: ""}")
+            }
             if (novelFiles.isEmpty()) continue
 
             novelFiles.sortWith { a, b ->
@@ -94,7 +175,7 @@ class LibraryRepository(private val context: Context) {
 
             val novel = Novel(
                 id = novelId,
-                title = subdir.name ?: "Untitled Novel",
+                title = dirName,
                 rootTreeUri = treeUri.toString(),
                 chapterCount = chapters.size,
                 completedCount = 0,
@@ -107,6 +188,9 @@ class LibraryRepository(private val context: Context) {
 
         // Loose files at root
         if (looseFiles.isNotEmpty()) {
+            currentProgressIndex++
+            onProgress(currentProgressIndex, totalItems, "Scanning root files ($rootName)")
+
             looseFiles.sortWith { a, b ->
                 NaturalOrderComparator.compare(a.name ?: "", b.name ?: "")
             }
@@ -133,6 +217,8 @@ class LibraryRepository(private val context: Context) {
             chaptersMap[novelId] = chapters
         }
 
+        onProgress(totalItems, totalItems, "Saving library database...")
+
         // Merge with existing library
         val currentDb = loadDatabase()
         val mergedNovels = currentDb.novels.filter { it.rootTreeUri != treeUri.toString() } + newNovels
@@ -152,10 +238,20 @@ class LibraryRepository(private val context: Context) {
     }
 
     suspend fun readChapterContent(chapter: Chapter): String = withContext(Dispatchers.IO) {
-        val uri = Uri.parse(chapter.fileUri)
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.bufferedReader(Charsets.UTF_8).readText()
-        } ?: throw IllegalStateException("Could not read chapter file at ${chapter.fileUri}")
+        val fileUriStr = chapter.fileUri
+        val localFile = File(fileUriStr)
+        if (localFile.exists() && localFile.isFile) {
+            localFile.readText(Charsets.UTF_8)
+        } else {
+            val uri = Uri.parse(fileUriStr)
+            if (uri.scheme == "file") {
+                File(uri.path ?: "").readText(Charsets.UTF_8)
+            } else {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    stream.bufferedReader(Charsets.UTF_8).readText()
+                } ?: throw IllegalStateException("Could not read chapter file at ${chapter.fileUri}")
+            }
+        }
     }
 
     suspend fun updateChapterProgress(
@@ -212,12 +308,17 @@ class LibraryRepository(private val context: Context) {
         saveDatabase(LibraryDatabase())
     }
 
-    private fun collectFilesRecursively(dir: DocumentFile, out: MutableList<DocumentFile>) {
+    private fun collectFilesRecursively(
+        dir: DocumentFile,
+        out: MutableList<DocumentFile>,
+        onFileFound: ((DocumentFile) -> Unit)? = null
+    ) {
         for (f in dir.listFiles()) {
             if (f.isFile && isSupported(f.name)) {
                 out.add(f)
+                onFileFound?.invoke(f)
             } else if (f.isDirectory) {
-                collectFilesRecursively(f, out)
+                collectFilesRecursively(f, out, onFileFound)
             }
         }
     }

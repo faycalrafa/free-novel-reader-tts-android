@@ -44,12 +44,14 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -167,6 +169,10 @@ fun ReaderScreen(
                     },
                     onDeleteNovel = { viewModel.deleteNovel(it.id) },
                     onAddFolder = { folderPickerLauncher.launch(null) },
+                    onLoadSampleNovel = {
+                        viewModel.loadSampleNovel()
+                        scope.launch { drawerState.close() }
+                    },
                     onCloseDrawer = { scope.launch { drawerState.close() } }
                 )
             }
@@ -239,6 +245,7 @@ fun ReaderScreen(
                     EmptyState(
                         novels = uiState.novels,
                         onOpenFolder = { folderPickerLauncher.launch(null) },
+                        onLoadSampleNovel = { viewModel.loadSampleNovel() },
                         onResumeNovel = { viewModel.selectNovel(it) },
                         onOpenDrawer = { scope.launch { drawerState.open() } }
                     )
@@ -254,7 +261,7 @@ fun ReaderScreen(
                     )
                 }
 
-                if (uiState.isLoading) {
+                if (uiState.isLoading && !uiState.isLibraryScanning) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -266,6 +273,15 @@ fun ReaderScreen(
                 }
             }
         }
+    }
+
+    if (uiState.isLibraryScanning) {
+        LibraryScanningOverlay(
+            progress = uiState.scanProgress,
+            currentIndex = uiState.scanCurrentIndex,
+            totalItems = uiState.scanTotalItems,
+            currentItem = uiState.scanCurrentItem
+        )
     }
 
     if (showSettingsDialog) {
@@ -699,6 +715,7 @@ fun TtsDock(
 fun EmptyState(
     novels: List<Novel>,
     onOpenFolder: () -> Unit,
+    onLoadSampleNovel: () -> Unit,
     onResumeNovel: (Novel) -> Unit,
     onOpenDrawer: () -> Unit
 ) {
@@ -758,6 +775,20 @@ fun EmptyState(
             Icon(Icons.Default.FolderOpen, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Set root folder")
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedButton(
+            onClick = onLoadSampleNovel,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Science, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Try Sample: Quantum Mechanics")
         }
 
         if (novels.isNotEmpty()) {
@@ -822,6 +853,7 @@ fun LibraryDrawerContent(
     onSelectChapter: (Int) -> Unit,
     onDeleteNovel: (Novel) -> Unit,
     onAddFolder: () -> Unit,
+    onLoadSampleNovel: () -> Unit,
     onCloseDrawer: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -845,6 +877,9 @@ fun LibraryDrawerContent(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Row {
+                IconButton(onClick = onLoadSampleNovel) {
+                    Icon(Icons.Default.Science, contentDescription = "Try Quantum Sample")
+                }
                 IconButton(onClick = onAddFolder) {
                     Icon(Icons.Default.Folder, contentDescription = "Add root folder")
                 }
@@ -871,8 +906,44 @@ fun LibraryDrawerContent(
         HorizontalDivider()
 
         if (selectedTab == 0) {
-            // Novels list
-            LazyColumn(modifier = Modifier.weight(1f)) {
+            if (novels.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Book,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "No novels in library yet",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedButton(
+                            onClick = onLoadSampleNovel,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Science, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Try Quantum Sample")
+                        }
+                    }
+                }
+            } else {
+                // Novels list
+                LazyColumn(modifier = Modifier.weight(1f)) {
                 items(novels.size) { i ->
                     val novel = novels[i]
                     val isCurrent = novel.id == currentNovel?.id
@@ -911,7 +982,8 @@ fun LibraryDrawerContent(
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
                 }
             }
-        } else {
+        }
+    } else {
             // Chapters list
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(chapters.size) { i ->
@@ -1711,4 +1783,130 @@ fun SleepTimerDialog(
             }
         }
     )
+}
+
+@Composable
+fun LibraryScanningOverlay(
+    progress: Float,
+    currentIndex: Int,
+    totalItems: Int,
+    currentItem: String
+) {
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+                .padding(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 10.dp,
+                shadowElevation = 16.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        CircularProgressIndicator(
+                            strokeWidth = 3.5.dp,
+                            modifier = Modifier.size(32.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Indexing Novel Library",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Scanning folders, chapters & playlists...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    if (totalItems > 0) {
+                        LinearProgressIndicator(
+                            progress = { progress.coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (totalItems > 0) "$currentIndex of $totalItems items" else "Discovering files...",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                        )
+                        if (totalItems > 0) {
+                            Text(
+                                text = "${(progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    if (currentItem.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = currentItem,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
