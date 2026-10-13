@@ -22,8 +22,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.novelarrow.reader.data.updater.AppUpdateManager
+import com.novelarrow.reader.data.updater.CheckUpdateResult
+import com.novelarrow.reader.data.updater.UpdateInfo
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 data class ReaderUiState(
     val novels: List<Novel> = emptyList(),
@@ -46,7 +51,16 @@ data class ReaderUiState(
     val availableVoices: List<Voice> = emptyList(),
     val sleepTimerMinutes: Int = 0,
     val sleepTimerRemainingSeconds: Int = 0,
-    val toastMessage: String? = null
+    val toastMessage: String? = null,
+    val updateInfo: UpdateInfo? = null,
+    val showUpdateDialog: Boolean = false,
+    val isCheckingUpdate: Boolean = false,
+    val isDownloadingUpdate: Boolean = false,
+    val updateProgress: Float = 0f,
+    val updateDownloadedBytes: Long = 0L,
+    val updateTotalBytes: Long = 0L,
+    val downloadedApk: File? = null,
+    val installedVersionName: String = "1.0.0"
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,13 +72,17 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     private var ttsManager: TtsManager? = null
-    private var sleepTimerJob: kotlinx.coroutines.Job? = null
+    private var sleepTimerJob: Job? = null
+    private var downloadJob: Job? = null
 
     init {
         initTts(application)
         observeSettings()
         loadInitialLibrary()
         setupPlaybackServiceCallbacks()
+        val installedVer = AppUpdateManager.getInstalledVersionName(application)
+        _uiState.update { it.copy(installedVersionName = installedVer) }
+        checkForUpdate(silent = true)
     }
 
     private fun initTts(context: Context) {
@@ -681,6 +699,124 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearToast() {
         _uiState.update { it.copy(toastMessage = null) }
+    }
+
+    fun checkForUpdate(silent: Boolean = false) {
+        viewModelScope.launch {
+            if (_uiState.value.isCheckingUpdate) return@launch
+            _uiState.update { it.copy(isCheckingUpdate = true) }
+            val currentVer = _uiState.value.installedVersionName
+            when (val result = AppUpdateManager.checkForUpdate(currentVer)) {
+                is CheckUpdateResult.UpdateAvailable -> {
+                    _uiState.update {
+                        it.copy(
+                            isCheckingUpdate = false,
+                            updateInfo = result.updateInfo,
+                            showUpdateDialog = true
+                        )
+                    }
+                }
+                is CheckUpdateResult.UpToDate -> {
+                    _uiState.update { it.copy(isCheckingUpdate = false) }
+                    if (!silent) {
+                        _uiState.update {
+                            it.copy(toastMessage = "You're on the latest version (${result.currentVersion}).")
+                        }
+                    }
+                }
+                is CheckUpdateResult.Error -> {
+                    _uiState.update { it.copy(isCheckingUpdate = false) }
+                    if (!silent) {
+                        _uiState.update {
+                            it.copy(toastMessage = "Update check failed: ${result.message}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _uiState.update { it.copy(showUpdateDialog = false) }
+    }
+
+    fun startUpdateDownload() {
+        val info = _uiState.value.updateInfo ?: return
+        val context = getApplication<Application>()
+        downloadJob?.cancel()
+        downloadJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isDownloadingUpdate = true,
+                    updateProgress = 0f,
+                    updateDownloadedBytes = 0L,
+                    updateTotalBytes = info.apkSize
+                )
+            }
+            try {
+                val apkFile = AppUpdateManager.downloadApk(
+                    downloadUrl = info.downloadUrl,
+                    expectedSize = info.apkSize,
+                    context = context,
+                    onProgress = { bytesRead, totalBytes ->
+                        val progress = if (totalBytes > 0) (bytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+                        _uiState.update {
+                            it.copy(
+                                updateProgress = progress,
+                                updateDownloadedBytes = bytesRead,
+                                updateTotalBytes = totalBytes
+                            )
+                        }
+                    }
+                )
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        downloadedApk = apkFile
+                    )
+                }
+                // Automatically prompt installation
+                installDownloadedApk(context)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        toastMessage = "Update download was cancelled."
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        toastMessage = "Download failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelUpdateDownload() {
+        downloadJob?.cancel()
+        downloadJob = null
+        _uiState.update { it.copy(isDownloadingUpdate = false) }
+    }
+
+    fun installDownloadedApk(context: Context) {
+        val apkFile = _uiState.value.downloadedApk ?: return
+        try {
+            if (!AppUpdateManager.canRequestPackageInstalls(context)) {
+                _uiState.update {
+                    it.copy(toastMessage = "Please allow installing unknown apps from this source.")
+                }
+                AppUpdateManager.openInstallPermissionSettings(context)
+            } else {
+                AppUpdateManager.installApk(context, apkFile)
+            }
+        } catch (e: Exception) {
+            _uiState.update {
+                it.copy(toastMessage = "Failed to launch installer: ${e.message}")
+            }
+        }
     }
 
     private fun updatePlaybackServiceNotification() {

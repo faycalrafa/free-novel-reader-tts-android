@@ -7,12 +7,16 @@ plugins {
 android {
     namespace = "com.novelarrow.reader"
     compileSdk = 36
+    val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
+        .orElse(providers.gradleProperty("appVersionName"))
+        .getOrElse("1.0.0")
+
     defaultConfig {
         applicationId = "com.novelarrow.reader"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = appVersionName
     }
 
     buildTypes {
@@ -31,6 +35,10 @@ android {
       aidl = false
       buildConfig = false
       shaders = false
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -71,6 +79,7 @@ dependencies {
   // Local tests: jUnit, coroutines, Android runner
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation("org.json:json:20240303")
 
   // Instrumented tests: jUnit rules and runners
   androidTestImplementation(libs.androidx.test.core)

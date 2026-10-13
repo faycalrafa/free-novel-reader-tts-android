@@ -51,6 +51,16 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.InstallMobile
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -98,6 +108,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -124,6 +135,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ReaderScreen(
     viewModel: ReaderViewModel,
+    onNavigateToAbout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -140,13 +152,6 @@ fun ReaderScreen(
         uri?.let { viewModel.scanRootFolder(it) }
     }
 
-    LaunchedEffect(uiState.toastMessage) {
-        uiState.toastMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearToast()
-        }
-    }
-
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -159,6 +164,7 @@ fun ReaderScreen(
                     currentNovel = uiState.currentNovel,
                     chapters = uiState.chapters,
                     currentChapter = uiState.currentChapter,
+                    installedVersionName = uiState.installedVersionName,
                     onSelectNovel = {
                         viewModel.selectNovel(it)
                         scope.launch { drawerState.close() }
@@ -169,9 +175,9 @@ fun ReaderScreen(
                     },
                     onDeleteNovel = { viewModel.deleteNovel(it.id) },
                     onAddFolder = { folderPickerLauncher.launch(null) },
-                    onLoadSampleNovel = {
-                        viewModel.loadSampleNovel()
+                    onOpenAbout = {
                         scope.launch { drawerState.close() }
+                        onNavigateToAbout()
                     },
                     onCloseDrawer = { scope.launch { drawerState.close() } }
                 )
@@ -325,6 +331,8 @@ fun ReaderScreen(
     if (showSleepTimerDialog) {
         SleepTimerDialog(
             currentMinutes = uiState.sleepTimerMinutes,
+            remainingSeconds = uiState.sleepTimerRemainingSeconds,
+            isPlaying = uiState.isPlaying,
             onDismiss = { showSleepTimerDialog = false },
             onSetTimer = { viewModel.setSleepTimer(it) }
         )
@@ -628,7 +636,7 @@ fun TtsDock(
                             Spacer(modifier = Modifier.width(4.dp))
                             val timerLabel = if (sleepTimerMinutes <= 0) {
                                 "Off"
-                            } else if (isPlaying && sleepTimerRemainingSeconds > 0) {
+                            } else if (sleepTimerRemainingSeconds > 0) {
                                 val mins = sleepTimerRemainingSeconds / 60
                                 val secs = sleepTimerRemainingSeconds % 60
                                 "$mins:${secs.toString().padStart(2, '0')}"
@@ -777,18 +785,20 @@ fun EmptyState(
             Text("Set root folder")
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        if (novels.isEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
 
-        OutlinedButton(
-            onClick = onLoadSampleNovel,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Default.Science, contentDescription = null)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Try Sample: Quantum Mechanics")
+            OutlinedButton(
+                onClick = onLoadSampleNovel,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Science, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Try Sample: Quantum Mechanics")
+            }
         }
 
         if (novels.isNotEmpty()) {
@@ -849,11 +859,12 @@ fun LibraryDrawerContent(
     currentNovel: Novel?,
     chapters: List<Chapter>,
     currentChapter: Chapter?,
+    installedVersionName: String,
     onSelectNovel: (Novel) -> Unit,
     onSelectChapter: (Int) -> Unit,
     onDeleteNovel: (Novel) -> Unit,
     onAddFolder: () -> Unit,
-    onLoadSampleNovel: () -> Unit,
+    onOpenAbout: () -> Unit,
     onCloseDrawer: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -877,9 +888,6 @@ fun LibraryDrawerContent(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Row {
-                IconButton(onClick = onLoadSampleNovel) {
-                    Icon(Icons.Default.Science, contentDescription = "Try Quantum Sample")
-                }
                 IconButton(onClick = onAddFolder) {
                     Icon(Icons.Default.Folder, contentDescription = "Add root folder")
                 }
@@ -930,15 +938,6 @@ fun LibraryDrawerContent(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedButton(
-                            onClick = onLoadSampleNovel,
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Science, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Try Quantum Sample")
-                        }
                     }
                 }
             } else {
@@ -1025,6 +1024,53 @@ fun LibraryDrawerContent(
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                }
+            }
+        }
+
+        HorizontalDivider()
+
+        // Drawer Bottom Footer: About App
+        Surface(
+            onClick = onOpenAbout,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = "About App",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "About App",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Version, updates & author info",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    Text(
+                        text = "v$installedVersionName",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
                 }
             }
         }
@@ -1502,12 +1548,12 @@ fun ContentFilterDialog(
                                         Switch(
                                             checked = skipWordExactMatch,
                                             onCheckedChange = { skipWordExactMatch = it },
-                                            modifier = Modifier.size(36.dp)
+                                            modifier = Modifier.scale(0.8f)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            if (skipWordExactMatch) "Whole word" else "Substring",
-                                            style = MaterialTheme.typography.bodySmall
+                                            text = if (skipWordExactMatch) "Whole word" else "Substring",
+                                            style = MaterialTheme.typography.bodyMedium
                                         )
                                     }
 
@@ -1635,12 +1681,12 @@ fun ContentFilterDialog(
                                         Switch(
                                             checked = ruleExactMatch,
                                             onCheckedChange = { ruleExactMatch = it },
-                                            modifier = Modifier.size(36.dp)
+                                            modifier = Modifier.scale(0.8f)
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            if (ruleExactMatch) "Whole word" else "Substring",
-                                            style = MaterialTheme.typography.bodySmall
+                                            text = if (ruleExactMatch) "Whole word" else "Substring",
+                                            style = MaterialTheme.typography.bodyMedium
                                         )
                                     }
 
@@ -1678,6 +1724,8 @@ fun ContentFilterDialog(
 @Composable
 fun SleepTimerDialog(
     currentMinutes: Int,
+    remainingSeconds: Int = 0,
+    isPlaying: Boolean = false,
     onDismiss: () -> Unit,
     onSetTimer: (Int) -> Unit
 ) {
@@ -1702,10 +1750,39 @@ fun SleepTimerDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "Audio will automatically pause after this time. If you resume playback, the timer will automatically reset to this duration.",
+                    text = "Audio will automatically pause after this time. If paused mid-timer, it freezes and continues on play. Once finished, playback resumes and resets.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
+
+                if (currentMinutes > 0 && remainingSeconds > 0) {
+                    val mins = remainingSeconds / 60
+                    val secs = remainingSeconds % 60
+                    val stateLabel = if (isPlaying) "Counting Down" else "Frozen / Paused"
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Timer,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Current remaining: $mins:${secs.toString().padStart(2, '0')} ($stateLabel)",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -1909,4 +1986,185 @@ fun LibraryScanningOverlay(
             }
         }
     }
+}
+
+@Composable
+fun UpdateAvailableDialog(
+    updateInfo: com.novelarrow.reader.data.updater.UpdateInfo,
+    downloadedApk: java.io.File?,
+    onDownloadClick: () -> Unit,
+    onInstallClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 24.dp),
+        icon = {
+            Icon(
+                Icons.Default.SystemUpdate,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp)
+            )
+        },
+        title = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "Update Available",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                val sizeStr = if (updateInfo.formattedSize.isNotEmpty()) " • ${updateInfo.formattedSize}" else ""
+                Text(
+                    text = "${updateInfo.tagName}$sizeStr",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Release Notes:",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 240.dp)
+                ) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        item {
+                            Text(
+                                text = updateInfo.body,
+                                style = MaterialTheme.typography.bodySmall,
+                                lineHeight = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (downloadedApk != null && downloadedApk.exists()) {
+                        onInstallClick()
+                    } else {
+                        onDownloadClick()
+                    }
+                },
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                if (downloadedApk != null && downloadedApk.exists()) {
+                    Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Install Now")
+                } else {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Download & Install")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Later")
+            }
+        }
+    )
+}
+
+@Composable
+fun UpdateDownloadingDialog(
+    progress: Float,
+    downloadedBytes: Long,
+    totalBytes: Long,
+    onCancel: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        icon = {
+            Icon(
+                Icons.Default.Download,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Downloading Update",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(8.dp))
+                if (progress > 0f) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                val dlMb = downloadedBytes.toDouble() / (1024.0 * 1024.0)
+                val totMb = totalBytes.toDouble() / (1024.0 * 1024.0)
+                val percent = (progress * 100).toInt()
+                val progressText = if (totalBytes > 0) {
+                    "%.1f MB / %.1f MB (%d%%)".format(dlMb, totMb, percent)
+                } else {
+                    "%.1f MB downloaded...".format(dlMb)
+                }
+                Text(
+                    text = progressText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text("Cancel")
+            }
+        }
+    )
 }

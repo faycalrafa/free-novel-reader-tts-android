@@ -32,16 +32,18 @@ jobs:
       - name: Make Gradle Wrapper Executable
         run: chmod +x android-app/gradlew
 
-      - name: Build Release APK
-        working-directory: android-app
-        run: ./gradlew assembleRelease --no-daemon
-
       - name: Determine Release Tag
         id: tag_version
         run: |
           DATE_TAG="v1.0.$(date +'%Y%m%d%H%M%S')"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build Release APK
+        working-directory: android-app
+        env:
+          APP_VERSION_NAME: ${{ env.RELEASE_TAG }}
+        run: ./gradlew assembleRelease -PappVersionName=${{ env.RELEASE_TAG }} --no-daemon
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v2

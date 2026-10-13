@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -438,6 +440,22 @@ class NovelAudioPlaybackService : MediaSessionService() {
         currentParagraph: Int = currentParagraphIndex,
         totalParagraphs: Int = totalParagraphsCount
     ) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post {
+                updatePlaybackState(
+                    isPlaying = isPlaying,
+                    novelTitle = novelTitle,
+                    chapterTitle = chapterTitle,
+                    paragraphProgress = paragraphProgress,
+                    chapterIndex = chapterIndex,
+                    totalChapters = totalChapters,
+                    currentParagraph = currentParagraph,
+                    totalParagraphs = totalParagraphs
+                )
+            }
+            return
+        }
+
         currentNovelTitle = novelTitle
         currentChapterTitle = chapterTitle
         currentProgressText = paragraphProgress
