@@ -54,7 +54,7 @@ data class SkipWord(
 
 @Serializable
 data class ReaderSettings(
-    val theme: ThemeMode = ThemeMode.DARK,
+    val theme: ThemeMode = ThemeMode.SEPIA,
     val fontSizeSp: Float = 16f,
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
@@ -66,8 +66,14 @@ data class ReaderSettings(
     val countdownDelayMs: Long = 1000L,
     val autoNextOnScrollBottom: Boolean = false,
     val contentSelector: String = "",
+    val contentSelectorEnabled: Boolean = true,
     val headerSkipString: String = "",
+    val headerSkipEnabled: Boolean = true,
     val footerSkipString: String = "",
+    val footerSkipEnabled: Boolean = true,
     val skipWords: List<SkipWord> = emptyList(),
-    val pronunciationRules: List<PronunciationRule> = emptyList()
+    val skipWordsEnabled: Boolean = true,
+    val pronunciationRules: List<PronunciationRule> = emptyList(),
+    val pronunciationRulesEnabled: Boolean = true,
+    val sleepTimerMinutes: Int = 0
 )
