@@ -103,6 +103,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private fun setupPlaybackServiceCallbacks() {
         NovelAudioPlaybackService.onPlayRequested = { playTts() }
         NovelAudioPlaybackService.onPauseRequested = { pauseTts() }
+        NovelAudioPlaybackService.onStopRequested = { stopTts() }
         NovelAudioPlaybackService.onNextParaRequested = { nextParagraph() }
         NovelAudioPlaybackService.onPrevParaRequested = { previousParagraph() }
         NovelAudioPlaybackService.onNextChapRequested = { nextChapter() }
@@ -239,6 +240,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun playTts() {
         if (_uiState.value.paragraphs.isEmpty()) return
         _uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true) }
+        updatePlaybackServiceNotification()
         speakParagraph(_uiState.value.currentParagraphIndex)
     }
 
@@ -454,18 +456,25 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val cur = (state.currentParagraphIndex + 1).coerceAtMost(total)
         val progressText = if (total > 0) "¶ $cur / $total" else "Ready"
 
-        try {
-            val intent = Intent(context, NovelAudioPlaybackService::class.java)
-            context.startService(intent)
-            // If the service is running, update its notification
-            val service = (context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager)
-            // Or use Companion state
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        NovelAudioPlaybackService.startOrUpdateService(
+            context = context,
+            isPlaying = state.isPlaying,
+            novelTitle = novel,
+            chapterTitle = chapter,
+            progressText = progressText,
+            currentParagraph = cur,
+            totalParagraphs = total
+        )
     }
 
     override fun onCleared() {
+        NovelAudioPlaybackService.onPlayRequested = null
+        NovelAudioPlaybackService.onPauseRequested = null
+        NovelAudioPlaybackService.onStopRequested = null
+        NovelAudioPlaybackService.onNextParaRequested = null
+        NovelAudioPlaybackService.onPrevParaRequested = null
+        NovelAudioPlaybackService.onNextChapRequested = null
+        NovelAudioPlaybackService.onPrevChapRequested = null
         ttsManager?.shutdown()
         super.onCleared()
     }
