@@ -1,6 +1,9 @@
 package com.novelarrow.reader.ui.browser
 
 import android.app.Application
+import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.speech.tts.Voice
 import android.util.Log
 import android.webkit.WebView
@@ -17,6 +20,7 @@ import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.NovelAudioPlaybackService
 import com.novelarrow.reader.playback.TtsManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -112,9 +116,28 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private var webViewRef: WebView? = null
     private var retryExtractionJob: Job? = null
 
+    private var lastBatchDownloadedUrl: String = ""
+    private var lastBatchDownloadedChapterNum: Int = -1
+    private var duplicatePageRetryCount: Int = 0
+
     companion object {
         private const val TAG = "BrowserViewModel"
         private const val DEFAULT_URL = "https://www.google.com"
+    }
+
+    fun playClickSound() {
+        try {
+            val audioManager = getApplication<android.app.Application>().getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 1.0f)
+        } catch (_: Exception) {}
+        try {
+            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 50)
+            toneGen.startTone(ToneGenerator.TONE_PROP_ACK, 40)
+            viewModelScope.launch {
+                delay(120)
+                try { toneGen.release() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
     }
 
     init {
@@ -153,7 +176,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         setupPlaybackServiceCallbacks()
     }
 
-    private fun initTts(application: Application) {
+    private fun initTts(application: android.app.Application) {
         ttsManager = TtsManager(application) { success ->
             if (success) {
                 val voices = ttsManager?.getAvailableVoices() ?: emptyList()
@@ -162,17 +185,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }.apply {
             onParagraphStart = { index ->
-                _uiState.update { it.copy(liveCurrentParagraphIndex = index, isLivePlaying = true) }
-                highlightWebParagraph(index)
-                updateLivePlaybackNotification()
+                viewModelScope.launch(Dispatchers.Main) {
+                    _uiState.update { it.copy(liveCurrentParagraphIndex = index, isLivePlaying = true) }
+                    highlightWebParagraph(index)
+                    updateLivePlaybackNotification()
+                }
             }
             onParagraphDone = { index ->
-                handleLiveParagraphDone(index)
+                viewModelScope.launch(Dispatchers.Main) {
+                    handleLiveParagraphDone(index)
+                }
             }
             onError = { index, err ->
                 Log.w(TAG, "TTS Error on paragraph $index: $err")
                 // Advance to next paragraph safely on error
-                viewModelScope.launch {
+                viewModelScope.launch(Dispatchers.Main) {
                     val next = index + 1
                     val paras = _uiState.value.liveParagraphs
                     if (next < paras.size && _uiState.value.isLiveReading && _uiState.value.isLivePlaying) {
@@ -200,8 +227,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     override fun onStop() { stopLiveReading() }
     override fun onNextParagraph() { nextLiveParagraph() }
     override fun onPrevParagraph() { prevLiveParagraph() }
-    override fun onNextChapter() { nextLiveChapterOrParagraph() }
-    override fun onPrevChapter() { prevLiveChapterOrParagraph() }
+    override fun onNextChapter() { clickNextChapter() }
+    override fun onPrevChapter() { prevLiveParagraph() }
     override fun onSeekToParagraph(index: Int) { seekToParagraph(index) }
 
     fun attachWebView(webView: WebView) {
@@ -762,15 +789,43 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val autoScroll = _uiState.value.settings.ttsAutoScroll
         val script = """
             (function() {
+                if (!document.getElementById('na-tts-styles')) {
+                    var styleEl = document.createElement('style');
+                    styleEl.id = 'na-tts-styles';
+                    styleEl.textContent = 
+                        '.na-tts-highlight { background-color: rgba(255, 235, 59, 0.45) !important; outline: 2px solid #fbc02d !important; border-radius: 4px !important; box-shadow: 0 0 10px rgba(255, 214, 0, 0.5) !important; transition: background-color 0.15s ease !important; }' +
+                        '[data-novel-para-idx] { cursor: pointer; transition: background-color 0.2s ease; }' +
+                        '[data-novel-para-idx]:hover { background-color: rgba(0, 122, 255, 0.08); }';
+                    (document.head || document.documentElement).appendChild(styleEl);
+                }
+
                 var prev = document.querySelectorAll('.na-tts-highlight');
                 for (var i = 0; i < prev.length; i++) {
                     prev[i].classList.remove('na-tts-highlight');
                 }
-                var target = document.querySelector('[data-novel-para-idx="$index"]');
+                var target = document.querySelector('[data-novel-para-idx="' + $index + '"]');
+                if (!target) {
+                    var allTagged = document.querySelectorAll('[data-novel-para-idx]');
+                    if (allTagged.length === 0) {
+                        var pElements = Array.from(document.querySelectorAll('p')).filter(function(p) {
+                            return (p.textContent || '').trim().length >= 2;
+                        });
+                        for (var k = 0; k < pElements.length; k++) {
+                            pElements[k].setAttribute('data-novel-para-idx', String(k));
+                        }
+                        if ($index < pElements.length) {
+                            target = pElements[$index];
+                        }
+                    }
+                }
                 if (target) {
                     target.classList.add('na-tts-highlight');
                     if ($autoScroll) {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        try {
+                            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        } catch(e) {
+                            target.scrollIntoView(true);
+                        }
                     }
                 }
             })();
@@ -792,6 +847,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun clickNextChapter() {
+        playClickSound()
+        if (_uiState.value.isLiveReading) {
+            ttsManager?.stop()
+            clearWebHighlight()
+            _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
+        }
         val webView = webViewRef ?: return
         val nextSelector = JSONObject.quote(_uiState.value.settings.nextSelector.trim())
         val script = """
@@ -804,11 +865,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             if (el) return el;
                         } catch(e) {}
                     }
-                    var candidates = Array.from(document.querySelectorAll('a, button'));
+                    var selectors = [
+                        'button[title*="Next Chapter"]', 'a[title*="Next Chapter"]',
+                        'button[title*="Next chapter"]', 'a[title*="Next chapter"]',
+                        'button[title="Next"]', 'a[title="Next"]',
+                        '#next_chap', '.next-chap', '.next-chapter', '.btn-next', 'a.next',
+                        'a[rel="next"]', '.chapter-next a', '#next-chapter', '.nav-next a'
+                    ];
+                    for (var s = 0; s < selectors.length; s++) {
+                        try {
+                            var selEl = document.querySelector(selectors[s]);
+                            if (selEl) return selEl;
+                        } catch(e) {}
+                    }
+                    var candidates = Array.from(document.querySelectorAll('a, button, span[role="button"], div[role="button"]'));
                     for (var i = 0; i < candidates.length; i++) {
                         var c = candidates[i];
                         var txt = (c.innerText || c.textContent || c.title || '').trim().toLowerCase();
-                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next' || txt.indexOf('next chapter') !== -1) {
+                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1) {
                             return c;
                         }
                     }
@@ -837,12 +911,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 var target = getNextEl();
                 if (target) {
                     var oldUrl = window.location.href;
-                    try { target.click(); } catch(e) {}
+                    try {
+                        target.scrollIntoView({ block: 'center' });
+                        target.focus();
+                        target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                        target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                        target.click();
+                    } catch(e) {}
                     setTimeout(function() {
-                        if (window.location.href === oldUrl && target.href) {
-                            window.location.href = target.href;
+                        if (window.location.href === oldUrl) {
+                            var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : target.closest('a');
+                            if (aTag && aTag.href && !aTag.getAttribute('href').startsWith('javascript:')) {
+                                window.location.href = aTag.href;
+                            }
                         }
-                    }, 800);
+                    }, 500);
                 } else {
                     incrementUrl();
                 }
@@ -915,6 +998,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val loopCount = state.dialogLoopCount
         val delayMs = state.dialogDelayMs.coerceAtLeast(200L)
 
+        lastBatchDownloadedUrl = ""
+        lastBatchDownloadedChapterNum = -1
+        duplicatePageRetryCount = 0
+
         _uiState.update {
             it.copy(
                 showDownloadDialog = false,
@@ -945,6 +1032,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun stopDownloadLoop() {
         downloadCountdownJob?.cancel()
         downloadCountdownJob = null
+        duplicatePageRetryCount = 0
+        lastBatchDownloadedUrl = ""
+        lastBatchDownloadedChapterNum = -1
         _uiState.update {
             it.copy(
                 isDownloading = false,
@@ -960,9 +1050,71 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private fun triggerBatchDownloadSequence() {
         if (!_uiState.value.isDownloading) return
         downloadCountdownJob?.cancel()
-        val delayMs = _uiState.value.settings.countdownDelayMs.coerceAtLeast(200L)
 
         downloadCountdownJob = viewModelScope.launch {
+            val currentUrl = _uiState.value.currentUrl
+            val pageTitle = _uiState.value.pageTitle
+            val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
+            val novelTitle = _uiState.value.downloadNovelTitle.ifBlank { detected.novelTitle }
+
+            val isDuplicate = (lastBatchDownloadedUrl.isNotBlank() && lastBatchDownloadedUrl == currentUrl) ||
+                    (lastBatchDownloadedChapterNum != -1 && (detected.chapterNumber == lastBatchDownloadedChapterNum || WebNovelDownloader.chapterFileExists(getApplication(), novelTitle, detected.chapterNumber)))
+
+            if (isDuplicate) {
+                duplicatePageRetryCount++
+                if (duplicatePageRetryCount == 1) {
+                    for (sec in 5 downTo 1) {
+                        if (!_uiState.value.isDownloading) return@launch
+                        _uiState.update {
+                            it.copy(
+                                downloadCountdownSeconds = sec,
+                                downloadStatus = "Chapter already downloaded. Retrying in ${sec}s..."
+                            )
+                        }
+                        delay(1000)
+                    }
+                    if (!_uiState.value.isDownloading) return@launch
+                    _uiState.update { it.copy(downloadStatus = "Retrying next chapter...") }
+                    clickNextChapter()
+                    delay(3000)
+                    if (_uiState.value.isDownloading && _uiState.value.currentUrl == currentUrl) {
+                        triggerBatchDownloadSequence()
+                    }
+                    return@launch
+                } else if (duplicatePageRetryCount == 2) {
+                    for (sec in 10 downTo 1) {
+                        if (!_uiState.value.isDownloading) return@launch
+                        _uiState.update {
+                            it.copy(
+                                downloadCountdownSeconds = sec,
+                                downloadStatus = "Chapter still duplicate. Waiting ${sec}s before 2nd retry..."
+                            )
+                        }
+                        delay(1000)
+                    }
+                    if (!_uiState.value.isDownloading) return@launch
+                    _uiState.update { it.copy(downloadStatus = "Retrying next chapter (attempt 2)...") }
+                    clickNextChapter()
+                    delay(3000)
+                    if (_uiState.value.isDownloading && _uiState.value.currentUrl == currentUrl) {
+                        triggerBatchDownloadSequence()
+                    }
+                    return@launch
+                } else {
+                    stopDownloadLoop()
+                    _uiState.update {
+                        it.copy(
+                            downloadStatus = "Stopped: Chapter did not advance",
+                            toastMessage = "Batch download stopped: chapter already exists or did not advance."
+                        )
+                    }
+                    return@launch
+                }
+            }
+
+            duplicatePageRetryCount = 0
+
+            val delayMs = _uiState.value.settings.countdownDelayMs.coerceAtLeast(200L)
             val totalSteps = (delayMs / 100).toInt().coerceAtLeast(1)
             for (step in totalSteps downTo 1) {
                 if (!_uiState.value.isDownloading) return@launch
@@ -999,6 +1151,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentUrl = _uiState.value.currentUrl
         if (!isBatch) {
             val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
+            if (WebNovelDownloader.chapterFileExists(getApplication(), detected.novelTitle, detected.chapterNumber)) {
+                _uiState.update {
+                    it.copy(toastMessage = "Chapter ${detected.chapterNumber} already exists in ${detected.novelTitle}")
+                }
+                return
+            }
             val chapterTitle = pageTitle.ifBlank { "${detected.novelTitle} Chapter ${detected.chapterNumber}" }
             viewModelScope.launch {
                 try {
@@ -1053,6 +1211,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         chapterNumber = chapterNum,
                         sourceUrl = currentUrl
                     )
+                    lastBatchDownloadedUrl = currentUrl
+                    lastBatchDownloadedChapterNum = chapterNum
+
                     val newRemaining = remaining - 1
                     val nextChapterNum = chapterNum + 1
 
@@ -1090,6 +1251,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // =========================================================================
 
     fun saveSingleChapter() {
+        val currentUrl = _uiState.value.currentUrl
+        val pageTitle = _uiState.value.pageTitle
+        val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
+        if (WebNovelDownloader.chapterFileExists(getApplication(), detected.novelTitle, detected.chapterNumber)) {
+            _uiState.update {
+                it.copy(toastMessage = "Chapter ${detected.chapterNumber} already exists in ${detected.novelTitle}")
+            }
+            return
+        }
         captureFullPage(isBatch = false)
     }
 
@@ -1118,6 +1288,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun startLiveReadingInternal(forceStartAtBeginning: Boolean = false, retryCount: Int = 0) {
+        NovelAudioPlaybackService.activeClient = this
         val webView = webViewRef ?: return
         val settings = _uiState.value.settings
         val script = buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
@@ -1165,6 +1336,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         )
                     }
                     speakLiveParagraph(targetIndex)
+                    updateLivePlaybackNotification()
                 } else {
                     if (retryCount < 2) {
                         retryExtractionJob?.cancel()
@@ -1265,7 +1437,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update {
                 it.copy(toastMessage = "End of chapter reached. Loading next chapter...")
             }
-            clickNextChapter()
+            viewModelScope.launch(Dispatchers.Main) {
+                clickNextChapter()
+            }
         } else {
             stopLiveReading()
         }
@@ -1309,6 +1483,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         ttsManager?.stop()
         _uiState.update { it.copy(liveCurrentParagraphIndex = target, isLivePlaying = true, isLiveReading = true) }
         speakLiveParagraph(target)
+        updateLivePlaybackNotification()
     }
 
     fun nextLiveParagraph() {
@@ -1406,17 +1581,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             NovelAudioPlaybackService.stopService(getApplication())
             return
         }
-        val title = _uiState.value.liveChapterTitle.ifBlank { _uiState.value.pageTitle }
+        val currentUrl = _uiState.value.currentUrl
+        val pageTitle = _uiState.value.pageTitle
+        val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
+        val novelName = detected.novelTitle.ifBlank { "Web Browser Reader" }
+        val chapterName = _uiState.value.liveChapterTitle.ifBlank {
+            if (detected.chapterNumber > 0) "Chapter ${detected.chapterNumber}" else pageTitle.ifBlank { "Web Page" }
+        }
         val current = _uiState.value.liveCurrentParagraphIndex + 1
         val total = _uiState.value.liveParagraphs.size
         NovelAudioPlaybackService.startOrUpdateService(
             context = getApplication(),
             isPlaying = _uiState.value.isLivePlaying,
-            novelTitle = "Web Browser Reader",
-            chapterTitle = title.ifBlank { "Web Page" },
-            progressText = if (total > 0) "¶ $current / $total" else "Ready",
-            currentChapterIndex = 0,
-            totalChapters = 1,
+            novelTitle = novelName,
+            chapterTitle = chapterName,
+            progressText = if (total > 0) "¶ $current / $total" else "Live Web TTS",
+            currentChapterIndex = if (detected.chapterNumber > 0) detected.chapterNumber else 1,
+            totalChapters = if (detected.chapterNumber > 0) (detected.chapterNumber + 50).coerceAtLeast(100) else 1,
             currentParagraph = _uiState.value.liveCurrentParagraphIndex,
             totalParagraphs = total
         )

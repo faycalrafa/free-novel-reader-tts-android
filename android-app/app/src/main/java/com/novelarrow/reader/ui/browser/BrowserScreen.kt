@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
@@ -201,7 +202,7 @@ fun BrowserScreen(
                 },
                 onLiveReadClicked = { viewModel.toggleLiveReading() },
                 onSettingsClicked = { viewModel.openSettingsDialog() },
-                onCloseBrowser = onNavigateBack
+                onOpenDrawer = onOpenDrawer
             )
 
             // Linear Progress Indicator
@@ -283,7 +284,8 @@ fun BrowserScreen(
                 onNextChapterClick = { viewModel.nextLiveParagraph() },
                 onSleepTimerClick = { viewModel.openSleepTimerDialog() },
                 onSpeedClick = { viewModel.cycleSpeechRate() },
-                onSeekParagraph = { viewModel.seekToParagraph(it) }
+                onSeekParagraph = { viewModel.seekToParagraph(it) },
+                isBrowserMode = true
             )
         }
 
@@ -383,7 +385,7 @@ private fun BrowserTopBar(
     onUrlSubmitted: (String) -> Unit,
     onLiveReadClicked: () -> Unit,
     onSettingsClicked: () -> Unit,
-    onCloseBrowser: () -> Unit
+    onOpenDrawer: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -397,22 +399,22 @@ private fun BrowserTopBar(
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
-            // ROW 1: Full-width URL bar with Back button and Tab badge
+            // ROW 1: Full-width URL bar with Menu button and Tab badge
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Exit Browser to Library
+                // Open Library Drawer
                 IconButton(
-                    onClick = onCloseBrowser,
+                    onClick = onOpenDrawer,
                     modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back to Library",
-                        modifier = Modifier.size(20.dp)
+                        Icons.Default.Menu,
+                        contentDescription = "Library Menu",
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 

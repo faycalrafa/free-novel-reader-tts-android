@@ -89,29 +89,38 @@ class LibraryRepository(private val context: Context) {
             .filter { it.isFile && isSupported(it.name) }
             .sortedWith { a, b -> NaturalOrderComparator.compare(a.name, b.name) }
 
+        val currentDb = loadDatabase()
+        val existingNovel = currentDb.novels.firstOrNull {
+            it.id == targetNovelId || it.title.equals(novelTitle, ignoreCase = true)
+        }
+        val existingChapters = (if (existingNovel != null) currentDb.chapters[existingNovel.id] else null)
+            ?: currentDb.chapters[targetNovelId] ?: emptyList()
+        val existingByUri = existingChapters.associateBy { it.fileUri }
+        val existingByTitle = existingChapters.associateBy { it.title }
+
         val chapters = files.mapIndexed { index, file ->
+            val existing = existingByUri[file.absolutePath] ?: existingByTitle[file.nameWithoutExtension]
             Chapter(
-                id = "${targetNovelId}_${file.name}",
+                id = existing?.id ?: "${targetNovelId}_${file.name}",
                 novelId = targetNovelId,
                 title = file.nameWithoutExtension,
                 fileUri = file.absolutePath,
                 orderIndex = index,
                 sizeBytes = file.length(),
-                webSourceUrl = if (file.name == chapterFile.name) sourceUrl else null
+                lastReadParagraphIndex = existing?.lastReadParagraphIndex ?: 0,
+                lastScrollOffset = existing?.lastScrollOffset ?: 0,
+                isCompleted = existing?.isCompleted ?: false,
+                webSourceUrl = if (file.name == chapterFile.name) sourceUrl else existing?.webSourceUrl
             )
         }
 
-        val currentDb = loadDatabase()
-        val existingNovel = currentDb.novels.firstOrNull {
-            it.id == targetNovelId || it.title.equals(novelTitle, ignoreCase = true)
-        }
-
+        val completedCount = chapters.count { it.isCompleted }
         val updatedNovel = Novel(
             id = existingNovel?.id ?: targetNovelId,
             title = novelTitle,
             rootTreeUri = folder.absolutePath,
             chapterCount = chapters.size,
-            completedCount = existingNovel?.completedCount ?: 0,
+            completedCount = completedCount,
             currentChapterIndex = existingNovel?.currentChapterIndex ?: 0,
             lastUpdated = System.currentTimeMillis(),
             isWebNovel = true,
@@ -142,6 +151,7 @@ class LibraryRepository(private val context: Context) {
     }
 
     suspend fun scanDownloadedWebNovels(): List<Novel> = withContext(Dispatchers.IO) {
+        val currentDb = loadDatabase()
         val novelsByNormTitle = mutableMapOf<String, Novel>()
         val chaptersByNovelId = mutableMapOf<String, MutableList<Chapter>>()
 
@@ -180,50 +190,72 @@ class LibraryRepository(private val context: Context) {
                 val normKey = dirTitle.trim().lowercase(java.util.Locale.ROOT)
                 val novelId = "web_novel_${safeTitle}"
 
+                val existingDbNovel = currentDb.novels.firstOrNull {
+                    it.id == novelId || it.title.trim().lowercase(java.util.Locale.ROOT) == normKey
+                }
+                val existingDbChapters = (if (existingDbNovel != null) currentDb.chapters[existingDbNovel.id] else null)
+                    ?: currentDb.chapters[novelId] ?: emptyList()
+                val existingByUri = existingDbChapters.associateBy { it.fileUri }
+                val existingByTitle = existingDbChapters.associateBy { it.title }
+
                 val existingNovel = novelsByNormTitle[normKey]
                 if (existingNovel == null) {
                     val chapters = files.mapIndexed { index, file ->
+                        val existing = existingByUri[file.absolutePath] ?: existingByTitle[file.nameWithoutExtension]
                         Chapter(
-                            id = "${novelId}_${file.name}",
+                            id = existing?.id ?: "${novelId}_${file.name}",
                             novelId = novelId,
                             title = file.nameWithoutExtension,
                             fileUri = file.absolutePath,
                             orderIndex = index,
-                            sizeBytes = file.length()
+                            sizeBytes = file.length(),
+                            lastReadParagraphIndex = existing?.lastReadParagraphIndex ?: 0,
+                            lastScrollOffset = existing?.lastScrollOffset ?: 0,
+                            isCompleted = existing?.isCompleted ?: false,
+                            webSourceUrl = existing?.webSourceUrl
                         )
                     }.toMutableList()
 
                     val novel = Novel(
-                        id = novelId,
+                        id = existingDbNovel?.id ?: novelId,
                         title = dirTitle,
                         rootTreeUri = sub.absolutePath,
                         chapterCount = chapters.size,
-                        completedCount = 0,
-                        currentChapterIndex = 0,
-                        lastUpdated = System.currentTimeMillis(),
-                        isWebNovel = true
+                        completedCount = chapters.count { it.isCompleted },
+                        currentChapterIndex = existingDbNovel?.currentChapterIndex ?: 0,
+                        lastUpdated = existingDbNovel?.lastUpdated ?: System.currentTimeMillis(),
+                        isWebNovel = true,
+                        webUrl = existingDbNovel?.webUrl
                     )
                     novelsByNormTitle[normKey] = novel
-                    chaptersByNovelId[novelId] = chapters
+                    chaptersByNovelId[novel.id] = chapters
                 } else {
                     val currentChapters = chaptersByNovelId[existingNovel.id] ?: mutableListOf()
                     val existingFileNames = currentChapters.map { File(it.fileUri).name }.toSet()
                     for (file in files) {
                         if (!existingFileNames.contains(file.name)) {
+                            val existing = existingByUri[file.absolutePath] ?: existingByTitle[file.nameWithoutExtension]
                             currentChapters.add(
                                 Chapter(
-                                    id = "${existingNovel.id}_${file.name}",
+                                    id = existing?.id ?: "${existingNovel.id}_${file.name}",
                                     novelId = existingNovel.id,
                                     title = file.nameWithoutExtension,
                                     fileUri = file.absolutePath,
                                     orderIndex = currentChapters.size,
-                                    sizeBytes = file.length()
+                                    sizeBytes = file.length(),
+                                    lastReadParagraphIndex = existing?.lastReadParagraphIndex ?: 0,
+                                    lastScrollOffset = existing?.lastScrollOffset ?: 0,
+                                    isCompleted = existing?.isCompleted ?: false,
+                                    webSourceUrl = existing?.webSourceUrl
                                 )
                             )
                         }
                     }
                     currentChapters.sortWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
-                    novelsByNormTitle[normKey] = existingNovel.copy(chapterCount = currentChapters.size)
+                    novelsByNormTitle[normKey] = existingNovel.copy(
+                        chapterCount = currentChapters.size,
+                        completedCount = currentChapters.count { it.isCompleted }
+                    )
                 }
             }
         }
@@ -345,6 +377,7 @@ class LibraryRepository(private val context: Context) {
             totalFilesCount += novelFiles.size
         }
 
+        val currentDb = loadDatabase()
         var currentProgressIndex = 0
         val newNovels = mutableListOf<Novel>()
         val chaptersMap = mutableMapOf<String, List<Chapter>>()
@@ -359,17 +392,30 @@ class LibraryRepository(private val context: Context) {
                 NaturalOrderComparator.compare(a.name ?: "", b.name ?: "")
             }
 
-            val novelId = UUID.randomUUID().toString()
+            val existingDbNovel = currentDb.novels.firstOrNull {
+                it.rootTreeUri == treeUri.toString() && it.title == dirName
+            }
+            val novelId = existingDbNovel?.id ?: UUID.randomUUID().toString()
+            val existingDbChapters = currentDb.chapters[novelId] ?: emptyList()
+            val existingByUri = existingDbChapters.associateBy { it.fileUri }
+            val existingByTitle = existingDbChapters.associateBy { it.title }
+
             val chapters = novelFiles.mapIndexed { index, file ->
                 currentProgressIndex++
                 onProgress(currentProgressIndex, totalFilesCount, "$dirName / ${file.name ?: ""}")
+                val fUri = file.uri.toString()
+                val fTitle = (file.name ?: "Chapter ${index + 1}").substringBeforeLast('.')
+                val existing = existingByUri[fUri] ?: existingByTitle[fTitle]
                 Chapter(
-                    id = UUID.randomUUID().toString(),
+                    id = existing?.id ?: UUID.randomUUID().toString(),
                     novelId = novelId,
-                    title = (file.name ?: "Chapter ${index + 1}").substringBeforeLast('.'),
-                    fileUri = file.uri.toString(),
+                    title = fTitle,
+                    fileUri = fUri,
                     orderIndex = index,
-                    sizeBytes = file.length()
+                    sizeBytes = file.length(),
+                    lastReadParagraphIndex = existing?.lastReadParagraphIndex ?: 0,
+                    lastScrollOffset = existing?.lastScrollOffset ?: 0,
+                    isCompleted = existing?.isCompleted ?: false
                 )
             }
 
@@ -378,8 +424,8 @@ class LibraryRepository(private val context: Context) {
                 title = dirName,
                 rootTreeUri = treeUri.toString(),
                 chapterCount = chapters.size,
-                completedCount = 0,
-                currentChapterIndex = 0
+                completedCount = chapters.count { it.isCompleted },
+                currentChapterIndex = existingDbNovel?.currentChapterIndex ?: 0
             )
 
             newNovels.add(novel)
@@ -391,26 +437,40 @@ class LibraryRepository(private val context: Context) {
             looseFiles.sortWith { a, b ->
                 NaturalOrderComparator.compare(a.name ?: "", b.name ?: "")
             }
-            val novelId = UUID.randomUUID().toString()
+            val looseTitle = "$rootName (root files)"
+            val existingDbNovel = currentDb.novels.firstOrNull {
+                it.rootTreeUri == treeUri.toString() && it.title == looseTitle
+            }
+            val novelId = existingDbNovel?.id ?: UUID.randomUUID().toString()
+            val existingDbChapters = currentDb.chapters[novelId] ?: emptyList()
+            val existingByUri = existingDbChapters.associateBy { it.fileUri }
+            val existingByTitle = existingDbChapters.associateBy { it.title }
+
             val chapters = looseFiles.mapIndexed { index, file ->
                 currentProgressIndex++
                 onProgress(currentProgressIndex, totalFilesCount, "$rootName / ${file.name ?: ""}")
+                val fUri = file.uri.toString()
+                val fTitle = (file.name ?: "Chapter ${index + 1}").substringBeforeLast('.')
+                val existing = existingByUri[fUri] ?: existingByTitle[fTitle]
                 Chapter(
-                    id = UUID.randomUUID().toString(),
+                    id = existing?.id ?: UUID.randomUUID().toString(),
                     novelId = novelId,
-                    title = (file.name ?: "Chapter ${index + 1}").substringBeforeLast('.'),
-                    fileUri = file.uri.toString(),
+                    title = fTitle,
+                    fileUri = fUri,
                     orderIndex = index,
-                    sizeBytes = file.length()
+                    sizeBytes = file.length(),
+                    lastReadParagraphIndex = existing?.lastReadParagraphIndex ?: 0,
+                    lastScrollOffset = existing?.lastScrollOffset ?: 0,
+                    isCompleted = existing?.isCompleted ?: false
                 )
             }
             val novel = Novel(
                 id = novelId,
-                title = "$rootName (root files)",
+                title = looseTitle,
                 rootTreeUri = treeUri.toString(),
                 chapterCount = chapters.size,
-                completedCount = 0,
-                currentChapterIndex = 0
+                completedCount = chapters.count { it.isCompleted },
+                currentChapterIndex = existingDbNovel?.currentChapterIndex ?: 0
             )
             newNovels.add(novel)
             chaptersMap[novelId] = chapters
@@ -419,7 +479,6 @@ class LibraryRepository(private val context: Context) {
         onProgress(totalFilesCount, totalFilesCount, "Saving library database...")
 
         // Merge with existing library
-        val currentDb = loadDatabase()
         val mergedNovels = currentDb.novels.filter { it.rootTreeUri != treeUri.toString() } + newNovels
         val mergedChapters = currentDb.chapters.toMutableMap()
         for ((k, v) in chaptersMap) {
@@ -483,20 +542,25 @@ class LibraryRepository(private val context: Context) {
                             NaturalOrderComparator.compare(a.name ?: "", b.name ?: "")
                         }
                         val existingChaps = reloadedDb.chapters[novel.id] ?: emptyList()
-                        val completedUris = existingChaps.filter { it.isCompleted }.map { it.fileUri }.toSet()
+                        val existingByUri = existingChaps.associateBy { it.fileUri }
+                        val existingByTitle = existingChaps.associateBy { it.title }
 
                         val newChaps = novelFiles.mapIndexed { index, file ->
                             processedFilesCount++
                             onProgress(processedFilesCount, totalFilesToScan, "${novel.title} / ${file.name ?: ""}")
                             val fUri = file.uri.toString()
+                            val fTitle = (file.name ?: "Chapter ${index + 1}").substringBeforeLast('.')
+                            val existing = existingByUri[fUri] ?: existingByTitle[fTitle]
                             Chapter(
-                                id = UUID.randomUUID().toString(),
+                                id = existing?.id ?: UUID.randomUUID().toString(),
                                 novelId = novel.id,
-                                title = (file.name ?: "Chapter ${index + 1}").substringBeforeLast('.'),
+                                title = fTitle,
                                 fileUri = fUri,
                                 orderIndex = index,
                                 sizeBytes = file.length(),
-                                isCompleted = completedUris.contains(fUri)
+                                lastReadParagraphIndex = existing?.lastReadParagraphIndex ?: 0,
+                                lastScrollOffset = existing?.lastScrollOffset ?: 0,
+                                isCompleted = existing?.isCompleted ?: false
                             )
                         }
                         val completedCount = newChaps.count { it.isCompleted }
@@ -518,19 +582,23 @@ class LibraryRepository(private val context: Context) {
                         .sortedWith { a, b -> NaturalOrderComparator.compare(a.name, b.name) }
 
                     val existingChaps = reloadedDb.chapters[novel.id] ?: emptyList()
-                    val completedUris = existingChaps.filter { it.isCompleted }.map { it.fileUri }.toSet()
+                    val existingByUri = existingChaps.associateBy { it.fileUri }
+                    val existingByTitle = existingChaps.associateBy { it.title }
 
                     val newChaps = files.mapIndexed { index, file ->
                         processedFilesCount++
                         onProgress(processedFilesCount, totalFilesToScan, "${novel.title} / ${file.name}")
+                        val existing = existingByUri[file.absolutePath] ?: existingByTitle[file.nameWithoutExtension]
                         Chapter(
-                            id = "${novel.id}_${file.name}",
+                            id = existing?.id ?: "${novel.id}_${file.name}",
                             novelId = novel.id,
                             title = file.nameWithoutExtension,
                             fileUri = file.absolutePath,
                             orderIndex = index,
                             sizeBytes = file.length(),
-                            isCompleted = completedUris.contains(file.absolutePath)
+                            lastReadParagraphIndex = existing?.lastReadParagraphIndex ?: 0,
+                            lastScrollOffset = existing?.lastScrollOffset ?: 0,
+                            isCompleted = existing?.isCompleted ?: false
                         )
                     }
                     val completedCount = newChaps.count { it.isCompleted }

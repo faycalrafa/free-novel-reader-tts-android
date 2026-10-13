@@ -280,7 +280,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
 
         _uiState.update { state ->
             val updatedChapters = state.chapters.map { chap ->
-                if (chap.id == chapter.id) {
+                if (chap.id == chapter.id || chap.orderIndex == chapter.orderIndex) {
                     chap.copy(
                         lastReadParagraphIndex = currentIdx,
                         isCompleted = isCompleted || chap.isCompleted
@@ -289,23 +289,28 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
             }
             state.copy(
                 chapters = updatedChapters,
-                currentChapter = chapter.copy(lastReadParagraphIndex = currentIdx)
+                currentChapter = chapter.copy(
+                    lastReadParagraphIndex = currentIdx,
+                    isCompleted = isCompleted || chapter.isCompleted
+                )
             )
         }
     }
 
     fun selectChapter(index: Int, forceStartAtBeginning: Boolean = false) {
-        val chapters = _uiState.value.chapters
-        if (index !in chapters.indices) return
-        val chapter = chapters[index]
+        val currentChaps = _uiState.value.chapters
+        if (index !in currentChaps.indices) return
         val wasPlaying = _uiState.value.isPlaying
 
         ttsManager?.stop()
 
         val currentChap = _uiState.value.currentChapter
-        if (currentChap != null && currentChap.id != chapter.id) {
+        if (currentChap != null && currentChap.orderIndex != index) {
             saveCurrentChapterProgress()
         }
+
+        val chapters = _uiState.value.chapters
+        val chapter = chapters[index]
 
         viewModelScope.launch {
             loadChapterContent(chapter, restoreProgress = !forceStartAtBeginning)

@@ -198,6 +198,21 @@ object WebNovelDownloader {
     }
 
     /**
+     * Checks if a chapter file already exists on disk in the primary or fallback directory.
+     */
+    fun chapterFileExists(context: Context, novelTitle: String, chapterNumber: Int): Boolean {
+        val fileName = formatChapterFileName(novelTitle, chapterNumber)
+        val targetDir = getNovelDownloadDirectory(context, novelTitle)
+        val primaryFile = File(targetDir, fileName)
+        if (primaryFile.exists() && primaryFile.length() > 0L) return true
+
+        val safeTitle = sanitizeFileName(novelTitle)
+        val fallbackDir = getAppFallbackDirectory(context, safeTitle)
+        val fallbackFile = File(fallbackDir, fileName)
+        return fallbackFile.exists() && fallbackFile.length() > 0L
+    }
+
+    /**
      * Generates clean HTML containing only the novel chapter heading and paragraphs.
      */
     fun generateCleanChapterHtml(

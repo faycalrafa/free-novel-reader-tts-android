@@ -491,7 +491,8 @@ fun TtsDock(
     onNextChapterClick: () -> Unit,
     onSleepTimerClick: () -> Unit,
     onSpeedClick: () -> Unit,
-    onSeekParagraph: (Int) -> Unit
+    onSeekParagraph: (Int) -> Unit,
+    isBrowserMode: Boolean = false
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var dragParaIndex by remember(currentParagraph) { mutableFloatStateOf(currentParagraph.toFloat()) }
@@ -548,7 +549,7 @@ fun TtsDock(
             ) {
                 Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
-                        text = if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
+                        text = if (isBrowserMode) "Live Web TTS" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -574,7 +575,7 @@ fun TtsDock(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Control buttons row:
-            // [Sleep Timer] [Prev Chapter] [Play/Pause] [Next Chapter] [Speed]
+            // [Sleep Timer] [Prev] [Play/Pause] [Next] [Speed]
             CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -620,12 +621,16 @@ fun TtsDock(
                         }
                     }
 
-                    // Prev Chapter button directly next to Play/Pause on the left
+                    // Prev button directly next to Play/Pause on the left
                     IconButton(
                         onClick = onPrevChapterClick,
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev Chapter", modifier = Modifier.size(24.dp))
+                        Icon(
+                            Icons.Default.SkipPrevious,
+                            contentDescription = if (isBrowserMode) "Prev Paragraph" else "Prev Chapter",
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
 
                     // Play / Pause round gradient button
@@ -649,12 +654,16 @@ fun TtsDock(
                         )
                     }
 
-                    // Next Chapter button directly next to Play/Pause on the right
+                    // Next button directly next to Play/Pause on the right
                     IconButton(
                         onClick = onNextChapterClick,
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter", modifier = Modifier.size(24.dp))
+                        Icon(
+                            Icons.Default.SkipNext,
+                            contentDescription = if (isBrowserMode) "Next Paragraph" else "Next Chapter",
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
 
                     // Speed button on the right
@@ -1161,7 +1170,7 @@ fun LibraryDrawerContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -1172,28 +1181,39 @@ fun LibraryDrawerContent(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "About App",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
+                        ) {
+                            Text(
+                                text = "Unstable",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                     Text(
-                        text = "About App",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Version, updates & author info",
+                        text = "v$installedVersionName",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant
-                ) {
-                    Text(
-                        text = "v$installedVersionName (Unstable)",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
 
