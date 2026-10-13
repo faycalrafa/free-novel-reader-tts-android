@@ -1,0 +1,113 @@
+# NovelArrow Reader Pro 📖✨
+
+> **100% Free and Open Source Software (FOSS)**  
+> No Ads • No Trackers • No Subscriptions • Fully Offline • Native Android & Text-to-Speech
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Android_8.0+-green.svg)](https://developer.android.com)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.0+-purple.svg)](https://kotlinlang.org)
+[![Compose](https://img.shields.io/badge/Jetpack_Compose-Material3-deepskyblue.svg)](https://developer.android.com/jetpack/compose)
+
+---
+
+## 🌟 What is NovelArrow Reader?
+
+**NovelArrow Reader** is a high-performance Android reader and offline Text-to-Speech (TTS) audiobook player built for readers of web novels, light novels, eBooks, and multi-file text collections.
+
+Unlike standard e-readers that treat individual chapters as disconnected documents, NovelArrow Reader treats your **local folders as dynamic audio playlists**:
+1. Simply select any root novel directory on your device.
+2. Every subfolder is automatically detected and indexed as its own novel/playlist.
+3. Chapters (`.txt`, `.html`, `.xhtml`, `.md`, `.epub`) are naturally sorted in order.
+4. Each playlist independently remembers your current chapter, paragraph index, and scroll position.
+
+Read visually with dynamic paragraph highlighting and auto-scrolling, or listen hands-free in the background with lockscreen controls and earbud media keys!
+
+---
+
+## 🚀 Key Features
+
+### 🎧 Seamless Background Text-to-Speech & Media Controls
+- **Full MediaSession Integration**: True background audio playback powered by AndroidX Media3 (`MediaSessionService`).
+- **Lockscreen & Notification Panel Controls**:
+  - Scrub the progress bar to seek paragraphs within the active chapter.
+  - Forward / Backward skip buttons jump to the **Next Chapter** or **Previous Chapter**.
+  - Remembers your exact paragraph position when jumping back and forth.
+- **Headphone & Earbud Support**: Play, pause, and skip chapters using Bluetooth headphones, wired earbuds, or car audio controls.
+- **Auto-Pausing & Resumption**: Handles audio focus transitions and headphone disconnections smoothly.
+
+### ⏱️ Smart Sleep Timer
+- Built-in sleep timer with presets (**15m, 20m, 30m, 45m, 1h**) and custom minute durations.
+- **Intelligent Sleep Reset**: If playback pauses and you press play (from your earbuds or app), the timer automatically resets to your configured duration.
+
+### 🧹 Advanced Content & Parsing Filters
+Clean messy web novel scrapes, translator notes, and HTML boilerplate on the fly:
+- **Auto Skip Header**: Define multiple keywords (e.g. `Chapter 1`, `Prologue`, `START`) to skip intro notes or links before the story begins.
+- **Auto Skip Footer**: Define multiple keywords (e.g. `Next Chapter`, `Patreon`, `Comments`) to halt reading right before translator sign-offs.
+- **HTML Content Selector**: Target specific story text elements (e.g., `#chapter-content`, `.entry-content`, `article`) via CSS selectors.
+- **Auto Skip Words**: Strip offensive words, watermarks, or unwanted tokens (with exact whole-word or substring toggles).
+- **Pronunciation Correction**: Phonetically replace fantasy names, mispronounced terms, or Romanized words with customizable phonetic spellings.
+- Quick on/off master switches for all filter groups.
+
+### 📱 Modern, Responsive Reader UI
+- **Full-Width Popups**: Quick-settings and Content Filter dialogs adapt to the full screen width with zero cramped controls.
+- **Themes**: **Sepia** (warm, easy on the eyes by default), **Dark**, and **Light**.
+- **Speech Speed Control**: Fine-grained speed adjustments from **0.5x up to 2.5x**, with a quick speed cycler button on the dock (1.0x → 1.25x → 1.5x → 1.75x → 2.0x).
+- **Voice Customization**: Select any installed system TTS voice language and adjust pitch.
+- **Clean Bottom Dock**: Compact progress metadata displaying `Ch. X / Total` and `¶ X / Total (%)`.
+
+---
+
+## 🏗️ Architecture & Technology Stack
+
+- **UI Framework**: [Jetpack Compose](https://developer.android.com/jetpack/compose) with Material Design 3.
+- **Audio & Media**: [AndroidX Media3](https://developer.android.com/guide/topics/media/media3) (`MediaSessionService`, `ExoPlayer`, `ForwardingPlayer`).
+- **Text-to-Speech**: Android Native `TextToSpeech` with real-time `UtteranceProgressListener` synchronization.
+- **HTML Parsing**: [Jsoup](https://jsoup.org/) for robust HTML parsing, cleaning, and CSS selector queries.
+- **Storage**: Android Storage Access Framework (SAF) with persistable URI permissions for seamless local filesystem access.
+- **Architecture Pattern**: Modern Android Architecture with MVVM, StateFlow, and Coroutines.
+
+---
+
+## 🛠️ Building & Developing
+
+### Prerequisites
+- Android Studio Ladybug (or newer)
+- JDK 17
+- Android SDK 36 (minSdk 26, targetSdk 36)
+
+### Build Commands
+Clone the repository and build via Gradle:
+
+```bash
+# Clone repository
+git clone https://github.com/faycalrafa/free-novel-reader-tts-android.git
+cd free-novel-reader-tts-android/android-app
+
+# Build debug APK
+./gradlew assembleDebug
+
+# Build release APK
+./gradlew assembleRelease
+
+# Run unit tests
+./gradlew testDebugUnitTest
+```
+
+The output APK will be generated at:
+`android-app/app/build/outputs/apk/release/app-release.apk`
+
+---
+
+## 🤖 Automated Releases (CI/CD)
+
+Every push to `main` (or `master`) triggers a GitHub Actions workflow that:
+1. Sets up JDK 17 and Android build dependencies.
+2. Builds the release APK (`assembleRelease`).
+3. Automatically publishes a new GitHub Release with the standalone `app-release.apk` asset attached.
+
+---
+
+## 📄 License & Freedom
+
+NovelArrow Reader is **Free and Open Source Software** licensed under the [Apache License 2.0](LICENSE).  
+You are free to use, modify, distribute, and contribute back to the project.

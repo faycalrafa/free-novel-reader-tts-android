@@ -113,6 +113,7 @@ import com.novelarrow.reader.theme.LightHighlight
 import com.novelarrow.reader.theme.SepiaHighlight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.launch
@@ -977,6 +978,10 @@ fun SettingsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 24.dp),
         title = { Text("Settings") },
         text = {
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -1204,6 +1209,10 @@ fun ContentFilterDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 24.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -1604,6 +1613,10 @@ fun SleepTimerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 24.dp),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)

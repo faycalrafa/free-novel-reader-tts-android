@@ -227,6 +227,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val chapter = chapters[index]
         val wasPlaying = _uiState.value.isPlaying
 
+        ttsManager?.stop()
+
         val currentChap = _uiState.value.currentChapter
         if (currentChap != null && currentChap.id != chapter.id) {
             saveCurrentChapterProgress()
@@ -370,7 +372,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun speakAtParagraph(index: Int) {
         val total = _uiState.value.paragraphs.size
         if (index !in 0 until total) return
+        ttsManager?.stop()
         _uiState.update { it.copy(currentParagraphIndex = index, isPlaying = true, isTtsDockVisible = true) }
+        updatePlaybackServiceNotification()
         speakParagraph(index)
     }
 
@@ -395,6 +399,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun handleParagraphDone(index: Int) {
+        if (index != _uiState.value.currentParagraphIndex) return
         viewModelScope.launch {
             val total = _uiState.value.paragraphs.size
             val nextIndex = index + 1

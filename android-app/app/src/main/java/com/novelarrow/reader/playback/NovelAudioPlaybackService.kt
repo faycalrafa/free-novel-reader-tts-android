@@ -205,12 +205,33 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
         // ForwardingPlayer delegates lockscreen, notification seekbar, & earbud button controls
         val forwardingPlayer = object : ForwardingPlayer(basePlayer) {
+            override fun isPlaying(): Boolean {
+                return _isPlayingState.value
+            }
+
+            override fun getPlayWhenReady(): Boolean {
+                return _isPlayingState.value
+            }
+
+            override fun getPlaybackState(): Int {
+                return if (_isPlayingState.value) Player.STATE_READY else super.getPlaybackState()
+            }
+
+            override fun getCurrentMediaItem(): androidx.media3.common.MediaItem? {
+                return androidx.media3.common.MediaItem.Builder()
+                    .setMediaId("novel_tts_item")
+                    .setMediaMetadata(currentMediaMetadata)
+                    .build()
+            }
+
             override fun play() {
+                _isPlayingState.value = true
                 super.play()
                 onPlayRequested?.invoke()
             }
 
             override fun pause() {
+                _isPlayingState.value = false
                 super.pause()
                 onPauseRequested?.invoke()
             }
@@ -454,6 +475,14 @@ class NovelAudioPlaybackService : MediaSessionService() {
             if (exoPlayer?.playbackState == Player.STATE_IDLE) {
                 exoPlayer?.prepare()
             }
+            try {
+                exoPlayer?.seekTo(virtualPositionMs)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            if (exoPlayer?.playWhenReady != true) {
+                exoPlayer?.playWhenReady = true
+            }
             if (exoPlayer?.isPlaying != true) {
                 exoPlayer?.play()
             }
@@ -475,18 +504,16 @@ class NovelAudioPlaybackService : MediaSessionService() {
         } else {
             releaseWakeLock()
 
+            try {
+                exoPlayer?.seekTo(virtualPositionMs)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            if (exoPlayer?.playWhenReady != false) {
+                exoPlayer?.playWhenReady = false
+            }
             if (exoPlayer?.isPlaying == true) {
                 exoPlayer?.pause()
-            }
-
-            if (isForegroundServiceStarted) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(false)
-                }
-                isForegroundServiceStarted = false
             }
 
             manager.notify(NOTIFICATION_ID, notification)
@@ -588,6 +615,11 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .setContentIntent(openAppPendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(isPlaying)
+            .setProgress(
+                totalParagraphsCount.coerceAtLeast(1),
+                (currentParagraphIndex + 1).coerceIn(0, totalParagraphsCount.coerceAtLeast(1)),
+                false
+            )
             .addAction(android.R.drawable.ic_media_previous, "Prev Chap", prevChapPendingIntent) // action 0
             .addAction(playPauseAction)                                                            // action 1
             .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)      // action 2
