@@ -45,6 +45,12 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAutoNext(enabled: Boolean) = updateSettings { it.copy(autoNextChapter = enabled) }
 
+    suspend fun setContentSelector(selector: String) = updateSettings { it.copy(contentSelector = selector) }
+
+    suspend fun setHeaderSkipString(headerStr: String) = updateSettings { it.copy(headerSkipString = headerStr) }
+
+    suspend fun setFooterSkipString(footerStr: String) = updateSettings { it.copy(footerSkipString = footerStr) }
+
     suspend fun addPronunciationRule(rule: PronunciationRule) = updateSettings {
         it.copy(pronunciationRules = it.pronunciationRules + rule)
     }

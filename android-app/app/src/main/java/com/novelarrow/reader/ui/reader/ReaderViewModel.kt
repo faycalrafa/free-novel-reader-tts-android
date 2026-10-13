@@ -197,7 +197,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     fileName = chapter.title,
                     contentSelector = settings.contentSelector,
                     pronunciationRules = settings.pronunciationRules,
-                    skipWords = settings.skipWords
+                    skipWords = settings.skipWords,
+                    headerSkipString = settings.headerSkipString,
+                    footerSkipString = settings.footerSkipString
                 )
             }
 
@@ -386,11 +388,24 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateSpeechRate(rate: Float) {
-        viewModelScope.launch { settingsRepository.setSpeechRate(rate) }
+        viewModelScope.launch {
+            settingsRepository.setSpeechRate(rate)
+            ttsManager?.setRate(rate)
+        }
+    }
+
+    fun cycleSpeechRate() {
+        val current = _uiState.value.settings.speechRate
+        val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+        val next = speeds.firstOrNull { it > current + 0.05f } ?: speeds.first()
+        updateSpeechRate(next)
     }
 
     fun updateSpeechPitch(pitch: Float) {
-        viewModelScope.launch { settingsRepository.setSpeechPitch(pitch) }
+        viewModelScope.launch {
+            settingsRepository.setSpeechPitch(pitch)
+            ttsManager?.setPitch(pitch)
+        }
     }
 
     fun updateVoice(voiceName: String?) {
@@ -403,6 +418,27 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateAutoNext(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setAutoNext(enabled) }
+    }
+
+    fun updateContentSelector(selector: String) {
+        viewModelScope.launch {
+            settingsRepository.setContentSelector(selector)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updateHeaderSkipString(headerStr: String) {
+        viewModelScope.launch {
+            settingsRepository.setHeaderSkipString(headerStr)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updateFooterSkipString(footerStr: String) {
+        viewModelScope.launch {
+            settingsRepository.setFooterSkipString(footerStr)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
     }
 
     fun clearToast() {

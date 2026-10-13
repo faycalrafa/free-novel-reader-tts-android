@@ -66,6 +66,8 @@ data class ReaderSettings(
     val countdownDelayMs: Long = 1000L,
     val autoNextOnScrollBottom: Boolean = false,
     val contentSelector: String = "",
+    val headerSkipString: String = "",
+    val footerSkipString: String = "",
     val skipWords: List<SkipWord> = emptyList(),
     val pronunciationRules: List<PronunciationRule> = emptyList()
 )

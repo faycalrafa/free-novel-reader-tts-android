@@ -106,6 +106,10 @@ import com.novelarrow.reader.theme.AccentPurple
 import com.novelarrow.reader.theme.DarkHighlight
 import com.novelarrow.reader.theme.LightHighlight
 import com.novelarrow.reader.theme.SepiaHighlight
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -203,12 +207,14 @@ fun ReaderScreen(
                         totalParagraphs = uiState.paragraphs.size,
                         chapterTitle = uiState.currentChapter?.title ?: "",
                         isPlaying = uiState.isPlaying,
+                        speechRate = uiState.settings.speechRate,
                         onPlayPauseClick = { viewModel.togglePlayPause() },
                         onPrevParaClick = { viewModel.previousParagraph() },
                         onNextParaClick = { viewModel.nextParagraph() },
                         onPrevChapterClick = { viewModel.previousChapter() },
                         onNextChapterClick = { viewModel.nextChapter() },
                         onStopClick = { viewModel.stopTts() },
+                        onSpeedClick = { viewModel.cycleSpeechRate() },
                         onSeekPercent = { pct ->
                             val target = (pct * uiState.paragraphs.size).toInt()
                             viewModel.speakAtParagraph(target)
@@ -269,6 +275,9 @@ fun ReaderScreen(
             onVoiceChange = { viewModel.updateVoice(it) },
             onAutoScrollChange = { viewModel.updateAutoScroll(it) },
             onAutoNextChange = { viewModel.updateAutoNext(it) },
+            onHeaderSkipChange = { viewModel.updateHeaderSkipString(it) },
+            onFooterSkipChange = { viewModel.updateFooterSkipString(it) },
+            onContentSelectorChange = { viewModel.updateContentSelector(it) },
             onClearAllData = {
                 viewModel.clearAllData()
                 showSettingsDialog = false
@@ -292,55 +301,71 @@ fun ReaderTopBar(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
         shadowElevation = 4.dp
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 6.dp)
-        ) {
-            IconButton(onClick = onMenuClick) {
-                Icon(Icons.Default.Menu, contentDescription = "Library Drawer")
-            }
-
-            Column(
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 4.dp)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 6.dp, vertical = 6.dp)
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+                IconButton(
+                    onClick = onMenuClick,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(Icons.Default.Menu, contentDescription = "Library Drawer", modifier = Modifier.size(20.dp))
+                }
 
-            IconButton(onClick = onTtsToggleClick) {
-                Icon(
-                    Icons.Default.Headphones,
-                    contentDescription = "Toggle TTS Dock",
-                    tint = if (isTtsDockVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                )
-            }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
-            IconButton(onClick = onLoopClick) {
-                Icon(
-                    Icons.Default.Repeat,
-                    contentDescription = "Toggle Loop",
-                    tint = if (isAutoLoopActive) AccentPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
+                IconButton(
+                    onClick = onTtsToggleClick,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Headphones,
+                        contentDescription = "Toggle TTS Dock",
+                        tint = if (isTtsDockVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
 
-            IconButton(onClick = onSettingsClick) {
-                Icon(Icons.Default.Settings, contentDescription = "Settings")
+                IconButton(
+                    onClick = onLoopClick,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Repeat,
+                        contentDescription = "Toggle Loop",
+                        tint = if (isAutoLoopActive) AccentPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp))
+                }
             }
         }
     }
@@ -439,12 +464,14 @@ fun TtsDock(
     totalParagraphs: Int,
     chapterTitle: String,
     isPlaying: Boolean,
+    speechRate: Float = 1.0f,
     onPlayPauseClick: () -> Unit,
     onPrevParaClick: () -> Unit,
     onNextParaClick: () -> Unit,
     onPrevChapterClick: () -> Unit,
     onNextChapterClick: () -> Unit,
     onStopClick: () -> Unit,
+    onSpeedClick: () -> Unit = {},
     onSeekPercent: (Float) -> Unit
 ) {
     val progress = if (totalParagraphs > 0) {
@@ -460,7 +487,7 @@ fun TtsDock(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             // Clickable progress bar
             LinearProgressIndicator(
@@ -487,59 +514,98 @@ fun TtsDock(
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false)
                 )
-                Text(
-                    text = "¶ ${currentParagraph + 1} / $totalParagraphs (${(progress * 100).toInt()}%)",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                )
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Control buttons row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onPrevChapterClick) {
-                    Icon(Icons.Default.SkipPrevious, contentDescription = "Prev Chapter")
-                }
-                IconButton(onClick = onPrevParaClick) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Prev Paragraph")
-                }
-
-                // Play / Pause round button
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(AccentBlue, AccentPurple)
-                            )
-                        )
-                        .clickable { onPlayPauseClick() },
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = "Play/Pause",
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
+                    // Quick speed pill
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        modifier = Modifier.clickable { onSpeedClick() }
+                    ) {
+                        Text(
+                            text = "${"%.2f".format(speechRate).trimEnd('0').trimEnd('.')}x",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "¶ ${currentParagraph + 1} / $totalParagraphs (${(progress * 100).toInt()}%)",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                     )
                 }
+            }
 
-                IconButton(onClick = onNextParaClick) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Paragraph")
-                }
-                IconButton(onClick = onNextChapterClick) {
-                    Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter")
-                }
-                IconButton(onClick = onStopClick) {
-                    Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Control buttons row: wrap in LocalMinimumInteractiveComponentSize = 0.dp so all buttons fit on small screens
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onPrevChapterClick,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev Chapter", modifier = Modifier.size(22.dp))
+                    }
+                    IconButton(
+                        onClick = onPrevParaClick,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Prev Paragraph", modifier = Modifier.size(22.dp))
+                    }
+
+                    // Play / Pause round button
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(AccentBlue, AccentPurple)
+                                )
+                            )
+                            .clickable { onPlayPauseClick() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onNextParaClick,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Paragraph", modifier = Modifier.size(22.dp))
+                    }
+                    IconButton(
+                        onClick = onNextChapterClick,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter", modifier = Modifier.size(22.dp))
+                    }
+                    IconButton(
+                        onClick = onStopClick,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(22.dp))
+                    }
                 }
             }
         }
@@ -601,7 +667,9 @@ fun EmptyState(
 
         Button(
             onClick = onOpenFolder,
-            modifier = Modifier.fillMaxWidth(0.75f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
             Icon(Icons.Default.FolderOpen, contentDescription = null)
@@ -613,7 +681,9 @@ fun EmptyState(
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = onOpenDrawer,
-                modifier = Modifier.fillMaxWidth(0.75f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Icon(Icons.Default.Book, contentDescription = null)
@@ -819,6 +889,9 @@ fun SettingsDialog(
     onVoiceChange: (String?) -> Unit,
     onAutoScrollChange: (Boolean) -> Unit,
     onAutoNextChange: (Boolean) -> Unit,
+    onHeaderSkipChange: (String) -> Unit,
+    onFooterSkipChange: (String) -> Unit,
+    onContentSelectorChange: (String) -> Unit,
     onClearAllData: () -> Unit
 ) {
     var voiceExpanded by remember { mutableStateOf(false) }
@@ -829,13 +902,13 @@ fun SettingsDialog(
         text = {
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                 item {
-                    // Theme selector
+                    // Theme selector: each button weighted equally so they never overflow
                     Text("Reading Theme", style = MaterialTheme.typography.titleSmall)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf(
                             ThemeMode.LIGHT to "☀️ Light",
@@ -845,13 +918,15 @@ fun SettingsDialog(
                             val isSelected = settings.theme == mode
                             Button(
                                 onClick = { onThemeChange(mode) },
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                     contentColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
                                 ),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text(label, fontSize = 12.sp)
+                                Text(label, fontSize = 11.sp, maxLines = 1, softWrap = false)
                             }
                         }
                     }
@@ -869,16 +944,60 @@ fun SettingsDialog(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Speech Rate
-                    Text("Speech Rate: ${"%.2f".format(settings.speechRate)}x", style = MaterialTheme.typography.titleSmall)
+                    // Speech Rate Slider (accounts for 0.5x, 0.75x, 1.0x, etc.)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Speech Speed: ${"%.2f".format(settings.speechRate)}x", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = if (settings.speechRate <= 0.52f) "0.5x (Half speed)" else if (settings.speechRate >= 1.98f) "2.0x (Double)" else "",
+                            style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        )
+                    }
+
                     Slider(
                         value = settings.speechRate,
-                        onValueChange = onSpeechRateChange,
-                        valueRange = 0.5f..2.0f,
-                        steps = 14
+                        onValueChange = { newVal ->
+                            val stepped = (kotlin.math.round(newVal * 20f) / 20f).coerceIn(0.5f, 2.5f)
+                            onSpeechRateChange(stepped)
+                        },
+                        valueRange = 0.5f..2.5f,
+                        steps = 39
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    // Quick Speed Preset Chips (accounts for 0.5x directly)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { rate ->
+                            val isSelected = kotlin.math.abs(settings.speechRate - rate) < 0.03f
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onSpeechRateChange(rate) }
+                            ) {
+                                Text(
+                                    text = "${rate}x",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Speech Pitch
                     Text("Speech Pitch: ${"%.2f".format(settings.speechPitch)}x", style = MaterialTheme.typography.titleSmall)
@@ -956,6 +1075,48 @@ fun SettingsDialog(
                             onCheckedChange = onAutoNextChange
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Header & Footer Skip Filters
+                    Text("Content & Skip Filters", style = MaterialTheme.typography.titleSmall)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedTextField(
+                        value = settings.headerSkipString,
+                        onValueChange = onHeaderSkipChange,
+                        label = { Text("Header String Skip") },
+                        placeholder = { Text("e.g. Chapter 1 or START") },
+                        supportingText = { Text("Starts reading chapter from this string (skips preceding text)", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = settings.footerSkipString,
+                        onValueChange = onFooterSkipChange,
+                        label = { Text("Footer String Skip") },
+                        placeholder = { Text("e.g. Next Chapter or Comments") },
+                        supportingText = { Text("Ends reading chapter at this string (skips following text)", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = settings.contentSelector,
+                        onValueChange = onContentSelectorChange,
+                        label = { Text("HTML Content Selector (Optional)") },
+                        placeholder = { Text("e.g. #content, .chapter-text") },
+                        supportingText = { Text("CSS selector for main story container (auto-detected if empty)", fontSize = 10.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
                     Spacer(modifier = Modifier.height(20.dp))
 

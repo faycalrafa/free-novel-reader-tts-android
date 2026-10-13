@@ -74,6 +74,18 @@ class TtsManager(
         tts?.stop()
     }
 
+    fun setRate(rate: Float) {
+        if (isInitialized) {
+            tts?.setSpeechRate(rate)
+        }
+    }
+
+    fun setPitch(pitch: Float) {
+        if (isInitialized) {
+            tts?.setPitch(pitch)
+        }
+    }
+
     fun setVoiceByName(voiceName: String?) {
         if (voiceName == null) return
         val voice = getAvailableVoices().firstOrNull { it.name == voiceName }
