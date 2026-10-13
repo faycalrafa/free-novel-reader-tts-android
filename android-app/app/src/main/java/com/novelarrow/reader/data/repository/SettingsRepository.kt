@@ -47,9 +47,17 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setContentSelector(selector: String) = updateSettings { it.copy(contentSelector = selector) }
 
+    suspend fun setContentSelectorEnabled(enabled: Boolean) = updateSettings { it.copy(contentSelectorEnabled = enabled) }
+
     suspend fun setHeaderSkipString(headerStr: String) = updateSettings { it.copy(headerSkipString = headerStr) }
 
+    suspend fun setHeaderSkipEnabled(enabled: Boolean) = updateSettings { it.copy(headerSkipEnabled = enabled) }
+
     suspend fun setFooterSkipString(footerStr: String) = updateSettings { it.copy(footerSkipString = footerStr) }
+
+    suspend fun setFooterSkipEnabled(enabled: Boolean) = updateSettings { it.copy(footerSkipEnabled = enabled) }
+
+    suspend fun setPronunciationRulesEnabled(enabled: Boolean) = updateSettings { it.copy(pronunciationRulesEnabled = enabled) }
 
     suspend fun addPronunciationRule(rule: PronunciationRule) = updateSettings {
         it.copy(pronunciationRules = it.pronunciationRules + rule)
@@ -59,6 +67,8 @@ class SettingsRepository(private val context: Context) {
         it.copy(pronunciationRules = it.pronunciationRules.filterIndexed { i, _ -> i != index })
     }
 
+    suspend fun setSkipWordsEnabled(enabled: Boolean) = updateSettings { it.copy(skipWordsEnabled = enabled) }
+
     suspend fun addSkipWord(skip: SkipWord) = updateSettings {
         it.copy(skipWords = it.skipWords + skip)
     }
@@ -66,6 +76,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun removeSkipWord(index: Int) = updateSettings {
         it.copy(skipWords = it.skipWords.filterIndexed { i, _ -> i != index })
     }
+
+    suspend fun setSleepTimerMinutes(minutes: Int) = updateSettings { it.copy(sleepTimerMinutes = minutes) }
 
     private fun loadSettings(): ReaderSettings {
         return try {

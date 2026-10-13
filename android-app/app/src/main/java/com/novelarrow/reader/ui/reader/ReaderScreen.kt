@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -47,6 +48,8 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -125,6 +128,8 @@ fun ReaderScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
 
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -176,10 +181,9 @@ fun ReaderScreen(
                         "${novel.title} • $chapIdx/${uiState.chapters.size}"
                     } ?: "Ready to read",
                     isTtsDockVisible = uiState.isTtsDockVisible,
-                    isAutoLoopActive = uiState.isAutoLoopActive,
                     onMenuClick = { scope.launch { drawerState.open() } },
                     onTtsToggleClick = { viewModel.toggleTtsDock() },
-                    onLoopClick = { viewModel.toggleAutoLoop() },
+                    onFilterClick = { showFilterDialog = true },
                     onSettingsClick = { showSettingsDialog = true }
                 )
             },
@@ -209,15 +213,14 @@ fun ReaderScreen(
                         totalParagraphs = uiState.paragraphs.size,
                         currentChapterIndex = uiState.currentChapter?.orderIndex ?: 0,
                         totalChapters = uiState.chapters.size,
-                        chapterTitle = uiState.currentChapter?.title ?: "",
                         isPlaying = uiState.isPlaying,
                         speechRate = uiState.settings.speechRate,
+                        sleepTimerMinutes = uiState.sleepTimerMinutes,
+                        sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
                         onPlayPauseClick = { viewModel.togglePlayPause() },
-                        onPrevParaClick = { viewModel.previousParagraph() },
-                        onNextParaClick = { viewModel.nextParagraph() },
                         onPrevChapterClick = { viewModel.previousChapter() },
                         onNextChapterClick = { viewModel.nextChapter() },
-                        onStopClick = { viewModel.stopTts() },
+                        onSleepTimerClick = { showSleepTimerDialog = true },
                         onSpeedClick = { viewModel.cycleSpeechRate() },
                         onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) }
                     )
@@ -276,13 +279,37 @@ fun ReaderScreen(
             onVoiceChange = { viewModel.updateVoice(it) },
             onAutoScrollChange = { viewModel.updateAutoScroll(it) },
             onAutoNextChange = { viewModel.updateAutoNext(it) },
-            onHeaderSkipChange = { viewModel.updateHeaderSkipString(it) },
-            onFooterSkipChange = { viewModel.updateFooterSkipString(it) },
-            onContentSelectorChange = { viewModel.updateContentSelector(it) },
             onClearAllData = {
                 viewModel.clearAllData()
                 showSettingsDialog = false
             }
+        )
+    }
+
+    if (showFilterDialog) {
+        ContentFilterDialog(
+            settings = uiState.settings,
+            onDismiss = { showFilterDialog = false },
+            onHeaderSkipEnabledChange = { viewModel.updateHeaderSkipEnabled(it) },
+            onHeaderSkipStringChange = { viewModel.updateHeaderSkipString(it) },
+            onFooterSkipEnabledChange = { viewModel.updateFooterSkipEnabled(it) },
+            onFooterSkipStringChange = { viewModel.updateFooterSkipString(it) },
+            onContentSelectorEnabledChange = { viewModel.updateContentSelectorEnabled(it) },
+            onContentSelectorChange = { viewModel.updateContentSelector(it) },
+            onSkipWordsEnabledChange = { viewModel.updateSkipWordsEnabled(it) },
+            onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
+            onRemoveSkipWord = { viewModel.removeSkipWord(it) },
+            onPronunciationRulesEnabledChange = { viewModel.updatePronunciationRulesEnabled(it) },
+            onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
+            onRemovePronunciationRule = { viewModel.removePronunciationRule(it) }
+        )
+    }
+
+    if (showSleepTimerDialog) {
+        SleepTimerDialog(
+            currentMinutes = uiState.sleepTimerMinutes,
+            onDismiss = { showSleepTimerDialog = false },
+            onSetTimer = { viewModel.setSleepTimer(it) }
         )
     }
 }
@@ -292,10 +319,9 @@ fun ReaderTopBar(
     title: String,
     subtitle: String,
     isTtsDockVisible: Boolean,
-    isAutoLoopActive: Boolean,
     onMenuClick: () -> Unit,
     onTtsToggleClick: () -> Unit,
-    onLoopClick: () -> Unit,
+    onFilterClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
     Surface(
@@ -350,13 +376,13 @@ fun ReaderTopBar(
                 }
 
                 IconButton(
-                    onClick = onLoopClick,
+                    onClick = onFilterClick,
                     modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        Icons.Default.Repeat,
-                        contentDescription = "Toggle Loop",
-                        tint = if (isAutoLoopActive) AccentPurple else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        Icons.Default.Tune,
+                        contentDescription = "Content Filters & Rules",
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -465,16 +491,15 @@ fun TtsDock(
     totalParagraphs: Int,
     currentChapterIndex: Int = 0,
     totalChapters: Int = 0,
-    chapterTitle: String,
     isPlaying: Boolean,
     speechRate: Float = 1.0f,
+    sleepTimerMinutes: Int = 0,
+    sleepTimerRemainingSeconds: Int = 0,
     onPlayPauseClick: () -> Unit,
-    onPrevParaClick: () -> Unit,
-    onNextParaClick: () -> Unit,
     onPrevChapterClick: () -> Unit,
     onNextChapterClick: () -> Unit,
-    onStopClick: () -> Unit,
-    onSpeedClick: () -> Unit = {},
+    onSleepTimerClick: () -> Unit,
+    onSpeedClick: () -> Unit,
     onSeekParagraph: (Int) -> Unit
 ) {
     var isDragging by remember { mutableStateOf(false) }
@@ -524,7 +549,7 @@ fun TtsDock(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Metadata row
+            // Metadata row: Chapter number/total and paragraph number/total (chapter title removed)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -532,7 +557,7 @@ fun TtsDock(
             ) {
                 Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
-                        text = if (totalChapters > 0) "Ch. ${currentChapterIndex + 1}/$totalChapters • $chapterTitle" else chapterTitle,
+                        text = if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -548,57 +573,71 @@ fun TtsDock(
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Quick speed pill
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        modifier = Modifier.clickable { onSpeedClick() }
-                    ) {
-                        Text(
-                            text = "${"%.2f".format(speechRate).trimEnd('0').trimEnd('.')}x",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    Text(
-                        text = "¶ ${displayPara + 1} / $totalParagraphs ($progressPercent%)",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                    )
-                }
+                Text(
+                    text = "¶ ${displayPara + 1} / $totalParagraphs ($progressPercent%)",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Control buttons row: wrap in LocalMinimumInteractiveComponentSize = 0.dp so all buttons fit on small screens
+            // Control buttons row:
+            // [Sleep Timer] [Prev Chapter] [Play/Pause] [Next Chapter] [Speed]
             CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = onPrevChapterClick,
-                        modifier = Modifier.size(38.dp)
+                    // Sleep Timer button on the left
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSleepTimerClick() }
                     ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev Chapter", modifier = Modifier.size(22.dp))
-                    }
-                    IconButton(
-                        onClick = onPrevParaClick,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Prev Paragraph", modifier = Modifier.size(22.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Timer,
+                                contentDescription = "Sleep Timer",
+                                tint = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            val timerLabel = if (sleepTimerMinutes <= 0) {
+                                "Off"
+                            } else if (isPlaying && sleepTimerRemainingSeconds > 0) {
+                                val mins = sleepTimerRemainingSeconds / 60
+                                val secs = sleepTimerRemainingSeconds % 60
+                                "$mins:${secs.toString().padStart(2, '0')}"
+                            } else {
+                                "${sleepTimerMinutes}m"
+                            }
+                            Text(
+                                text = timerLabel,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                )
+                            )
+                        }
                     }
 
-                    // Play / Pause round button
+                    // Prev Chapter button directly next to Play/Pause on the left
+                    IconButton(
+                        onClick = onPrevChapterClick,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev Chapter", modifier = Modifier.size(24.dp))
+                    }
+
+                    // Play / Pause round gradient button
                     Box(
                         modifier = Modifier
                             .size(46.dp)
@@ -619,23 +658,35 @@ fun TtsDock(
                         )
                     }
 
-                    IconButton(
-                        onClick = onNextParaClick,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Paragraph", modifier = Modifier.size(22.dp))
-                    }
+                    // Next Chapter button directly next to Play/Pause on the right
                     IconButton(
                         onClick = onNextChapterClick,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter", modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter", modifier = Modifier.size(24.dp))
                     }
-                    IconButton(
-                        onClick = onStopClick,
-                        modifier = Modifier.size(38.dp)
+
+                    // Speed button on the right
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSpeedClick() }
                     ) {
-                        Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(22.dp))
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "${"%.2f".format(speechRate).trimEnd('0').trimEnd('.')}x",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -920,9 +971,6 @@ fun SettingsDialog(
     onVoiceChange: (String?) -> Unit,
     onAutoScrollChange: (Boolean) -> Unit,
     onAutoNextChange: (Boolean) -> Unit,
-    onHeaderSkipChange: (String) -> Unit,
-    onFooterSkipChange: (String) -> Unit,
-    onContentSelectorChange: (String) -> Unit,
     onClearAllData: () -> Unit
 ) {
     var voiceExpanded by remember { mutableStateOf(false) }
@@ -1107,48 +1155,6 @@ fun SettingsDialog(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Header & Footer Skip Filters
-                    Text("Content & Skip Filters", style = MaterialTheme.typography.titleSmall)
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    OutlinedTextField(
-                        value = settings.headerSkipString,
-                        onValueChange = onHeaderSkipChange,
-                        label = { Text("Header String Skip") },
-                        placeholder = { Text("e.g. Chapter 1 or START") },
-                        supportingText = { Text("Starts reading chapter from this string (skips preceding text)", fontSize = 10.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = settings.footerSkipString,
-                        onValueChange = onFooterSkipChange,
-                        label = { Text("Footer String Skip") },
-                        placeholder = { Text("e.g. Next Chapter or Comments") },
-                        supportingText = { Text("Ends reading chapter at this string (skips following text)", fontSize = 10.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = settings.contentSelector,
-                        onValueChange = onContentSelectorChange,
-                        label = { Text("HTML Content Selector (Optional)") },
-                        placeholder = { Text("e.g. #content, .chapter-text") },
-                        supportingText = { Text("CSS selector for main story container (auto-detected if empty)", fontSize = 10.sp) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // Clear all button
@@ -1160,6 +1166,528 @@ fun SettingsDialog(
                         Icon(Icons.Default.Delete, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Clear All Library & Progress")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+fun ContentFilterDialog(
+    settings: com.novelarrow.reader.data.model.ReaderSettings,
+    onDismiss: () -> Unit,
+    onHeaderSkipEnabledChange: (Boolean) -> Unit,
+    onHeaderSkipStringChange: (String) -> Unit,
+    onFooterSkipEnabledChange: (Boolean) -> Unit,
+    onFooterSkipStringChange: (String) -> Unit,
+    onContentSelectorEnabledChange: (Boolean) -> Unit,
+    onContentSelectorChange: (String) -> Unit,
+    onSkipWordsEnabledChange: (Boolean) -> Unit,
+    onAddSkipWord: (String, Boolean) -> Unit,
+    onRemoveSkipWord: (Int) -> Unit,
+    onPronunciationRulesEnabledChange: (Boolean) -> Unit,
+    onAddPronunciationRule: (String, String, Boolean) -> Unit,
+    onRemovePronunciationRule: (Int) -> Unit
+) {
+    var newSkipWordText by remember { mutableStateOf("") }
+    var skipWordExactMatch by remember { mutableStateOf(true) }
+
+    var newRuleFrom by remember { mutableStateOf("") }
+    var newRuleTo by remember { mutableStateOf("") }
+    var ruleExactMatch by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Content & Parsing Filters")
+            }
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 1. Auto Skip Header
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Auto Skip Header", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                    Text("Starts reading at first matching keyword", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                                }
+                                Switch(
+                                    checked = settings.headerSkipEnabled,
+                                    onCheckedChange = onHeaderSkipEnabledChange
+                                )
+                            }
+                            if (settings.headerSkipEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = settings.headerSkipString,
+                                    onValueChange = onHeaderSkipStringChange,
+                                    label = { Text("Header Keywords (comma or newline)") },
+                                    placeholder = { Text("e.g. Chapter 1, Prologue, START") },
+                                    supportingText = { Text("Multiple keywords supported. Skips text before any match.", fontSize = 10.sp) },
+                                    minLines = 2,
+                                    maxLines = 4,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 2. Auto Skip Footer
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Auto Skip Footer", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                    Text("Stops reading before first matching keyword", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                                }
+                                Switch(
+                                    checked = settings.footerSkipEnabled,
+                                    onCheckedChange = onFooterSkipEnabledChange
+                                )
+                            }
+                            if (settings.footerSkipEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = settings.footerSkipString,
+                                    onValueChange = onFooterSkipStringChange,
+                                    label = { Text("Footer Keywords (comma or newline)") },
+                                    placeholder = { Text("e.g. Next Chapter, Comments, Patreon") },
+                                    supportingText = { Text("Multiple keywords supported. Cuts off text at any match.", fontSize = 10.sp) },
+                                    minLines = 2,
+                                    maxLines = 4,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 3. HTML Content Selector
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("HTML Content Selector", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                    Text("Target specific main story element", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                                }
+                                Switch(
+                                    checked = settings.contentSelectorEnabled,
+                                    onCheckedChange = onContentSelectorEnabledChange
+                                )
+                            }
+                            if (settings.contentSelectorEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = settings.contentSelector,
+                                    onValueChange = onContentSelectorChange,
+                                    label = { Text("CSS Selector") },
+                                    placeholder = { Text("e.g. #content, .chapter-text, article") },
+                                    supportingText = { Text("Leave empty for automatic body detection.", fontSize = 10.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 4. Auto Skip Words
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Auto Skip Words", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                    Text("Silences specific words or profanities", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                                }
+                                Switch(
+                                    checked = settings.skipWordsEnabled,
+                                    onCheckedChange = onSkipWordsEnabledChange
+                                )
+                            }
+
+                            if (settings.skipWordsEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Existing skip words list
+                                if (settings.skipWords.isNotEmpty()) {
+                                    Text("Active Skip Words:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        settings.skipWords.forEachIndexed { idx, skip ->
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surface,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(skip.text, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                        ) {
+                                                            Text(
+                                                                if (skip.exactMatch) "Whole word" else "Any substring",
+                                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    IconButton(
+                                                        onClick = { onRemoveSkipWord(idx) },
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Close, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+
+                                // Add new skip word
+                                OutlinedTextField(
+                                    value = newSkipWordText,
+                                    onValueChange = { newSkipWordText = it },
+                                    label = { Text("Word to skip") },
+                                    placeholder = { Text("e.g. watermark, badword") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Switch(
+                                            checked = skipWordExactMatch,
+                                            onCheckedChange = { skipWordExactMatch = it },
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            if (skipWordExactMatch) "Whole word" else "Substring",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (newSkipWordText.isNotBlank()) {
+                                                onAddSkipWord(newSkipWordText.trim(), skipWordExactMatch)
+                                                newSkipWordText = ""
+                                            }
+                                        },
+                                        enabled = newSkipWordText.isNotBlank(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Add")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 5. Pronunciation Correction
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Pronunciation Correction", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                                    Text("Replace words with phonetic spelling", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                                }
+                                Switch(
+                                    checked = settings.pronunciationRulesEnabled,
+                                    onCheckedChange = onPronunciationRulesEnabledChange
+                                )
+                            }
+
+                            if (settings.pronunciationRulesEnabled) {
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Existing pronunciation rules list
+                                if (settings.pronunciationRules.isNotEmpty()) {
+                                    Text("Active Rules:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        settings.pronunciationRules.forEachIndexed { idx, rule ->
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surface,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text("${rule.from} ➔ ${rule.to}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                        ) {
+                                                            Text(
+                                                                if (rule.exactMatch) "Whole word" else "Any substring",
+                                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                    IconButton(
+                                                        onClick = { onRemovePronunciationRule(idx) },
+                                                        modifier = Modifier.size(28.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Close, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+
+                                // Add new rule form
+                                OutlinedTextField(
+                                    value = newRuleFrom,
+                                    onValueChange = { newRuleFrom = it },
+                                    label = { Text("Word to replace") },
+                                    placeholder = { Text("e.g. read, Xiao, Qi") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                OutlinedTextField(
+                                    value = newRuleTo,
+                                    onValueChange = { newRuleTo = it },
+                                    label = { Text("Pronounce as / replace with") },
+                                    placeholder = { Text("e.g. reed, Shao, Chee") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Switch(
+                                            checked = ruleExactMatch,
+                                            onCheckedChange = { ruleExactMatch = it },
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            if (ruleExactMatch) "Whole word" else "Substring",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            if (newRuleFrom.isNotBlank() && newRuleTo.isNotBlank()) {
+                                                onAddPronunciationRule(newRuleFrom.trim(), newRuleTo.trim(), ruleExactMatch)
+                                                newRuleFrom = ""
+                                                newRuleTo = ""
+                                            }
+                                        },
+                                        enabled = newRuleFrom.isNotBlank() && newRuleTo.isNotBlank(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Add Rule")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+fun SleepTimerDialog(
+    currentMinutes: Int,
+    onDismiss: () -> Unit,
+    onSetTimer: (Int) -> Unit
+) {
+    var customText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Sleep Timer")
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Audio will automatically pause after this time. If you resume playback, the timer will automatically reset to this duration.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                val presets = listOf(
+                    0 to "Turn Off",
+                    15 to "15 minutes",
+                    20 to "20 minutes",
+                    30 to "30 minutes",
+                    45 to "45 minutes",
+                    60 to "1 hour"
+                )
+
+                presets.forEach { (mins, label) ->
+                    val isSelected = currentMinutes == mins
+                    Button(
+                        onClick = {
+                            onSetTimer(mins)
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Custom minutes input
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customText,
+                        onValueChange = { customText = it.filter { ch -> ch.isDigit() } },
+                        label = { Text("Custom min") },
+                        placeholder = { Text("e.g. 90") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = {
+                            val mins = customText.toIntOrNull() ?: 0
+                            if (mins > 0) {
+                                onSetTimer(mins)
+                                onDismiss()
+                            }
+                        },
+                        enabled = (customText.toIntOrNull() ?: 0) > 0,
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Set")
                     }
                 }
             }

@@ -146,4 +146,107 @@ class ChapterParserTest {
         assertTrue(ChapterParser.isNonContentText("Leave a comment"))
         assertFalse(ChapterParser.isNonContentText("The hero stepped into the ancient ruins."))
     }
+
+    @Test
+    fun testMultiKeywordHeaderAndFooterSkip() {
+        val text = """
+            Ignored preamble line 1.
+            Ignored preamble line 2.
+            Keyword Two Match: The adventure begins.
+            The party set off toward the forest.
+            Keyword Footer Match: The end of this chapter.
+            Ignored postamble line 1.
+        """.trimIndent()
+
+        val paragraphs = ChapterParser.parse(
+            content = text,
+            fileName = "chap.txt",
+            headerSkipString = "Keyword One, Keyword Two Match\nKeyword Three",
+            footerSkipString = "Keyword End, Keyword Footer Match\nOther Footer"
+        )
+
+        val texts = paragraphs.map { it.rawText }
+        assertEquals(2, texts.size)
+        assertTrue(texts[0].contains("Keyword Two Match: The adventure begins."))
+        assertTrue(texts[1].contains("The party set off toward the forest."))
+        assertFalse(texts.any { it.contains("Ignored preamble") })
+        assertFalse(texts.any { it.contains("Keyword Footer Match") })
+        assertFalse(texts.any { it.contains("Ignored postamble") })
+    }
+
+    @Test
+    fun testHeaderAndFooterSkipDisabledToggle() {
+        val text = """
+            Header Line to Skip
+            Actual Content
+            Footer Line to Skip
+        """.trimIndent()
+
+        val paragraphs = ChapterParser.parse(
+            content = text,
+            fileName = "chap.txt",
+            headerSkipString = "Actual Content",
+            headerSkipEnabled = false,
+            footerSkipString = "Footer Line",
+            footerSkipEnabled = false
+        )
+
+        val texts = paragraphs.map { it.rawText }
+        assertTrue(texts.any { it.contains("Header Line to Skip") })
+        assertTrue(texts.any { it.contains("Actual Content") })
+        assertTrue(texts.any { it.contains("Footer Line to Skip") })
+    }
+
+    @Test
+    fun testPronunciationRules_exactMatchVsSubstring() {
+        val rules = listOf(
+            com.novelarrow.reader.data.model.PronunciationRule(from = "lead", to = "led", exactMatch = true),
+            com.novelarrow.reader.data.model.PronunciationRule(from = "Xiao", to = "Shao", exactMatch = false)
+        )
+
+        // Exact match should match whole word 'lead', but not 'leader'
+        val text1 = "He will lead the leader."
+        val spoken1 = ChapterParser.applyRulesAndSkips(text1, rules, emptyList())
+        assertEquals("He will led the leader.", spoken1)
+
+        // Substring match should match 'Xiao' everywhere
+        val text2 = "Xiaofeng said hello."
+        val spoken2 = ChapterParser.applyRulesAndSkips(text2, rules, emptyList())
+        assertEquals("Shaofeng said hello.", spoken2)
+    }
+
+    @Test
+    fun testSkipWords_exactMatchVsSubstring() {
+        val skips = listOf(
+            com.novelarrow.reader.data.model.SkipWord(text = "damn", exactMatch = true),
+            com.novelarrow.reader.data.model.SkipWord(text = "bad", exactMatch = false)
+        )
+
+        // Exact match skips 'damn' but keeps words containing it
+        val text1 = "That damn fool was goddamned."
+        val spoken1 = ChapterParser.applyRulesAndSkips(text1, emptyList(), skips)
+        assertEquals("That fool was goddamned.", spoken1)
+
+        // Substring match strips 'bad' everywhere
+        val text2 = "The badge is bad."
+        val spoken2 = ChapterParser.applyRulesAndSkips(text2, emptyList(), skips)
+        assertEquals("The ge is .", spoken2)
+    }
+
+    @Test
+    fun testSkipWordsAndPronunciationDisabledToggle() {
+        val rules = listOf(com.novelarrow.reader.data.model.PronunciationRule("foo", "bar", false))
+        val skips = listOf(com.novelarrow.reader.data.model.SkipWord("baz", false))
+
+        val paragraphs = ChapterParser.parse(
+            content = "This foo is baz.",
+            fileName = "test.txt",
+            pronunciationRules = rules,
+            pronunciationRulesEnabled = false,
+            skipWords = skips,
+            skipWordsEnabled = false
+        )
+
+        assertEquals("This foo is baz.", paragraphs[0].spokenText)
+    }
 }

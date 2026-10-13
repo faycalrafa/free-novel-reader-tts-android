@@ -39,6 +39,8 @@ data class ReaderUiState(
     val isAutoLoopActive: Boolean = false,
     val loopRemaining: Int = 0,
     val availableVoices: List<Voice> = emptyList(),
+    val sleepTimerMinutes: Int = 0,
+    val sleepTimerRemainingSeconds: Int = 0,
     val toastMessage: String? = null
 )
 
@@ -51,6 +53,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     private var ttsManager: TtsManager? = null
+    private var sleepTimerJob: kotlinx.coroutines.Job? = null
 
     init {
         initTts(application)
@@ -89,7 +92,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private fun observeSettings() {
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
-                _uiState.update { it.copy(settings = settings) }
+                _uiState.update {
+                    it.copy(
+                        settings = settings,
+                        sleepTimerMinutes = settings.sleepTimerMinutes,
+                        sleepTimerRemainingSeconds = if (it.sleepTimerRemainingSeconds == 0) settings.sleepTimerMinutes * 60 else it.sleepTimerRemainingSeconds
+                    )
+                }
                 applyVoiceSettings()
             }
         }
@@ -242,10 +251,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     content = content,
                     fileName = chapter.title,
                     contentSelector = settings.contentSelector,
+                    contentSelectorEnabled = settings.contentSelectorEnabled,
                     pronunciationRules = settings.pronunciationRules,
+                    pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
                     skipWords = settings.skipWords,
+                    skipWordsEnabled = settings.skipWordsEnabled,
                     headerSkipString = settings.headerSkipString,
-                    footerSkipString = settings.footerSkipString
+                    headerSkipEnabled = settings.headerSkipEnabled,
+                    footerSkipString = settings.footerSkipString,
+                    footerSkipEnabled = settings.footerSkipEnabled
                 )
             }
 
@@ -287,10 +301,18 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true) }
         updatePlaybackServiceNotification()
         speakParagraph(_uiState.value.currentParagraphIndex)
+
+        // Reset and restart sleep timer if configured
+        val timerMinutes = _uiState.value.sleepTimerMinutes
+        if (timerMinutes > 0) {
+            _uiState.update { it.copy(sleepTimerRemainingSeconds = timerMinutes * 60) }
+            startSleepTimerCountdown()
+        }
     }
 
     fun pauseTts() {
         ttsManager?.stop()
+        sleepTimerJob?.cancel()
         _uiState.update { it.copy(isPlaying = false) }
         updatePlaybackServiceNotification()
     }
@@ -301,8 +323,48 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun stopTts() {
         ttsManager?.stop()
+        sleepTimerJob?.cancel()
         _uiState.update { it.copy(isPlaying = false, isTtsDockVisible = false) }
         NovelAudioPlaybackService.stopService(getApplication())
+    }
+
+    fun setSleepTimer(minutes: Int) {
+        viewModelScope.launch {
+            settingsRepository.setSleepTimerMinutes(minutes)
+        }
+        _uiState.update {
+            it.copy(
+                sleepTimerMinutes = minutes,
+                sleepTimerRemainingSeconds = minutes * 60
+            )
+        }
+        sleepTimerJob?.cancel()
+        if (minutes > 0 && _uiState.value.isPlaying) {
+            startSleepTimerCountdown()
+        }
+    }
+
+    private fun startSleepTimerCountdown() {
+        sleepTimerJob?.cancel()
+        val totalSecs = if (_uiState.value.sleepTimerRemainingSeconds > 0) {
+            _uiState.value.sleepTimerRemainingSeconds
+        } else {
+            _uiState.value.sleepTimerMinutes * 60
+        }
+        _uiState.update { it.copy(sleepTimerRemainingSeconds = totalSecs) }
+
+        sleepTimerJob = viewModelScope.launch {
+            var remaining = totalSecs
+            while (remaining > 0 && _uiState.value.isPlaying) {
+                kotlinx.coroutines.delay(1000L)
+                remaining--
+                _uiState.update { it.copy(sleepTimerRemainingSeconds = remaining) }
+            }
+            if (remaining <= 0 && _uiState.value.isPlaying) {
+                pauseTts()
+                _uiState.update { it.copy(sleepTimerRemainingSeconds = 0, toastMessage = "Sleep timer paused playback") }
+            }
+        }
     }
 
     fun speakAtParagraph(index: Int) {
@@ -458,9 +520,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cycleSpeechRate() {
+        val standardSpeeds = listOf(1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
         val current = _uiState.value.settings.speechRate
-        val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
-        val next = speeds.firstOrNull { it > current + 0.05f } ?: speeds.first()
+        val next = standardSpeeds.firstOrNull { it > current + 0.05f } ?: standardSpeeds.first()
         updateSpeechRate(next)
     }
 
@@ -490,6 +552,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateContentSelectorEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setContentSelectorEnabled(enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
     fun updateHeaderSkipString(headerStr: String) {
         viewModelScope.launch {
             settingsRepository.setHeaderSkipString(headerStr)
@@ -497,9 +566,65 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateHeaderSkipEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setHeaderSkipEnabled(enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
     fun updateFooterSkipString(footerStr: String) {
         viewModelScope.launch {
             settingsRepository.setFooterSkipString(footerStr)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updateFooterSkipEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setFooterSkipEnabled(enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updateSkipWordsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setSkipWordsEnabled(enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addSkipWord(word: String, exactMatch: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.addSkipWord(com.novelarrow.reader.data.model.SkipWord(text = word, exactMatch = exactMatch))
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun removeSkipWord(index: Int) {
+        viewModelScope.launch {
+            settingsRepository.removeSkipWord(index)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updatePronunciationRulesEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setPronunciationRulesEnabled(enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addPronunciationRule(from: String, to: String, exactMatch: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.addPronunciationRule(com.novelarrow.reader.data.model.PronunciationRule(from = from, to = to, exactMatch = exactMatch))
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun removePronunciationRule(index: Int) {
+        viewModelScope.launch {
+            settingsRepository.removePronunciationRule(index)
             _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
         }
     }

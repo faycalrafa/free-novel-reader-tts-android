@@ -301,8 +301,10 @@ object ChapterParser {
 
         for (rule in pronunciationRules) {
             if (rule.from.isBlank()) continue
+            val escaped = Regex.escape(rule.from)
             processed = if (rule.exactMatch) {
-                processed.replace(Regex("\\b${Regex.escape(rule.from)}\\b", RegexOption.IGNORE_CASE), rule.to)
+                val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
+                processed.replace(Regex(pattern), rule.to)
             } else {
                 processed.replace(rule.from, rule.to, ignoreCase = true)
             }
@@ -310,8 +312,10 @@ object ChapterParser {
 
         for (skip in skipWords) {
             if (skip.text.isBlank()) continue
+            val escaped = Regex.escape(skip.text)
             processed = if (skip.exactMatch) {
-                processed.replace(Regex("\\b${Regex.escape(skip.text)}\\b", RegexOption.IGNORE_CASE), "")
+                val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
+                processed.replace(Regex(pattern), "")
             } else {
                 processed.replace(skip.text, "", ignoreCase = true)
             }
