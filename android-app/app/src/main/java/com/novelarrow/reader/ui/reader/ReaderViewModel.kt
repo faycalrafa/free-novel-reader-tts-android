@@ -180,7 +180,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val wasPlaying = _uiState.value.isPlaying
 
         viewModelScope.launch {
-            loadChapterContent(chapter, restoreProgress = true)
+            loadChapterContent(chapter, restoreProgress = !wasPlaying)
             if (wasPlaying) {
                 speakParagraph(0)
             }
@@ -257,7 +257,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun stopTts() {
         ttsManager?.stop()
         _uiState.update { it.copy(isPlaying = false, isTtsDockVisible = false) }
-        updatePlaybackServiceNotification()
+        NovelAudioPlaybackService.stopService(getApplication())
     }
 
     fun speakAtParagraph(index: Int) {
@@ -272,10 +272,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         if (index !in paragraphs.indices) return
 
         val paragraph = paragraphs[index]
+        val spoken = paragraph.spokenText.ifBlank { paragraph.rawText }.trim()
+        if (spoken.isBlank()) {
+            handleParagraphDone(index)
+            return
+        }
+
         val settings = _uiState.value.settings
         ttsManager?.speak(
             index = index,
-            text = paragraph.spokenText,
+            text = spoken,
             rate = settings.speechRate,
             pitch = settings.speechPitch
         )

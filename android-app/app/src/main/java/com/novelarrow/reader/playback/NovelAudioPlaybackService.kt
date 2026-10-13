@@ -7,9 +7,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -19,7 +16,6 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
-import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -47,8 +43,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var audioManager: AudioManager? = null
-    private var focusRequest: AudioFocusRequest? = null
+    private var isForegroundServiceStarted = false
+    private var currentMediaMetadata: MediaMetadata = MediaMetadata.EMPTY
 
     private var currentNovelTitle: String = "NovelArrow Reader"
     private var currentChapterTitle: String = "No chapter loaded"
@@ -75,6 +71,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
         const val EXTRA_PROGRESS_CURRENT = "extra_progress_current"
         const val EXTRA_PROGRESS_TOTAL = "extra_progress_total"
 
+        @Volatile
+        var instance: NovelAudioPlaybackService? = null
+            private set
+
         // State shared with UI
         private val _isPlayingState = MutableStateFlow(false)
         val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
@@ -100,29 +100,51 @@ class NovelAudioPlaybackService : MediaSessionService() {
             currentParagraph: Int = 0,
             totalParagraphs: Int = 0
         ) {
-            val intent = Intent(context, NovelAudioPlaybackService::class.java).apply {
-                action = ACTION_UPDATE_STATE
-                putExtra(EXTRA_IS_PLAYING, isPlaying)
-                putExtra(EXTRA_NOVEL_TITLE, novelTitle)
-                putExtra(EXTRA_CHAPTER_TITLE, chapterTitle)
-                putExtra(EXTRA_PROGRESS_TEXT, progressText)
-                putExtra(EXTRA_PROGRESS_CURRENT, currentParagraph)
-                putExtra(EXTRA_PROGRESS_TOTAL, totalParagraphs)
-            }
-            try {
-                if (isPlaying) {
-                    ContextCompat.startForegroundService(context, intent)
-                } else {
-                    context.startService(intent)
+            val service = instance
+            if (service != null) {
+                service.updatePlaybackState(isPlaying, novelTitle, chapterTitle, progressText)
+            } else {
+                val intent = Intent(context, NovelAudioPlaybackService::class.java).apply {
+                    action = ACTION_UPDATE_STATE
+                    putExtra(EXTRA_IS_PLAYING, isPlaying)
+                    putExtra(EXTRA_NOVEL_TITLE, novelTitle)
+                    putExtra(EXTRA_CHAPTER_TITLE, chapterTitle)
+                    putExtra(EXTRA_PROGRESS_TEXT, progressText)
+                    putExtra(EXTRA_PROGRESS_CURRENT, currentParagraph)
+                    putExtra(EXTRA_PROGRESS_TOTAL, totalParagraphs)
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+                try {
+                    if (isPlaying) {
+                        ContextCompat.startForegroundService(context, intent)
+                    } else {
+                        context.startService(intent)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
+        fun stopService(context: Context) {
+            val service = instance
+            if (service != null) {
+                service.stopServicePlayback()
+            } else {
+                val intent = Intent(context, NovelAudioPlaybackService::class.java).apply {
+                    action = ACTION_STOP
+                }
+                try {
+                    context.startService(intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
 
         val basePlayer = ExoPlayer.Builder(this)
@@ -137,8 +159,22 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .build()
         exoPlayer = basePlayer
 
+        // Listen for external focus loss or headset disconnect to pause cleanly
+        basePlayer.addListener(object : Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (!playWhenReady) {
+                    when (reason) {
+                        Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS,
+                        Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> {
+                            onPauseRequested?.invoke()
+                        }
+                    }
+                }
+            }
+        })
+
         // SilenceMediaSource keeps an active audio pipeline for system media controls & earbud key events
-        val silenceSource = SilenceMediaSource(3_600_000_000L) // 1 hour silence
+        val silenceSource = SilenceMediaSource(3_600_000_000L) // 1 hour silence loop
         basePlayer.setMediaSource(silenceSource)
         basePlayer.repeatMode = Player.REPEAT_MODE_ALL
         basePlayer.prepare()
@@ -164,16 +200,48 @@ class NovelAudioPlaybackService : MediaSessionService() {
             }
 
             override fun seekToNextMediaItem() {
-                onNextChapRequested?.invoke()
+                onNextParaRequested?.invoke()
             }
 
             override fun seekToPreviousMediaItem() {
-                onPrevChapRequested?.invoke()
+                onPrevParaRequested?.invoke()
             }
 
             override fun stop() {
                 super.stop()
                 onStopRequested?.invoke()
+                stopServicePlayback()
+            }
+
+            override fun getAvailableCommands(): Player.Commands {
+                return super.getAvailableCommands().buildUpon()
+                    .add(Player.COMMAND_PLAY_PAUSE)
+                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(Player.COMMAND_STOP)
+                    .build()
+            }
+
+            override fun isCommandAvailable(command: Int): Boolean {
+                return when (command) {
+                    Player.COMMAND_PLAY_PAUSE,
+                    Player.COMMAND_SEEK_TO_NEXT,
+                    Player.COMMAND_SEEK_TO_PREVIOUS,
+                    Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_STOP -> true
+                    else -> super.isCommandAvailable(command)
+                }
+            }
+
+            override fun getMediaMetadata(): MediaMetadata {
+                return currentMediaMetadata
+            }
+
+            override fun getPlaylistMetadata(): MediaMetadata {
+                return currentMediaMetadata
             }
         }
 
@@ -187,6 +255,25 @@ class NovelAudioPlaybackService : MediaSessionService() {
         )
 
         val sessionCallback = object : MediaSession.Callback {
+            override fun onConnect(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): MediaSession.ConnectionResult {
+                val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                    .add(SessionCommand(ACTION_PLAY, android.os.Bundle.EMPTY))
+                    .add(SessionCommand(ACTION_PAUSE, android.os.Bundle.EMPTY))
+                    .add(SessionCommand(ACTION_PLAY_PAUSE, android.os.Bundle.EMPTY))
+                    .add(SessionCommand(ACTION_PREV_PARA, android.os.Bundle.EMPTY))
+                    .add(SessionCommand(ACTION_NEXT_PARA, android.os.Bundle.EMPTY))
+                    .add(SessionCommand(ACTION_PREV_CHAP, android.os.Bundle.EMPTY))
+                    .add(SessionCommand(ACTION_NEXT_CHAP, android.os.Bundle.EMPTY))
+                    .add(SessionCommand(ACTION_STOP, android.os.Bundle.EMPTY))
+                    .build()
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(sessionCommands)
+                    .build()
+            }
+
             override fun onCustomCommand(
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo,
@@ -203,7 +290,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     ACTION_NEXT_PARA -> onNextParaRequested?.invoke()
                     ACTION_PREV_CHAP -> onPrevChapRequested?.invoke()
                     ACTION_NEXT_CHAP -> onNextChapRequested?.invoke()
-                    ACTION_STOP -> onStopRequested?.invoke()
+                    ACTION_STOP -> {
+                        onStopRequested?.invoke()
+                        stopServicePlayback()
+                    }
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }
@@ -214,7 +304,6 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .setCallback(sessionCallback)
             .build()
 
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NovelArrow::PlaybackWakeLock")
     }
@@ -246,7 +335,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
             ACTION_NEXT_PARA -> onNextParaRequested?.invoke()
             ACTION_PREV_CHAP -> onPrevChapRequested?.invoke()
             ACTION_NEXT_CHAP -> onNextChapRequested?.invoke()
-            ACTION_STOP -> onStopRequested?.invoke()
+            ACTION_STOP -> {
+                onStopRequested?.invoke()
+                stopServicePlayback()
+            }
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -272,11 +364,13 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .setDisplayTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
             .setSubtitle(paragraphProgress)
             .build()
-
+        currentMediaMetadata = metadata
         exoPlayer?.setPlaylistMetadata(metadata)
 
+        val notification = buildForegroundNotification(novelTitle, chapterTitle, paragraphProgress, isPlaying)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
         if (isPlaying) {
-            requestAudioFocus()
             acquireWakeLock()
 
             if (exoPlayer?.playbackState == Player.STATE_IDLE) {
@@ -286,31 +380,59 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 exoPlayer?.play()
             }
 
-            val notification = buildForegroundNotification(novelTitle, chapterTitle, paragraphProgress, true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            if (!isForegroundServiceStarted) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                    } else {
+                        startForeground(NOTIFICATION_ID, notification)
+                    }
+                    isForegroundServiceStarted = true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             } else {
-                startForeground(NOTIFICATION_ID, notification)
+                manager.notify(NOTIFICATION_ID, notification)
             }
         } else {
             releaseWakeLock()
-            abandonAudioFocus()
 
             if (exoPlayer?.isPlaying == true) {
                 exoPlayer?.pause()
             }
 
-            val notification = buildForegroundNotification(novelTitle, chapterTitle, paragraphProgress, false)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_DETACH)
-            } else {
-                @Suppress("DEPRECATION")
-                stopForeground(false)
+            if (isForegroundServiceStarted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(false)
+                }
+                isForegroundServiceStarted = false
             }
 
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.notify(NOTIFICATION_ID, notification)
         }
+    }
+
+    fun stopServicePlayback() {
+        _isPlayingState.value = false
+        releaseWakeLock()
+        if (exoPlayer?.isPlaying == true) {
+            exoPlayer?.pause()
+        }
+        if (isForegroundServiceStarted) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+            isForegroundServiceStarted = false
+        }
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(NOTIFICATION_ID)
+        stopSelf()
     }
 
     private fun buildForegroundNotification(
@@ -396,46 +518,6 @@ class NovelAudioPlaybackService : MediaSessionService() {
         return builder.build()
     }
 
-    private fun requestAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val playbackAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build()
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(playbackAttributes)
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener { focusChange ->
-                    when (focusChange) {
-                        AudioManager.AUDIOFOCUS_LOSS -> onPauseRequested?.invoke()
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> onPauseRequested?.invoke()
-                        AudioManager.AUDIOFOCUS_GAIN -> onPlayRequested?.invoke()
-                    }
-                }
-                .build()
-            focusRequest = request
-            audioManager?.requestAudioFocus(request)
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager?.requestAudioFocus(
-                { focusChange ->
-                    if (focusChange == AudioManager.AUDIOFOCUS_LOSS) onPauseRequested?.invoke()
-                },
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN
-            )
-        }
-    }
-
-    private fun abandonAudioFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager?.abandonAudioFocus(null)
-        }
-    }
-
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld != true) {
             wakeLock?.acquire(4 * 60 * 60 * 1000L) // 4 hours timeout safety
@@ -462,15 +544,23 @@ class NovelAudioPlaybackService : MediaSessionService() {
         }
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (!_isPlayingState.value) {
+            stopServicePlayback()
+        }
+    }
+
     override fun onDestroy() {
+        instance = null
         releaseWakeLock()
-        abandonAudioFocus()
         mediaSession?.run {
             player.release()
             release()
             mediaSession = null
         }
         exoPlayer = null
+        isForegroundServiceStarted = false
         super.onDestroy()
     }
 }
