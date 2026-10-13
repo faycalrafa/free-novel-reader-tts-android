@@ -209,7 +209,6 @@ fun ReaderScreen(
                         totalParagraphs = uiState.paragraphs.size,
                         currentChapterIndex = uiState.currentChapter?.orderIndex ?: 0,
                         totalChapters = uiState.chapters.size,
-                        chapters = uiState.chapters,
                         chapterTitle = uiState.currentChapter?.title ?: "",
                         isPlaying = uiState.isPlaying,
                         speechRate = uiState.settings.speechRate,
@@ -220,11 +219,7 @@ fun ReaderScreen(
                         onNextChapterClick = { viewModel.nextChapter() },
                         onStopClick = { viewModel.stopTts() },
                         onSpeedClick = { viewModel.cycleSpeechRate() },
-                        onSeekChapter = { chapIdx -> viewModel.selectChapter(chapIdx, forceStartAtBeginning = false) },
-                        onSeekPercent = { pct ->
-                            val target = (pct * uiState.paragraphs.size).toInt()
-                            viewModel.speakAtParagraph(target)
-                        }
+                        onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) }
                     )
                 }
             },
@@ -470,7 +465,6 @@ fun TtsDock(
     totalParagraphs: Int,
     currentChapterIndex: Int = 0,
     totalChapters: Int = 0,
-    chapters: List<Chapter> = emptyList(),
     chapterTitle: String,
     isPlaying: Boolean,
     speechRate: Float = 1.0f,
@@ -481,23 +475,18 @@ fun TtsDock(
     onNextChapterClick: () -> Unit,
     onStopClick: () -> Unit,
     onSpeedClick: () -> Unit = {},
-    onSeekChapter: (Int) -> Unit = {},
-    onSeekPercent: (Float) -> Unit
+    onSeekParagraph: (Int) -> Unit
 ) {
-    var isDraggingChapter by remember { mutableStateOf(false) }
-    var dragChapterIndex by remember(currentChapterIndex) { mutableFloatStateOf(currentChapterIndex.toFloat()) }
+    var isDragging by remember { mutableStateOf(false) }
+    var dragParaIndex by remember(currentParagraph) { mutableFloatStateOf(currentParagraph.toFloat()) }
 
-    val displayChapIdx = if (isDraggingChapter) {
-        dragChapterIndex.toInt().coerceIn(0, (totalChapters - 1).coerceAtLeast(0))
-    } else currentChapterIndex
+    val displayPara = if (isDragging) {
+        dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
+    } else currentParagraph
 
-    val displayChapTitle = if (isDraggingChapter && displayChapIdx in chapters.indices) {
-        chapters[displayChapIdx].title
-    } else chapterTitle
-
-    val paragraphFraction = if (totalParagraphs > 0) {
-        (currentParagraph + 1).toFloat() / totalParagraphs.toFloat()
-    } else 0f
+    val progressPercent = if (totalParagraphs > 0) {
+        ((displayPara + 1).toFloat() / totalParagraphs.toFloat() * 100).toInt()
+    } else 0
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f),
@@ -510,60 +499,30 @@ fun TtsDock(
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            // Interactive chapter slider (or paragraph slider if only 1 chapter)
-            if (totalChapters > 1) {
-                Slider(
-                    value = if (isDraggingChapter) dragChapterIndex else currentChapterIndex.toFloat(),
-                    onValueChange = { newVal ->
-                        isDraggingChapter = true
-                        dragChapterIndex = newVal
-                    },
-                    onValueChangeFinished = {
-                        isDraggingChapter = false
-                        val target = dragChapterIndex.toInt().coerceIn(0, totalChapters - 1)
-                        onSeekChapter(target)
-                    },
-                    valueRange = 0f .. (totalChapters - 1).toFloat(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(30.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
-                    )
-                )
-            } else {
-                Slider(
-                    value = currentParagraph.toFloat(),
-                    onValueChange = { newVal ->
-                        val pct = if (totalParagraphs > 0) newVal / totalParagraphs.toFloat() else 0f
-                        onSeekPercent(pct)
-                    },
-                    valueRange = 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(30.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
-                    )
-                )
-            }
-
-            // Subtle paragraph progress within current chapter
-            LinearProgressIndicator(
-                progress = { paragraphFraction },
+            // Slider strictly controls progress within the current chapter
+            Slider(
+                value = if (isDragging) dragParaIndex else currentParagraph.toFloat().coerceIn(0f, (totalParagraphs - 1).coerceAtLeast(1).toFloat()),
+                onValueChange = { newVal ->
+                    isDragging = true
+                    dragParaIndex = newVal
+                },
+                onValueChangeFinished = {
+                    isDragging = false
+                    val target = dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
+                    onSeekParagraph(target)
+                },
+                valueRange = 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(2.dp)),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                    .height(30.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                )
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Metadata row
             Row(
@@ -573,14 +532,14 @@ fun TtsDock(
             ) {
                 Column(modifier = Modifier.weight(1f, fill = false)) {
                     Text(
-                        text = if (totalChapters > 1) "Ch. ${displayChapIdx + 1}/$totalChapters • $displayChapTitle" else displayChapTitle,
+                        text = if (totalChapters > 0) "Ch. ${currentChapterIndex + 1}/$totalChapters • $chapterTitle" else chapterTitle,
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (isDraggingChapter) {
+                    if (isDragging) {
                         Text(
-                            text = "Release to jump to Chapter ${displayChapIdx + 1}",
+                            text = "Release to jump to ¶ ${displayPara + 1} ($progressPercent%)",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
@@ -610,7 +569,7 @@ fun TtsDock(
                     }
 
                     Text(
-                        text = "¶ ${currentParagraph + 1} / $totalParagraphs (${(paragraphFraction * 100).toInt()}%)",
+                        text = "¶ ${displayPara + 1} / $totalParagraphs ($progressPercent%)",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                     )

@@ -111,6 +111,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         NovelAudioPlaybackService.onSeekToChapterRequested = { targetChapter ->
             selectChapter(targetChapter, forceStartAtBeginning = false)
         }
+        NovelAudioPlaybackService.onSeekToParaRequested = { targetPara ->
+            speakAtParagraph(targetPara)
+        }
     }
 
     private fun loadInitialLibrary() {
@@ -538,6 +541,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         NovelAudioPlaybackService.onNextChapRequested = null
         NovelAudioPlaybackService.onPrevChapRequested = null
         NovelAudioPlaybackService.onSeekToChapterRequested = null
+        NovelAudioPlaybackService.onSeekToParaRequested = null
         ttsManager?.shutdown()
         super.onCleared()
     }

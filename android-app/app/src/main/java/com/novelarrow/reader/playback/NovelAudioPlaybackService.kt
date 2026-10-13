@@ -100,6 +100,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
         var onNextChapRequested: (() -> Unit)? = null
         var onPrevChapRequested: (() -> Unit)? = null
         var onSeekToChapterRequested: ((Int) -> Unit)? = null
+        var onSeekToParaRequested: ((Int) -> Unit)? = null
 
         fun startOrUpdateService(
             context: Context,
@@ -351,10 +352,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
     }
 
     private fun handleSeekTo(positionMs: Long) {
-        if (totalChaptersCount > 1 && virtualDurationMs > 0) {
-            val targetChap = (positionMs.toFloat() / virtualDurationMs.toFloat() * totalChaptersCount).toInt()
-                .coerceIn(0, totalChaptersCount - 1)
-            onSeekToChapterRequested?.invoke(targetChap)
+        if (totalParagraphsCount > 0 && virtualDurationMs > 0) {
+            val targetPara = (positionMs.toFloat() / virtualDurationMs.toFloat() * totalParagraphsCount).toInt()
+                .coerceIn(0, totalParagraphsCount - 1)
+            onSeekToParaRequested?.invoke(targetPara)
         }
     }
 
@@ -424,16 +425,11 @@ class NovelAudioPlaybackService : MediaSessionService() {
         currentParagraphIndex = currentParagraph
         totalParagraphsCount = totalParagraphs
 
-        // 10 seconds per chapter in the virtual progress timeline
-        val CHAPTER_UNIT_MS = 10_000L
-        if (totalChapters > 1) {
-            virtualDurationMs = totalChapters.toLong() * CHAPTER_UNIT_MS
-            val paraFrac = if (totalParagraphs > 0) currentParagraph.toFloat() / totalParagraphs.toFloat() else 0f
-            virtualPositionMs = ((chapterIndex.toFloat() + paraFrac) * CHAPTER_UNIT_MS).toLong().coerceIn(0L, virtualDurationMs)
-        } else {
-            virtualDurationMs = (totalParagraphs.coerceAtLeast(1) * 1_000L).toLong()
-            virtualPositionMs = (currentParagraph * 1_000L).toLong().coerceIn(0L, virtualDurationMs)
-        }
+        // Virtual progress timeline represents the CURRENT chapter's paragraphs
+        val PARAGRAPH_UNIT_MS = 1_000L
+        val safeParas = totalParagraphs.coerceAtLeast(1)
+        virtualDurationMs = safeParas.toLong() * PARAGRAPH_UNIT_MS
+        virtualPositionMs = (currentParagraph.coerceIn(0, safeParas).toLong() * PARAGRAPH_UNIT_MS).coerceIn(0L, virtualDurationMs)
 
         _isPlayingState.value = isPlaying
         _currentInfo.value = "$novelTitle • $chapterTitle"
