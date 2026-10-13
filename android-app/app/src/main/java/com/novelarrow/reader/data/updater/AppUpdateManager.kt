@@ -11,6 +11,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileNotFoundException
@@ -56,7 +57,7 @@ object AppUpdateManager {
         repoName: String = DEFAULT_REPO_NAME
     ): CheckUpdateResult = withContext(Dispatchers.IO) {
         try {
-            val endpoint = "https://api.github.com/repos/$repoOwner/$repoName/releases/latest"
+            val endpoint = "https://api.github.com/repos/$repoOwner/$repoName/releases"
             Log.d(TAG, "Checking update at $endpoint (current: $currentVersion)")
 
             val url = URL(endpoint)
@@ -125,7 +126,14 @@ object AppUpdateManager {
         repoName: String = DEFAULT_REPO_NAME
     ): UpdateInfo? {
         return try {
-            val json = JSONObject(jsonString)
+            val trimmed = jsonString.trim()
+            val json = if (trimmed.startsWith("[")) {
+                val array = JSONArray(trimmed)
+                if (array.length() == 0) return null
+                array.getJSONObject(0)
+            } else {
+                JSONObject(trimmed)
+            }
             val tagName = json.optString("tag_name", "").ifBlank { return null }
             val name = json.optString("name", "").ifBlank { tagName }
             val body = json.optString("body", "").ifBlank { "Performance improvements and bug fixes." }
