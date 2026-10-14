@@ -15,7 +15,7 @@ import com.novelarrow.reader.data.model.ThemeMode
 import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
-import com.novelarrow.reader.playback.NovelAudioPlaybackService
+import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,6 +75,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private var downloadJob: Job? = null
 
     init {
+        AudioPlaybackCoordinator.initialize(application)
         observeSettings()
         observePlaybackService()
         loadInitialLibrary()
@@ -85,7 +86,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun observePlaybackService() {
         viewModelScope.launch {
-            NovelAudioPlaybackService.playbackProgressState.collect { progress ->
+            AudioPlaybackCoordinator.playbackProgressState.collect { progress ->
                 if (progress.source == PlaybackSource.READER) {
                     val curNovel = _uiState.value.currentNovel
                     val isMatchingNovel = curNovel != null && progress.novelId == curNovel.id
@@ -123,7 +124,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         viewModelScope.launch {
-            NovelAudioPlaybackService.availableVoicesState.collect { voices ->
+            AudioPlaybackCoordinator.availableVoicesState.collect { voices ->
                 if (voices.isNotEmpty()) {
                     _uiState.update { it.copy(availableVoices = voices) }
                 }
@@ -316,7 +317,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val wasPlaying = _uiState.value.isPlaying
 
         if (wasPlaying) {
-            NovelAudioPlaybackService.dispatchPause()
+            AudioPlaybackCoordinator.pause()
         }
 
         val currentChap = _uiState.value.currentChapter
@@ -400,7 +401,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         _uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true) }
 
-        NovelAudioPlaybackService.playReaderChapter(
+        AudioPlaybackCoordinator.playReaderChapter(
             context = getApplication(),
             novelId = novel.id,
             novelTitle = novel.title,
@@ -430,7 +431,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun pauseTts() {
-        NovelAudioPlaybackService.dispatchPause()
+        AudioPlaybackCoordinator.pause()
         sleepTimerJob?.cancel()
         _uiState.update { it.copy(isPlaying = false) }
     }
@@ -440,7 +441,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun stopTts() {
-        NovelAudioPlaybackService.dispatchStop()
+        AudioPlaybackCoordinator.stop()
         sleepTimerJob?.cancel()
         _uiState.update { it.copy(isPlaying = false, isTtsDockVisible = false) }
     }
@@ -493,15 +494,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         _uiState.update { it.copy(currentParagraphIndex = index, isPlaying = true, isTtsDockVisible = true) }
 
-        val progress = NovelAudioPlaybackService.playbackProgressState.value
+        val progress = AudioPlaybackCoordinator.playbackProgressState.value
         if (progress.source == PlaybackSource.READER &&
             progress.novelId == novel.id &&
-            progress.chapterId == chapter.id &&
-            NovelAudioPlaybackService.instance != null
+            progress.chapterId == chapter.id
         ) {
-            NovelAudioPlaybackService.dispatchSeekToPara(index)
+            AudioPlaybackCoordinator.seekToParagraph(index)
         } else {
-            NovelAudioPlaybackService.playReaderChapter(
+            AudioPlaybackCoordinator.playReaderChapter(
                 context = getApplication(),
                 novelId = novel.id,
                 novelTitle = novel.title,
@@ -524,7 +524,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val total = _uiState.value.paragraphs.size
         if (current + 1 < total) {
             if (_uiState.value.isPlaying) {
-                NovelAudioPlaybackService.dispatchNextPara()
+                AudioPlaybackCoordinator.nextParagraph()
             } else {
                 speakAtParagraph(current + 1)
             }
@@ -537,7 +537,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val current = _uiState.value.currentParagraphIndex
         if (current - 1 >= 0) {
             if (_uiState.value.isPlaying) {
-                NovelAudioPlaybackService.dispatchPrevPara()
+                AudioPlaybackCoordinator.previousParagraph()
             } else {
                 speakAtParagraph(current - 1)
             }
@@ -550,7 +550,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
         if (currentIdx + 1 < chapters.size) {
             if (_uiState.value.isPlaying) {
-                NovelAudioPlaybackService.dispatchNextChap()
+                AudioPlaybackCoordinator.nextChapter()
             } else {
                 selectChapter(currentIdx + 1, forceStartAtBeginning = false)
             }
@@ -566,7 +566,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
         if (currentIdx - 1 >= 0) {
             if (_uiState.value.isPlaying) {
-                NovelAudioPlaybackService.dispatchPrevChap()
+                AudioPlaybackCoordinator.previousChapter()
             } else {
                 selectChapter(currentIdx - 1, forceStartAtBeginning = false)
             }
@@ -601,7 +601,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val isDeletingCurrent = _uiState.value.currentChapter?.id == chapter.id
 
         if (isDeletingCurrent && wasPlaying) {
-            NovelAudioPlaybackService.dispatchPause()
+            AudioPlaybackCoordinator.pause()
         }
 
         viewModelScope.launch {
@@ -644,7 +644,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                             toastMessage = "Deleted last chapter of novel."
                         )
                     }
-                    NovelAudioPlaybackService.stopService(getApplication())
+                    AudioPlaybackCoordinator.stop()
                 }
             } else {
                 val currentChap = _uiState.value.currentChapter
@@ -748,7 +748,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun updateSpeechRate(rate: Float) {
         viewModelScope.launch {
             settingsRepository.setSpeechRate(rate)
-            NovelAudioPlaybackService.instance?.updateTtsSettings(
+            AudioPlaybackCoordinator.updateTtsSettings(
                 rate = rate,
                 pitch = _uiState.value.settings.speechPitch,
                 voiceName = _uiState.value.settings.selectedVoiceName
@@ -766,7 +766,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun updateSpeechPitch(pitch: Float) {
         viewModelScope.launch {
             settingsRepository.setSpeechPitch(pitch)
-            NovelAudioPlaybackService.instance?.updateTtsSettings(
+            AudioPlaybackCoordinator.updateTtsSettings(
                 rate = _uiState.value.settings.speechRate,
                 pitch = pitch,
                 voiceName = _uiState.value.settings.selectedVoiceName
@@ -777,7 +777,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun updateVoice(voiceName: String?) {
         viewModelScope.launch {
             settingsRepository.setVoice(voiceName)
-            NovelAudioPlaybackService.instance?.updateTtsSettings(
+            AudioPlaybackCoordinator.updateTtsSettings(
                 rate = _uiState.value.settings.speechRate,
                 pitch = _uiState.value.settings.speechPitch,
                 voiceName = voiceName
@@ -1000,23 +1000,17 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun updatePlaybackServiceNotification() {
-        val context = getApplication<Application>()
         val state = _uiState.value
         val novel = state.currentNovel?.title ?: "NovelArrow Reader"
         val chapter = state.currentChapter?.title ?: "No chapter loaded"
         val total = state.paragraphs.size
-        val cur = (state.currentParagraphIndex + 1).coerceAtMost(total)
         val currentChapIdx = state.currentChapter?.orderIndex ?: 0
         val totalChaps = state.chapters.size
-        val progressText = if (totalChaps > 0) "Ch. ${currentChapIdx + 1}/$totalChaps • ¶ $cur/$total" else "Ready"
 
-        NovelAudioPlaybackService.startOrUpdateService(
-            context = context,
-            isPlaying = state.isPlaying,
+        AudioPlaybackCoordinator.updateMetadata(
             novelTitle = novel,
             chapterTitle = chapter,
-            progressText = progressText,
-            currentChapterIndex = currentChapIdx,
+            chapterIndex = currentChapIdx,
             totalChapters = totalChaps,
             currentParagraph = state.currentParagraphIndex,
             totalParagraphs = total

@@ -73,6 +73,10 @@ class MainActivity : ComponentActivity() {
                 scope.launch { drawerState.close() }
             }
 
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.ABOUT) {
+                currentScreen = AppScreen.READER
+            }
+
             val folderPickerLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.OpenDocumentTree()
             ) { uri ->

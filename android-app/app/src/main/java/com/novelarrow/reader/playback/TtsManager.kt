@@ -9,6 +9,10 @@ import android.speech.tts.Voice
 import android.util.Log
 import java.util.Locale
 
+/**
+ * Robust wrapper for Android TextToSpeech engine with AudioAttributes, safe language
+ * autodetection and override, and utterance chunking to prevent silent synthesis limits.
+ */
 class TtsManager(
     private val context: Context,
     private val onInitComplete: (Boolean) -> Unit
@@ -17,6 +21,8 @@ class TtsManager(
     private var tts: TextToSpeech? = null
     var isInitialized: Boolean = false
         private set
+
+    private var languageOverride: Locale? = null
 
     var onParagraphStart: ((Int) -> Unit)? = null
     var onParagraphDone: ((Int) -> Unit)? = null
@@ -45,6 +51,19 @@ class TtsManager(
         }
     }
 
+    fun setLanguageOverride(locale: Locale?) {
+        languageOverride = locale
+        if (locale != null && isInitialized) {
+            try {
+                if ((tts?.isLanguageAvailable(locale) ?: -1) >= TextToSpeech.LANG_AVAILABLE) {
+                    tts?.language = locale
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to apply language override: ${e.message}")
+            }
+        }
+    }
+
     /**
      * Safely selects an available language for the TTS engine, falling back cleanly
      * without hardcoding Locale.getDefault() if unsupported.
@@ -52,6 +71,14 @@ class TtsManager(
     fun configureLanguageSafely(targetText: String? = null) {
         val t = tts ?: return
         try {
+            // 0. Manual language override if set
+            languageOverride?.let { override ->
+                if (t.isLanguageAvailable(override) >= TextToSpeech.LANG_AVAILABLE) {
+                    t.language = override
+                    return
+                }
+            }
+
             // 1. If text is provided, check for CJK script characters
             if (!targetText.isNullOrBlank()) {
                 val hasHiraganaOrKatakana = targetText.any {
@@ -171,7 +198,7 @@ class TtsManager(
             }
             var breakIdx = -1
             val candidate = remaining.substring(0, maxChunkSize)
-            val punctMatch = Regex("""[.!?。！？\n]\s*""").findAll(candidate).lastOrNull()
+            val punctMatch = Regex("""[.!?。！？\n]\s*["'”’」』）］｝»)\\]}]*\s*""").findAll(candidate).lastOrNull()
             if (punctMatch != null && punctMatch.range.last > maxChunkSize / 3) {
                 breakIdx = punctMatch.range.last + 1
             } else {

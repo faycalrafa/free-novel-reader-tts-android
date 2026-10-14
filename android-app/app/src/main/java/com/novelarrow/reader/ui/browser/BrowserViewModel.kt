@@ -1,22 +1,23 @@
 package com.novelarrow.reader.ui.browser
 
 import android.app.Application
-import android.content.Context
-import android.media.AudioManager
 import android.speech.tts.Voice
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.novelarrow.reader.browser.engine.ExtractedContent
+import com.novelarrow.reader.browser.engine.RunAt
+import com.novelarrow.reader.browser.engine.WebContentExtractor
+import com.novelarrow.reader.browser.engine.WebScriptInjector
 import com.novelarrow.reader.data.browser.WebNovelDownloader
 import com.novelarrow.reader.data.model.Novel
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.WebBrowserSettings
-import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
-import com.novelarrow.reader.playback.NovelAudioPlaybackService
+import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,18 +30,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONArray
 import org.json.JSONObject
-import org.json.JSONTokener
 import java.util.UUID
 
-sealed interface WebViewCommand {
-    data class LoadUrl(val url: String) : WebViewCommand
-    object GoBack : WebViewCommand
-    object GoForward : WebViewCommand
-    object Reload : WebViewCommand
-    data class EvaluateJavascript(val script: String, val callback: ((String?) -> Unit)? = null) : WebViewCommand
+sealed interface BrowserAction {
+    data class LoadUrl(val url: String) : BrowserAction
+    object GoBack : BrowserAction
+    object GoForward : BrowserAction
+    object Reload : BrowserAction
+    data class EvaluateJavascript(val script: String, val callback: ((String?) -> Unit)? = null) : BrowserAction
 }
+
+typealias WebViewCommand = BrowserAction
 
 data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
@@ -118,8 +119,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
 
-    private val _webViewCommands = Channel<WebViewCommand>(Channel.BUFFERED)
-    val webViewCommands: Flow<WebViewCommand> = _webViewCommands.receiveAsFlow()
+    // Decoupled one-off action channel to WebView Composable (prevents WebView memory leaks)
+    private val _browserActions = Channel<BrowserAction>(Channel.BUFFERED)
+    val browserActions: Flow<BrowserAction> = _browserActions.receiveAsFlow()
+    val webViewCommands: Flow<WebViewCommand> get() = browserActions
 
     private var downloadCountdownJob: Job? = null
     private var autoLoopJob: Job? = null
@@ -136,21 +139,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun dispatchLoadUrl(url: String) {
-        _webViewCommands.trySend(WebViewCommand.LoadUrl(url))
+        _browserActions.trySend(BrowserAction.LoadUrl(url))
     }
 
     private fun dispatchEvaluateJs(script: String, callback: ((String?) -> Unit)? = null) {
-        _webViewCommands.trySend(WebViewCommand.EvaluateJavascript(script, callback))
+        _browserActions.trySend(BrowserAction.EvaluateJavascript(script, callback))
     }
 
     fun playClickSound() {
-        try {
-            val audioManager = getApplication<android.app.Application>().getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 1.0f)
-        } catch (_: Exception) {}
+        // Compose UI emits native view sound effects without ToneGenerator allocations
     }
 
     init {
+        AudioPlaybackCoordinator.initialize(application)
         val initialSettings = settingsRepository.getBrowserSettings()
         val startUrl = if (initialSettings.lastUrl.isNotBlank() && initialSettings.lastUrl != "https://novelbin.me") {
             initialSettings.lastUrl
@@ -186,7 +187,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun observePlaybackService() {
         viewModelScope.launch {
-            NovelAudioPlaybackService.playbackProgressState.collect { progress ->
+            AudioPlaybackCoordinator.playbackProgressState.collect { progress ->
                 if (progress.source == PlaybackSource.BROWSER) {
                     val idx = progress.currentParagraphIndex
                     _uiState.update {
@@ -204,7 +205,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }
         viewModelScope.launch {
-            NovelAudioPlaybackService.availableVoicesState.collect { voices ->
+            AudioPlaybackCoordinator.availableVoicesState.collect { voices ->
                 if (voices.isNotEmpty()) {
                     _uiState.update { it.copy(availableVoices = voices) }
                 }
@@ -249,7 +250,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun closeTab(tabId: String) {
         val currentTabs = _uiState.value.tabs
         if (currentTabs.size <= 1) {
-            // Don't close last tab, reset it to Google
             val resetTab = BrowserTab(url = DEFAULT_URL, title = "Google")
             _uiState.update {
                 it.copy(
@@ -329,15 +329,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun goBack() {
-        _webViewCommands.trySend(WebViewCommand.GoBack)
+        _browserActions.trySend(BrowserAction.GoBack)
     }
 
     fun goForward() {
-        _webViewCommands.trySend(WebViewCommand.GoForward)
+        _browserActions.trySend(BrowserAction.GoForward)
     }
 
     fun reload() {
-        _webViewCommands.trySend(WebViewCommand.Reload)
+        _browserActions.trySend(BrowserAction.Reload)
     }
 
     fun onNavigationStateChanged(canGoBack: Boolean, canGoForward: Boolean) {
@@ -372,6 +372,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             )
         }
         updateCurrentTabUrl(url, _uiState.value.pageTitle)
+
+        // Inject userscripts configured to run at document start
+        val startScripts = WebScriptInjector.buildUserscriptInjectionCode(url, RunAt.DOCUMENT_START)
+        if (startScripts.isNotBlank()) {
+            dispatchEvaluateJs(startScripts)
+        }
     }
 
     fun onPageProgress(progress: Int) {
@@ -399,15 +405,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         updateCurrentTabUrl(url, safeTitle)
         saveLastUrl(url)
 
-        // Inject JS helper
-        injectHelperScript()
+        // Inject JS helper and document-end userscripts
+        injectHelperScript(url)
 
-        // 1. If batch download is active, trigger sequence (listen until page is loaded, wait timer, then download)
+        // 1. If batch download is active, trigger sequence
         if (_uiState.value.isDownloading) {
             triggerBatchDownloadSequence()
         }
 
-        // 3. If Live Reading was active across page transitions or ttsAutoStart is enabled
+        // 2. If Live Reading was active across page transitions or ttsAutoStart is enabled
         if (_uiState.value.isLiveReading || _uiState.value.settings.ttsAutoStart) {
             viewModelScope.launch {
                 delay(700)
@@ -420,299 +426,25 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // JavaScript Bridge & Helpers
     // =========================================================================
 
-    private fun injectHelperScript() {
-        val js = """
-            (function() {
-                // 1. Inject highlight and hover styles
-                if (!document.getElementById('na-tts-styles')) {
-                    var styleEl = document.createElement('style');
-                    styleEl.id = 'na-tts-styles';
-                    styleEl.textContent = 
-                        '.na-tts-highlight { background-color: rgba(255, 235, 59, 0.38) !important; border-radius: 4px !important; box-shadow: 0 0 0 2px rgba(255, 214, 0, 0.4) !important; }' +
-                        '[data-novel-para-idx] { cursor: pointer; transition: background-color 0.2s ease; }' +
-                        '[data-novel-para-idx]:hover { background-color: rgba(0, 122, 255, 0.08); }';
-                    (document.head || document.documentElement).appendChild(styleEl);
-                }
-
-                // 2. Interactive paragraph click to seek TTS (do NOT block clicks on links/buttons)
-                if (!window.__novelArrowClickBound) {
-                    window.__novelArrowClickBound = true;
-                    document.addEventListener('click', function(e) {
-                        if (e.target && e.target.closest('a, button, input, select, textarea, [role="button"]')) {
-                            return; // Let user interact with buttons and links normally
-                        }
-                        var pEl = e.target.closest('[data-novel-para-idx]');
-                        if (pEl) {
-                            var idxStr = pEl.getAttribute('data-novel-para-idx');
-                            if (idxStr !== null && window.AndroidBridge && window.AndroidBridge.onParagraphClicked) {
-                                var idx = parseInt(idxStr, 10);
-                                if (!isNaN(idx)) {
-                                    window.AndroidBridge.onParagraphClicked(idx);
-                                }
-                            }
-                        }
-                    }, true);
-                }
-
-                // 3. Scroll to bottom detector for auto-next on scroll
-                if (!window.__novelArrowScrollBound) {
-                    window.__novelArrowScrollBound = true;
-                    window.addEventListener('scroll', function() {
-                        if ((window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 16)) {
-                            if (window.AndroidBridge && window.AndroidBridge.onScrolledToBottom) {
-                                window.AndroidBridge.onScrolledToBottom();
-                            }
-                        }
-                    });
-                }
-            })();
-        """.trimIndent()
-        dispatchEvaluateJs(js)
+    private fun injectHelperScript(url: String) {
+        dispatchEvaluateJs(WebScriptInjector.buildHelperScript())
+        val endScripts = WebScriptInjector.buildUserscriptInjectionCode(url, RunAt.DOCUMENT_END)
+        if (endScripts.isNotBlank()) {
+            dispatchEvaluateJs(endScripts)
+        }
     }
 
     fun buildContentExtractionScript(contentSelector: String, ignoredSelectors: List<String>): String {
-        val safeContentSelector = JSONObject.quote(contentSelector.trim())
-        val safeIgnoredArray = JSONArray(ignoredSelectors).toString()
-        return """
-            (function() {
-                try {
-                    var customSelector = $safeContentSelector;
-                    var userIgnored = $safeIgnoredArray;
-                    var defaultIgnore = [
-                        'a', 'button', 'input', 'select', 'textarea', 'form',
-                        'header', 'footer', 'aside', 'nav',
-                        'script', 'style', 'noscript', 'iframe',
-                        '.sidebar', '#sidebar', '.header', '#header', '.footer', '#footer',
-                        '.ad', '.ads', '.advertisement', '#comments', '.comments',
-                        '#custom-floating-bar', '#na-root', '#na-player-bar', '#na-floating-next',
-                        '.na-tts-highlight'
-                    ];
-                    var ignored = defaultIgnore.slice();
-                    for (var d = 0; d < userIgnored.length; d++) {
-                        if (userIgnored[d] && ignored.indexOf(userIgnored[d]) === -1) {
-                            ignored.push(userIgnored[d]);
-                        }
-                    }
-
-                    function isIgnored(el) {
-                        if (!el) return true;
-                        try {
-                            for (var i = 0; i < ignored.length; i++) {
-                                var sel = ignored[i];
-                                if (sel && (el.matches(sel) || el.closest(sel))) return true;
-                            }
-                        } catch(e) {}
-                        return false;
-                    }
-
-                    function extractFrom(container, useFilters) {
-                        var allNodes = Array.from(container.querySelectorAll('p, div, li, blockquote, h1, h2, h3, h4, h5, h6'));
-                        var paras = [];
-                        var elements = [];
-
-                        for (var i = 0; i < allNodes.length; i++) {
-                            var el = allNodes[i];
-                            if (useFilters && isIgnored(el)) continue;
-                            if (!useFilters && (el.matches('script, style, noscript, iframe') || el.closest('script, style, noscript, iframe'))) continue;
-
-                            var tag = el.tagName.toLowerCase();
-                            if (['div', 'li', 'blockquote'].indexOf(tag) !== -1) {
-                                if (el.querySelector('p, section, article, li, blockquote')) continue;
-                            }
-
-                            var cs = window.getComputedStyle(el);
-                            if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue;
-                            var rect = el.getBoundingClientRect();
-                            if (rect.width === 0 && rect.height === 0 && el.offsetHeight === 0) continue;
-
-                            var text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-                            if (text.length >= 2) {
-                                paras.push(text);
-                                elements.push(el);
-                            }
-                        }
-                        return { paras: paras, elements: elements };
-                    }
-
-                    // 1. Container selection
-                    var container = null;
-                    if (customSelector && customSelector.length > 0) {
-                        try {
-                            container = document.querySelector(customSelector);
-                        } catch(e) {}
-                    }
-                    if (!container) {
-                        var candidates = [
-                            '#chapter-content', '#content', '.chapter-content', '.entry-content',
-                            '.post-content', '.read-content', '.reading-content', '.chapter-c',
-                            '.text-left', 'article', '.content', '#chapter_content', '.novel-content',
-                            'main', '.chapter-container', '#read-area'
-                        ];
-                        for (var c = 0; c < candidates.length; c++) {
-                            var cand = document.querySelector(candidates[c]);
-                            if (cand && cand.querySelectorAll('p').length >= 2) {
-                                container = cand;
-                                break;
-                            }
-                        }
-                    }
-                    if (!container) container = document.body;
-
-                    // 2. Heading
-                    var heading = '';
-                    var h1 = document.querySelector('h1, .chapter-title, .title-chapter, .entry-title');
-                    if (h1 && !isIgnored(h1)) {
-                        heading = (h1.textContent || '').replace(/\s+/g, ' ').trim();
-                    }
-                    if (!heading) heading = (document.title || '').trim();
-
-                    // 3. Elements extraction with filters
-                    var res = extractFrom(container, true);
-                    var paras = res.paras;
-                    var elements = res.elements;
-
-                    // 4. FALLBACK: If caught nothing using filters, IGNORE them and start from the first <p> in the page
-                    if (paras.length === 0) {
-                        var allPs = Array.from(document.body.querySelectorAll('p'));
-                        var firstPIndex = -1;
-                        for (var p = 0; p < allPs.length; p++) {
-                            var pEl = allPs[p];
-                            if (pEl.matches('script, style, noscript, iframe') || pEl.closest('script, style, noscript, iframe')) continue;
-                            var pText = (pEl.textContent || '').replace(/\s+/g, ' ').trim();
-                            if (pText.length >= 2) {
-                                firstPIndex = p;
-                                break;
-                            }
-                        }
-
-                        if (firstPIndex !== -1) {
-                            paras = [];
-                            elements = [];
-                            for (var q = firstPIndex; q < allPs.length; q++) {
-                                var elQ = allPs[q];
-                                if (elQ.matches('script, style, noscript, iframe') || elQ.closest('script, style, noscript, iframe')) continue;
-                                var tQ = (elQ.textContent || '').replace(/\s+/g, ' ').trim();
-                                if (tQ.length >= 2) {
-                                    paras.push(tQ);
-                                    elements.push(elQ);
-                                }
-                            }
-                        } else {
-                            var fallbackRes = extractFrom(document.body, false);
-                            paras = fallbackRes.paras;
-                            elements = fallbackRes.elements;
-                        }
-                    }
-
-                    // 5. Final fallback if still empty: split document.body.innerText by newlines
-                    if (paras.length === 0) {
-                        var rawLines = (document.body.innerText || '').split('\n');
-                        for (var l = 0; l < rawLines.length; l++) {
-                            var line = rawLines[l].replace(/\s+/g, ' ').trim();
-                            if (line.length >= 2) {
-                                paras.push(line);
-                            }
-                        }
-                    }
-
-                    // Tag matched elements for click-to-seek and auto-scroll highlighting
-                    for (var idx = 0; idx < elements.length; idx++) {
-                        elements[idx].setAttribute('data-novel-para-idx', String(idx));
-                    }
-
-                    return JSON.stringify({
-                        title: heading,
-                        paragraphs: paras
-                    });
-                } catch(err) {
-                    return JSON.stringify({
-                        title: document.title || '',
-                        paragraphs: [],
-                        error: err.toString()
-                    });
-                }
-            })();
-        """.trimIndent()
-    }
-
-    private fun parseJavascriptResultToJson(result: String?): JSONObject? {
-        if (result == null || result == "null" || result.isBlank()) return null
-        return try {
-            val tokener = JSONTokener(result)
-            val value = tokener.nextValue()
-            when (value) {
-                is JSONObject -> value
-                is String -> {
-                    val secondTokener = JSONTokener(value)
-                    val secondValue = secondTokener.nextValue()
-                    if (secondValue is JSONObject) secondValue else JSONObject(value)
-                }
-                else -> JSONObject(result)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error decoding JS result: $e, raw: $result")
-            null
-        }
+        return WebContentExtractor.buildContentExtractionScript(contentSelector, ignoredSelectors)
     }
 
     private fun highlightWebParagraph(index: Int) {
         val autoScroll = _uiState.value.settings.ttsAutoScroll
-        val script = """
-            (function() {
-                if (!document.getElementById('na-tts-styles')) {
-                    var styleEl = document.createElement('style');
-                    styleEl.id = 'na-tts-styles';
-                    styleEl.textContent = 
-                        '.na-tts-highlight { background-color: rgba(255, 235, 59, 0.45) !important; outline: 2px solid #fbc02d !important; border-radius: 4px !important; box-shadow: 0 0 10px rgba(255, 214, 0, 0.5) !important; transition: background-color 0.15s ease !important; }' +
-                        '[data-novel-para-idx] { cursor: pointer; transition: background-color 0.2s ease; }' +
-                        '[data-novel-para-idx]:hover { background-color: rgba(0, 122, 255, 0.08); }';
-                    (document.head || document.documentElement).appendChild(styleEl);
-                }
-
-                var prev = document.querySelectorAll('.na-tts-highlight');
-                for (var i = 0; i < prev.length; i++) {
-                    prev[i].classList.remove('na-tts-highlight');
-                }
-                var target = document.querySelector('[data-novel-para-idx="' + $index + '"]');
-                if (!target) {
-                    var allTagged = document.querySelectorAll('[data-novel-para-idx]');
-                    if (allTagged.length === 0) {
-                        var pElements = Array.from(document.querySelectorAll('p')).filter(function(p) {
-                            return (p.textContent || '').trim().length >= 2;
-                        });
-                        for (var k = 0; k < pElements.length; k++) {
-                            pElements[k].setAttribute('data-novel-para-idx', String(k));
-                        }
-                        if ($index < pElements.length) {
-                            target = pElements[$index];
-                        }
-                    }
-                }
-                if (target) {
-                    target.classList.add('na-tts-highlight');
-                    if ($autoScroll) {
-                        try {
-                            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        } catch(e) {
-                            target.scrollIntoView(true);
-                        }
-                    }
-                }
-            })();
-        """.trimIndent()
-        dispatchEvaluateJs(script)
+        dispatchEvaluateJs(WebScriptInjector.buildHighlightScript(index, autoScroll))
     }
 
     private fun clearWebHighlight() {
-        val script = """
-            (function() {
-                var prev = document.querySelectorAll('.na-tts-highlight');
-                for (var i = 0; i < prev.length; i++) {
-                    prev[i].classList.remove('na-tts-highlight');
-                }
-            })();
-        """.trimIndent()
-        dispatchEvaluateJs(script)
+        dispatchEvaluateJs(WebScriptInjector.buildClearHighlightScript())
     }
 
     fun clickNextChapter() {
@@ -721,84 +453,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
         }
-        val nextSelector = JSONObject.quote(_uiState.value.settings.nextSelector.trim())
-        val script = """
-            (function() {
-                var customSel = $nextSelector;
-                function getNextEl() {
-                    if (customSel && customSel.length > 0) {
-                        try {
-                            var el = document.querySelector(customSel);
-                            if (el) return el;
-                        } catch(e) {}
-                    }
-                    var selectors = [
-                        'button[title*="Next Chapter"]', 'a[title*="Next Chapter"]',
-                        'button[title*="Next chapter"]', 'a[title*="Next chapter"]',
-                        'button[title="Next"]', 'a[title="Next"]',
-                        '#next_chap', '.next-chap', '.next-chapter', '.btn-next', 'a.next',
-                        'a[rel="next"]', '.chapter-next a', '#next-chapter', '.nav-next a'
-                    ];
-                    for (var s = 0; s < selectors.length; s++) {
-                        try {
-                            var selEl = document.querySelector(selectors[s]);
-                            if (selEl) return selEl;
-                        } catch(e) {}
-                    }
-                    var candidates = Array.from(document.querySelectorAll('a, button, span[role="button"], div[role="button"]'));
-                    for (var i = 0; i < candidates.length; i++) {
-                        var c = candidates[i];
-                        var txt = (c.innerText || c.textContent || c.title || '').trim().toLowerCase();
-                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1) {
-                            return c;
-                        }
-                    }
-                    return null;
-                }
-
-                function incrementUrl() {
-                    try {
-                        var urlObj = new URL(window.location.href);
-                        var pathname = urlObj.pathname;
-                        var regex = /(\d+)(?=\.html?$)/i;
-                        if (!regex.test(pathname)) { regex = /(\d+)(?!.*\d)/; }
-                        if (regex.test(pathname)) {
-                            urlObj.pathname = pathname.replace(regex, function(match) {
-                                var len = match.length;
-                                var nextNum = parseInt(match, 10) + 1;
-                                return nextNum.toString().padStart(len, '0');
-                            });
-                            window.location.href = urlObj.href;
-                            return true;
-                        }
-                    } catch(e) {}
-                    return false;
-                }
-
-                var target = getNextEl();
-                if (target) {
-                    var oldUrl = window.location.href;
-                    try {
-                        target.scrollIntoView({ block: 'center' });
-                        target.focus();
-                        target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-                        target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-                        target.click();
-                    } catch(e) {}
-                    setTimeout(function() {
-                        if (window.location.href === oldUrl) {
-                            var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : target.closest('a');
-                            if (aTag && aTag.href && !aTag.getAttribute('href').startsWith('javascript:')) {
-                                window.location.href = aTag.href;
-                            }
-                        }
-                    }, 500);
-                } else {
-                    incrementUrl();
-                }
-            })();
-        """.trimIndent()
-        dispatchEvaluateJs(script)
+        val nextSelector = _uiState.value.settings.nextSelector
+        dispatchEvaluateJs(WebScriptInjector.buildNextChapterScript(nextSelector))
     }
 
     fun clickPrevChapter() {
@@ -807,79 +463,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
         }
-        val script = """
-            (function() {
-                function getPrevEl() {
-                    var selectors = [
-                        'button[title*="Prev Chapter" i]', 'a[title*="Prev Chapter" i]',
-                        'button[title*="Previous Chapter" i]', 'a[title*="Previous Chapter" i]',
-                        'button[title*="Prev" i]', 'a[title*="Prev" i]',
-                        'button[title*="Previous" i]', 'a[title*="Previous" i]',
-                        '#prev_chap', '.prev-chap', '.prev-chapter', '.btn-prev', 'a.prev', 'a.previous',
-                        'a[rel="prev"]', '.chapter-prev a', '#prev-chapter', '.nav-prev a', '#prev_chapter'
-                    ];
-                    for (var s = 0; s < selectors.length; s++) {
-                        try {
-                            var selEl = document.querySelector(selectors[s]);
-                            if (selEl) return selEl;
-                        } catch(e) {}
-                    }
-                    var candidates = Array.from(document.querySelectorAll('a, button, span[role="button"], div[role="button"]'));
-                    for (var i = 0; i < candidates.length; i++) {
-                        var c = candidates[i];
-                        var txt = (c.innerText || c.textContent || c.title || '').trim().toLowerCase();
-                        if (txt === 'prev chapter' || txt === 'previous chapter' || txt === '< prev' || txt === '« prev' || txt === 'prev' || txt === 'previous' || txt.indexOf('prev chapter') !== -1 || txt.indexOf('previous chapter') !== -1) {
-                            return c;
-                        }
-                    }
-                    return null;
-                }
-
-                function decrementUrl() {
-                    try {
-                        var urlObj = new URL(window.location.href);
-                        var pathname = urlObj.pathname;
-                        var regex = /(\d+)(?=\.html?$)/i;
-                        if (!regex.test(pathname)) { regex = /(\d+)(?!.*\d)/; }
-                        if (regex.test(pathname)) {
-                            urlObj.pathname = pathname.replace(regex, function(match) {
-                                var len = match.length;
-                                var prevNum = Math.max(1, parseInt(match, 10) - 1);
-                                return prevNum.toString().padStart(len, '0');
-                            });
-                            window.location.href = urlObj.href;
-                            return true;
-                        }
-                    } catch(e) {}
-                    return false;
-                }
-
-                var target = getPrevEl();
-                if (target) {
-                    var oldUrl = window.location.href;
-                    try {
-                        target.scrollIntoView({ block: 'center' });
-                        target.focus();
-                        target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-                        target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-                        target.click();
-                    } catch(e) {}
-                    setTimeout(function() {
-                        if (window.location.href === oldUrl) {
-                            var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : target.closest('a');
-                            if (aTag && aTag.href && !aTag.getAttribute('href').startsWith('javascript:')) {
-                                window.location.href = aTag.href;
-                            }
-                        }
-                    }, 500);
-                } else {
-                    if (!decrementUrl()) {
-                        window.history.back();
-                    }
-                }
-            })();
-        """.trimIndent()
-        dispatchEvaluateJs(script)
+        dispatchEvaluateJs(WebScriptInjector.buildPrevChapterScript())
     }
 
     // =========================================================================
@@ -969,7 +553,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // Check if page is currently fully loaded on screen
         if (!state.isLoading && state.progress == 100) {
             triggerBatchDownloadSequence()
         } else {
@@ -1136,7 +719,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update { it.copy(toastMessage = "Extracting chapter content...") }
         }
         val settings = _uiState.value.settings
-        val script = buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+        val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
         dispatchEvaluateJs(script) { result ->
             handleExtractedChapter(result, isBatch)
         }
@@ -1145,14 +728,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private fun handleExtractedChapter(result: String?, isBatch: Boolean) {
         val currentUrl = _uiState.value.currentUrl
         val pageTitle = _uiState.value.pageTitle
-        val json = parseJavascriptResultToJson(result)
-        val title = json?.optString("title", pageTitle)?.ifBlank { pageTitle } ?: pageTitle
-        val paragraphsArray = json?.optJSONArray("paragraphs") ?: JSONArray()
-        val paragraphs = mutableListOf<String>()
-        for (i in 0 until paragraphsArray.length()) {
-            val p = paragraphsArray.optString(i, "").trim()
-            if (p.isNotBlank()) paragraphs.add(p)
-        }
+        val extracted = WebContentExtractor.extractChapterContent(result, pageTitle)
+        val title = extracted.title
+        val paragraphs = extracted.paragraphs
 
         if (!isBatch) {
             val detected = WebNovelDownloader.detectNovelInfo(currentUrl, title)
@@ -1282,10 +860,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // =========================================================================
-    // Single Chapter Download (Exact same extraction and saving as batch)
-    // =========================================================================
-
     fun saveSingleChapter() {
         val currentUrl = _uiState.value.currentUrl
         val pageTitle = _uiState.value.pageTitle
@@ -1324,11 +898,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun startLiveReadingInternal(forceStartAtBeginning: Boolean = false, retryCount: Int = 0) {
         val settings = _uiState.value.settings
-        val script = buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+        val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
 
         dispatchEvaluateJs(script) { result ->
-            val json = parseJavascriptResultToJson(result)
-            if (json == null) {
+            val extracted = WebContentExtractor.extractChapterContent(result, _uiState.value.pageTitle)
+            val title = extracted.title
+            val rawList = extracted.paragraphs
+
+            if (rawList.isEmpty() && result.isNullOrBlank()) {
                 if (retryCount < 2) {
                     retryExtractionJob?.cancel()
                     retryExtractionJob = viewModelScope.launch {
@@ -1340,18 +917,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
 
             try {
-                val title = json.optString("title", _uiState.value.pageTitle)
-                val paragraphsArray = json.optJSONArray("paragraphs") ?: JSONArray()
                 val paragraphs = mutableListOf<Paragraph>()
-                for (i in 0 until paragraphsArray.length()) {
-                    val raw = paragraphsArray.getString(i).trim()
-                    if (raw.isNotBlank()) {
+                for (raw in rawList) {
+                    val trimmed = raw.trim()
+                    if (trimmed.isNotBlank()) {
                         paragraphs.add(
                             Paragraph(
                                 index = paragraphs.size,
-                                rawText = raw,
-                                spokenText = applyRulesAndSkips(raw),
-                                isHeading = paragraphs.isEmpty() && raw.length < 60
+                                rawText = trimmed,
+                                spokenText = applyRulesAndSkips(trimmed),
+                                isHeading = paragraphs.isEmpty() && trimmed.length < 60
                             )
                         )
                     }
@@ -1368,7 +943,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             isLivePlaying = true
                         )
                     }
-                    NovelAudioPlaybackService.playBrowserParagraphs(
+                    AudioPlaybackCoordinator.playBrowserParagraphs(
                         context = getApplication(),
                         chapterTitle = title,
                         paragraphs = paragraphs,
@@ -1385,7 +960,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             startLiveReadingInternal(forceStartAtBeginning, retryCount + 1)
                         }
                     } else {
-                        // Empty paragraphs: STOP cleanly without jumping chapters
                         _uiState.update {
                             it.copy(
                                 toastMessage = "No readable content found on page.",
@@ -1404,7 +978,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         var clean = text
         val settings = _uiState.value.settings
 
-        // Pronunciation replacements
         for (rule in settings.pronunciationRules) {
             if (rule.from.isBlank()) continue
             clean = if (rule.exactMatch) {
@@ -1415,7 +988,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // Skip words
         for (skip in settings.skipWords) {
             if (skip.text.isBlank()) continue
             clean = if (skip.exactMatch) {
@@ -1446,7 +1018,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun pauseLiveReading() {
-        NovelAudioPlaybackService.dispatchPause()
+        AudioPlaybackCoordinator.pause()
         _uiState.update { it.copy(isLivePlaying = false) }
     }
 
@@ -1455,12 +1027,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             startLiveReading()
             return
         }
-        NovelAudioPlaybackService.dispatchPlay()
+        AudioPlaybackCoordinator.play()
         _uiState.update { it.copy(isLivePlaying = true, isLiveReading = true) }
     }
 
     fun stopLiveReading() {
-        NovelAudioPlaybackService.dispatchStop()
+        AudioPlaybackCoordinator.stop()
         clearWebHighlight()
         _uiState.update {
             it.copy(
@@ -1475,7 +1047,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val paras = _uiState.value.liveParagraphs
         if (paras.isEmpty()) return
         val target = index.coerceIn(0, paras.size - 1)
-        NovelAudioPlaybackService.dispatchSeekToPara(target)
+        AudioPlaybackCoordinator.seekToParagraph(target)
         _uiState.update { it.copy(liveCurrentParagraphIndex = target, isLivePlaying = true, isLiveReading = true) }
     }
 
@@ -1596,7 +1168,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             spokenText = sampleText,
             isHeading = false
         )
-        NovelAudioPlaybackService.playBrowserParagraphs(
+        AudioPlaybackCoordinator.playBrowserParagraphs(
             context = getApplication(),
             chapterTitle = "Voice Preview",
             paragraphs = listOf(previewPara),
@@ -1613,7 +1185,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun stopVoiceTest() {
         if (_uiState.value.isVoiceTesting) {
-            NovelAudioPlaybackService.dispatchStop()
+            AudioPlaybackCoordinator.stop()
             _uiState.update { it.copy(isVoiceTesting = false) }
         }
     }

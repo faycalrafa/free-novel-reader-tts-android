@@ -165,15 +165,28 @@ fun BrowserScreen(
         }
     }
 
+    val currentView = androidx.compose.ui.platform.LocalView.current
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewInstance?.let { wv ->
+                wv.stopLoading()
+                wv.loadUrl("about:blank")
+                wv.destroy()
+            }
+            webViewInstance = null
+        }
+    }
+
     LaunchedEffect(webViewInstance) {
         val wv = webViewInstance ?: return@LaunchedEffect
-        viewModel.webViewCommands.collect { cmd ->
-            when (cmd) {
-                is WebViewCommand.LoadUrl -> wv.loadUrl(cmd.url)
-                is WebViewCommand.GoBack -> if (wv.canGoBack()) wv.goBack()
-                is WebViewCommand.GoForward -> if (wv.canGoForward()) wv.goForward()
-                is WebViewCommand.Reload -> wv.reload()
-                is WebViewCommand.EvaluateJavascript -> wv.evaluateJavascript(cmd.script, cmd.callback)
+        viewModel.browserActions.collect { action ->
+            when (action) {
+                is BrowserAction.LoadUrl -> wv.loadUrl(action.url)
+                is BrowserAction.GoBack -> if (wv.canGoBack()) wv.goBack()
+                is BrowserAction.GoForward -> if (wv.canGoForward()) wv.goForward()
+                is BrowserAction.Reload -> wv.reload()
+                is BrowserAction.EvaluateJavascript -> wv.evaluateJavascript(action.script, action.callback)
             }
         }
     }
@@ -1625,22 +1638,15 @@ private fun createConfiguredWebView(
             userAgentString = userAgentString.replace("wv", "")
         }
 
-        addJavascriptInterface(
-            object {
-                @JavascriptInterface
-                fun onScrolledToBottom() {
-                    if (viewModel.uiState.value.settings.autoClickOnScroll) {
-                        post { viewModel.clickNextChapter() }
-                    }
+        val bridge = com.novelarrow.reader.browser.engine.BrowserBridge(
+            onParagraphClickedCallback = { index -> viewModel.seekToParagraph(index) },
+            onScrolledToBottomCallback = {
+                if (viewModel.uiState.value.settings.autoClickOnScroll) {
+                    viewModel.clickNextChapter()
                 }
-
-                @JavascriptInterface
-                fun onParagraphClicked(index: Int) {
-                    post { viewModel.seekToParagraph(index) }
-                }
-            },
-            "AndroidBridge"
+            }
         )
+        addJavascriptInterface(bridge, com.novelarrow.reader.browser.engine.BrowserBridge.INTERFACE_NAME)
 
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {

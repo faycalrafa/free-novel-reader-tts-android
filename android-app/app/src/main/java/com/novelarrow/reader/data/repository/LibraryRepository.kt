@@ -34,6 +34,12 @@ class LibraryRepository(private val context: Context) {
     companion object {
         private val dbMutex = Mutex()
         private var lastSaveTimeMs = 0L
+        @Volatile
+        private var cachedDb: LibraryDatabase? = null
+
+        fun clearCacheForTesting() {
+            cachedDb = null
+        }
     }
 
     private val json = Json {
@@ -173,6 +179,7 @@ class LibraryRepository(private val context: Context) {
             if (commitNow) {
                 saveDatabaseLocked(newDb)
             } else {
+                cachedDb = newDb
                 val now = System.currentTimeMillis()
                 if (now - lastSaveTimeMs > 3000L) {
                     lastSaveTimeMs = now
@@ -640,7 +647,7 @@ class LibraryRepository(private val context: Context) {
         }
 
         val totalFilesCount = looseFiles.size + subdirFilesMap.values.sumOf { it.size }
-        val currentDb = loadDatabase()
+        val currentDb = dbMutex.withLock { loadDatabaseLocked() }
         var currentProgressIndex = 0
         val newNovels = mutableListOf<Novel>()
         val chaptersMap = mutableMapOf<String, List<Chapter>>()
@@ -768,7 +775,7 @@ class LibraryRepository(private val context: Context) {
     ): List<Novel> = withContext(Dispatchers.IO) {
         // 1. Scan downloaded web novels first to sync disk changes
         scanDownloadedWebNovels()
-        val reloadedDb = loadDatabase()
+        val reloadedDb = dbMutex.withLock { loadDatabaseLocked() }
 
         var lastProgressTime = 0L
         fun reportProgress(cur: Int, total: Int, name: String) {
@@ -1156,19 +1163,25 @@ class LibraryRepository(private val context: Context) {
     }
 
     private fun loadDatabaseLocked(): LibraryDatabase {
-        return try {
-            if (!dbFile.exists()) return LibraryDatabase()
-            val bytes = atomicDbFile.readFully()
-            val text = String(bytes, Charsets.UTF_8)
-            if (text.isBlank()) return LibraryDatabase()
-            json.decodeFromString<LibraryDatabase>(text)
+        cachedDb?.let { return it }
+        val loaded = try {
+            if (!dbFile.exists()) LibraryDatabase()
+            else {
+                val bytes = atomicDbFile.readFully()
+                val text = String(bytes, Charsets.UTF_8)
+                if (text.isBlank()) LibraryDatabase()
+                else json.decodeFromString<LibraryDatabase>(text)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             LibraryDatabase()
         }
+        cachedDb = loaded
+        return loaded
     }
 
     private fun saveDatabaseLocked(db: LibraryDatabase) {
+        cachedDb = db
         var fos: FileOutputStream? = null
         try {
             val text = json.encodeToString(db)
@@ -1183,8 +1196,4 @@ class LibraryRepository(private val context: Context) {
             }
         }
     }
-
-    private fun loadDatabase(): LibraryDatabase = loadDatabaseLocked()
-
-    private fun saveDatabase(db: LibraryDatabase) = saveDatabaseLocked(db)
 }

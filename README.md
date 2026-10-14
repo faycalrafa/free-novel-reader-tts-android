@@ -33,7 +33,14 @@ Read visually with dynamic paragraph highlighting and auto-scrolling, or listen 
   - Forward / Backward skip buttons jump to the **Next Chapter** or **Previous Chapter**.
   - Remembers your exact paragraph position when jumping back and forth.
 - **Headphone & Earbud Support**: Play, pause, and skip chapters using Bluetooth headphones, wired earbuds, or car audio controls.
-- **Auto-Pausing & Resumption**: Handles audio focus transitions and headphone disconnections smoothly.
+- **Auto-Pausing & Resumption**: Handles audio focus transitions and headphone disconnections smoothly (prevents loudspeaker blaring).
+
+### 🌐 Integrated Web Browser & Batch Chapter Downloader
+- **In-Browser Live TTS**: Listen to web novel chapters directly on the web with synchronized paragraph highlighting and auto-scroll.
+- **Interactive Reading**: Tap any paragraph on a webpage to seek TTS playback directly to that location.
+- **Batch Chapter Downloader**: Automatically paginate, extract clean chapter text, and download entire web novels for offline reading.
+- **Extensible Userscript Engine**: Prepared with a modular script injection architecture (`Userscript` interface, regex/wildcard URL pattern matching, custom DOM manipulation).
+- **Multi-Tab Browsing**: Tab manager with history, bookmarks, and fast switching.
 
 ### ⏱️ Smart Sleep Timer
 - Built-in sleep timer with presets (**15m, 20m, 30m, 45m, 1h**) and custom minute durations.
@@ -41,18 +48,18 @@ Read visually with dynamic paragraph highlighting and auto-scrolling, or listen 
 
 ### 🧹 Advanced Content & Parsing Filters
 Clean messy web novel scrapes, translator notes, and HTML boilerplate on the fly:
+- **Quote- & CJK-Aware Sentence Chunking**: Seamlessly handles dialogue quotes (e.g. `"Stop!" she said.`) and CJK punctuation (`。`, `！`, `？`) without awkward sentence splits or skipped punctuation.
 - **Auto Skip Header**: Define multiple keywords (e.g. `Chapter 1`, `Prologue`, `START`) to skip intro notes or links before the story begins.
 - **Auto Skip Footer**: Define multiple keywords (e.g. `Next Chapter`, `Patreon`, `Comments`) to halt reading right before translator sign-offs.
 - **HTML Content Selector**: Target specific story text elements (e.g., `#chapter-content`, `.entry-content`, `article`) via CSS selectors.
-- **Auto Skip Words**: Strip offensive words, watermarks, or unwanted tokens (with exact whole-word or substring toggles).
-- **Pronunciation Correction**: Phonetically replace fantasy names, mispronounced terms, or Romanized words with customizable phonetic spellings.
+- **Auto Skip Words & Pronunciation Rules**: Strip watermarks or correct fantasy pronunciations with customizable phonetic replacements (defaults to exact word boundaries).
 - Quick on/off master switches for all filter groups.
 
 ### 📱 Modern, Responsive Reader UI
 - **Full-Width Popups**: Quick-settings and Content Filter dialogs adapt to the full screen width with zero cramped controls.
 - **Themes**: **Sepia** (warm, easy on the eyes by default), **Dark**, and **Light**.
 - **Speech Speed Control**: Fine-grained speed adjustments from **0.5x up to 2.5x**, with a quick speed cycler button on the dock (1.0x → 1.25x → 1.5x → 1.75x → 2.0x).
-- **Voice Customization**: Select any installed system TTS voice language and adjust pitch.
+- **Voice Customization**: Select any installed system TTS voice language, override locale, and adjust pitch.
 - **Clean Bottom Dock**: Compact progress metadata displaying `Ch. X / Total` and `¶ X / Total (%)`.
 
 ---
@@ -60,11 +67,12 @@ Clean messy web novel scrapes, translator notes, and HTML boilerplate on the fly
 ## 🏗️ Architecture & Technology Stack
 
 - **UI Framework**: [Jetpack Compose](https://developer.android.com/jetpack/compose) with Material Design 3.
-- **Audio & Media**: [AndroidX Media3](https://developer.android.com/guide/topics/media/media3) (`MediaSessionService`, `ExoPlayer`, `ForwardingPlayer`).
-- **Text-to-Speech**: Android Native `TextToSpeech` with real-time `UtteranceProgressListener` synchronization.
+- **Audio & Media**: [AndroidX Media3](https://developer.android.com/guide/topics/media/media3) (`MediaSessionService`, `ExoPlayer`, `ForwardingPlayer`) orchestrated via a centralized `AudioPlaybackCoordinator`.
+- **Text-to-Speech**: Hardened Android Native `TextToSpeech` engine with speech limits chunking, CJK autodetection, and `UtteranceProgressListener`.
+- **Modular Browser Engine**: WebKit WebView with throttled `@JavascriptInterface` bridge, clean HTML extraction, and a dynamic `Userscript` injection engine.
+- **Thread-Safe Atomic Storage**: Concurrency-safe persistence using `AtomicFile` and Kotlin Coroutine Mutexes, fully compliant with Android Scoped Storage (zero special permissions required).
 - **HTML Parsing**: [Jsoup](https://jsoup.org/) for robust HTML parsing, cleaning, and CSS selector queries.
-- **Storage**: Android Storage Access Framework (SAF) with persistable URI permissions for seamless local filesystem access.
-- **Architecture Pattern**: Modern Android Architecture with MVVM, StateFlow, and Coroutines.
+- **Architecture Pattern**: Decoupled Clean Architecture with MVVM, StateFlow, Coroutines, and centralized services.
 
 ---
 
@@ -95,15 +103,6 @@ cd free-novel-reader-tts-android/android-app
 
 The output APK will be generated at:
 `android-app/app/build/outputs/apk/release/app-release.apk`
-
----
-
-## 🤖 Automated Releases (CI/CD)
-
-Every push to `main` (or `master`) triggers a GitHub Actions workflow that:
-1. Sets up JDK 17 and Android build dependencies.
-2. Builds the release APK (`assembleRelease`).
-3. Automatically publishes a new GitHub Release with the standalone `app-release.apk` asset attached.
 
 ---
 
