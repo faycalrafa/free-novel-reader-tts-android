@@ -89,6 +89,7 @@ data class WebBrowserSettings(
     val countdownDelayMs: Long = 1000L,
     val loopCount: Int = 100,
     val autoClickOnScroll: Boolean = false,
+    val autoReadNextChapter: Boolean = false,
     val ttsAutoStart: Boolean = false,
     val ttsVoice: String? = null,
     val ttsRate: Float = 1.0f,
@@ -106,5 +107,7 @@ data class WebBrowserSettings(
         ".comments", "#comments", ".sidebar", "#sidebar"
     ),
     val skipWords: List<SkipWord> = emptyList(),
-    val pronunciationRules: List<PronunciationRule> = emptyList()
+    val skipWordsEnabled: Boolean = true,
+    val pronunciationRules: List<PronunciationRule> = emptyList(),
+    val pronunciationRulesEnabled: Boolean = true
 )

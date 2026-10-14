@@ -21,8 +21,11 @@ data class SharedTtsSettings(
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
     val voiceName: String? = null,
+    val sleepTimerMinutes: Int = 0,
     val skipWords: List<SkipWord> = emptyList(),
-    val pronunciationRules: List<PronunciationRule> = emptyList()
+    val skipWordsEnabled: Boolean = true,
+    val pronunciationRules: List<PronunciationRule> = emptyList(),
+    val pronunciationRulesEnabled: Boolean = true
 )
 
 class SettingsRepository(private val context: Context) {
@@ -34,6 +37,11 @@ class SettingsRepository(private val context: Context) {
         get() = File(context.filesDir, "novel_browser_settings_v1.json")
     private val sharedTtsFile: File
         get() = File(context.filesDir, "novel_shared_tts_settings_v1.json")
+
+    companion object {
+        private var sharedSettingsFlowInternal: MutableStateFlow<ReaderSettings>? = null
+        private var sharedBrowserSettingsFlowInternal: MutableStateFlow<WebBrowserSettings>? = null
+    }
 
     private val _settingsFlow: MutableStateFlow<ReaderSettings>
     val settingsFlow: StateFlow<ReaderSettings>
@@ -50,21 +58,36 @@ class SettingsRepository(private val context: Context) {
             speechRate = shared.speechRate,
             speechPitch = shared.speechPitch,
             selectedVoiceName = shared.voiceName,
+            sleepTimerMinutes = shared.sleepTimerMinutes,
             skipWords = shared.skipWords,
-            pronunciationRules = shared.pronunciationRules
+            skipWordsEnabled = shared.skipWordsEnabled,
+            pronunciationRules = shared.pronunciationRules,
+            pronunciationRulesEnabled = shared.pronunciationRulesEnabled
         )
         val mergedBrowser = loadedBrowser.copy(
             ttsRate = shared.speechRate,
             ttsPitch = shared.speechPitch,
             ttsVoice = shared.voiceName,
+            sleepTimerMinutes = shared.sleepTimerMinutes,
             skipWords = shared.skipWords,
-            pronunciationRules = shared.pronunciationRules
+            skipWordsEnabled = shared.skipWordsEnabled,
+            pronunciationRules = shared.pronunciationRules,
+            pronunciationRulesEnabled = shared.pronunciationRulesEnabled
         )
 
-        _settingsFlow = MutableStateFlow(mergedReader)
+        synchronized(SettingsRepository::class.java) {
+            if (sharedSettingsFlowInternal == null) {
+                sharedSettingsFlowInternal = MutableStateFlow(mergedReader)
+            }
+            if (sharedBrowserSettingsFlowInternal == null) {
+                sharedBrowserSettingsFlowInternal = MutableStateFlow(mergedBrowser)
+            }
+        }
+
+        _settingsFlow = sharedSettingsFlowInternal!!
         settingsFlow = _settingsFlow.asStateFlow()
 
-        _browserSettingsFlow = MutableStateFlow(mergedBrowser)
+        _browserSettingsFlow = sharedBrowserSettingsFlowInternal!!
         browserSettingsFlow = _browserSettingsFlow.asStateFlow()
     }
 
@@ -96,11 +119,21 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setFooterSkipEnabled(enabled: Boolean) = updateSettings { it.copy(footerSkipEnabled = enabled) }
 
-    suspend fun setPronunciationRulesEnabled(enabled: Boolean) = updateSettings { it.copy(pronunciationRulesEnabled = enabled) }
+    suspend fun setPronunciationRulesEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(pronunciationRulesEnabled = enabled) }
+    }
 
-    suspend fun setSkipWordsEnabled(enabled: Boolean) = updateSettings { it.copy(skipWordsEnabled = enabled) }
+    suspend fun setSkipWordsEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(skipWordsEnabled = enabled) }
+    }
 
-    suspend fun setSleepTimerMinutes(minutes: Int) = updateSettings { it.copy(sleepTimerMinutes = minutes) }
+    suspend fun setBrowserPronunciationRulesEnabled(enabled: Boolean) = setPronunciationRulesEnabled(enabled)
+
+    suspend fun setBrowserSkipWordsEnabled(enabled: Boolean) = setSkipWordsEnabled(enabled)
+
+    suspend fun setSleepTimerMinutes(minutes: Int) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(sleepTimerMinutes = minutes) }
+    }
 
     fun getBrowserSettings(): WebBrowserSettings = _browserSettingsFlow.value
 
@@ -110,13 +143,17 @@ class SettingsRepository(private val context: Context) {
         _browserSettingsFlow.value = updated
     }
 
+    suspend fun setAutoReadNextChapter(enabled: Boolean) = updateBrowserSettings { it.copy(autoReadNextChapter = enabled) }
+
     suspend fun setBrowserAutoScroll(enabled: Boolean) = updateBrowserSettings { it.copy(ttsAutoScroll = enabled) }
 
     suspend fun setBrowserTtsAutoStart(enabled: Boolean) = updateBrowserSettings { it.copy(ttsAutoStart = enabled) }
 
     suspend fun setBrowserSynthByParagraph(enabled: Boolean) = updateBrowserSettings { it.copy(ttsSynthByParagraph = enabled) }
 
-    suspend fun setBrowserSleepTimerMinutes(minutes: Int) = updateBrowserSettings { it.copy(sleepTimerMinutes = minutes) }
+    suspend fun setBrowserSleepTimerMinutes(minutes: Int) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(sleepTimerMinutes = minutes) }
+    }
 
     suspend fun addBrowserIgnoredSelector(selector: String) = updateBrowserSettings {
         val trimmed = selector.trim()
@@ -138,6 +175,7 @@ class SettingsRepository(private val context: Context) {
             ttsRate = _settingsFlow.value.speechRate,
             ttsPitch = _settingsFlow.value.speechPitch,
             ttsVoice = _settingsFlow.value.selectedVoiceName,
+            sleepTimerMinutes = _settingsFlow.value.sleepTimerMinutes,
             skipWords = _settingsFlow.value.skipWords,
             pronunciationRules = _settingsFlow.value.pronunciationRules
         )
@@ -154,8 +192,11 @@ class SettingsRepository(private val context: Context) {
             speechRate = _settingsFlow.value.speechRate,
             speechPitch = _settingsFlow.value.speechPitch,
             voiceName = _settingsFlow.value.selectedVoiceName,
+            sleepTimerMinutes = _settingsFlow.value.sleepTimerMinutes,
             skipWords = _settingsFlow.value.skipWords,
-            pronunciationRules = _settingsFlow.value.pronunciationRules
+            skipWordsEnabled = _settingsFlow.value.skipWordsEnabled,
+            pronunciationRules = _settingsFlow.value.pronunciationRules,
+            pronunciationRulesEnabled = _settingsFlow.value.pronunciationRulesEnabled
         )
         val newShared = transform(currentShared)
         saveSharedTts(newShared)
@@ -164,15 +205,21 @@ class SettingsRepository(private val context: Context) {
             speechRate = newShared.speechRate,
             speechPitch = newShared.speechPitch,
             selectedVoiceName = newShared.voiceName,
+            sleepTimerMinutes = newShared.sleepTimerMinutes,
             skipWords = newShared.skipWords,
-            pronunciationRules = newShared.pronunciationRules
+            skipWordsEnabled = newShared.skipWordsEnabled,
+            pronunciationRules = newShared.pronunciationRules,
+            pronunciationRulesEnabled = newShared.pronunciationRulesEnabled
         )
         val updatedBrowser = _browserSettingsFlow.value.copy(
             ttsRate = newShared.speechRate,
             ttsPitch = newShared.speechPitch,
             ttsVoice = newShared.voiceName,
+            sleepTimerMinutes = newShared.sleepTimerMinutes,
             skipWords = newShared.skipWords,
-            pronunciationRules = newShared.pronunciationRules
+            skipWordsEnabled = newShared.skipWordsEnabled,
+            pronunciationRules = newShared.pronunciationRules,
+            pronunciationRulesEnabled = newShared.pronunciationRulesEnabled
         )
 
         saveSettings(updatedReader)
@@ -304,13 +351,17 @@ class SettingsRepository(private val context: Context) {
         val rate = if (reader.speechRate != 1.0f) reader.speechRate else browser.ttsRate
         val pitch = if (reader.speechPitch != 1.0f) reader.speechPitch else browser.ttsPitch
         val voice = reader.selectedVoiceName ?: browser.ttsVoice
+        val sleepMinutes = if (reader.sleepTimerMinutes > 0) reader.sleepTimerMinutes else browser.sleepTimerMinutes
 
         val initial = SharedTtsSettings(
             speechRate = rate,
             speechPitch = pitch,
             voiceName = voice,
+            sleepTimerMinutes = sleepMinutes,
             skipWords = mergedSkips,
-            pronunciationRules = mergedRules
+            skipWordsEnabled = reader.skipWordsEnabled,
+            pronunciationRules = mergedRules,
+            pronunciationRulesEnabled = reader.pronunciationRulesEnabled
         )
         saveSharedTts(initial)
         return initial

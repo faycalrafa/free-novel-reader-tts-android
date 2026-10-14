@@ -58,6 +58,18 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import com.novelarrow.reader.playback.AudioPlaybackCoordinator
+import com.novelarrow.reader.playback.PlaybackSource
+import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
+import com.novelarrow.reader.data.repository.ChapterSortPreset
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
@@ -117,6 +129,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -129,11 +143,13 @@ import com.novelarrow.reader.theme.AccentPurple
 import com.novelarrow.reader.theme.DarkHighlight
 import com.novelarrow.reader.theme.LightHighlight
 import com.novelarrow.reader.theme.SepiaHighlight
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -151,6 +167,7 @@ fun ReaderScreen(
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showFilterDialog by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
+    var showUnifiedAudioSettings by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -163,7 +180,13 @@ fun ReaderScreen(
                 } ?: "Ready to read",
                 isTtsDockVisible = uiState.isTtsDockVisible,
                 onMenuClick = onOpenDrawer,
-                onTtsToggleClick = { viewModel.toggleTtsDock() },
+                onTtsToggleClick = {
+                    val playbackProgress = AudioPlaybackCoordinator.playbackProgressState.value
+                    if (playbackProgress.source == PlaybackSource.BROWSER && playbackProgress.isPlaying) {
+                        AudioPlaybackCoordinator.stop()
+                    }
+                    viewModel.toggleTtsDock()
+                },
                 onFilterClick = { showFilterDialog = true },
                 onSettingsClick = { showSettingsDialog = true }
             )
@@ -184,27 +207,53 @@ fun ReaderScreen(
             }
         },
         bottomBar = {
+            val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
+            val isBrowserPlaying = playbackProgress.source == PlaybackSource.BROWSER
+
             AnimatedVisibility(
-                visible = uiState.isTtsDockVisible,
+                visible = uiState.isTtsDockVisible || isBrowserPlaying,
                 enter = slideInVertically(initialOffsetY = { it }),
                 exit = slideOutVertically(targetOffsetY = { it })
             ) {
-                TtsDock(
-                    currentParagraph = uiState.currentParagraphIndex,
-                    totalParagraphs = uiState.paragraphs.size,
-                    currentChapterIndex = uiState.currentChapter?.orderIndex ?: 0,
-                    totalChapters = uiState.chapters.size,
-                    isPlaying = uiState.isPlaying,
-                    speechRate = uiState.settings.speechRate,
-                    sleepTimerMinutes = uiState.sleepTimerMinutes,
-                    sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
-                    onPlayPauseClick = { viewModel.togglePlayPause() },
-                    onPrevChapterClick = { viewModel.previousChapter() },
-                    onNextChapterClick = { viewModel.nextChapter() },
-                    onSleepTimerClick = { showSleepTimerDialog = true },
-                    onSpeedClick = { viewModel.cycleSpeechRate() },
-                    onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) }
-                )
+                if (isBrowserPlaying) {
+                    TtsDock(
+                        currentParagraph = playbackProgress.currentParagraphIndex,
+                        totalParagraphs = playbackProgress.totalParagraphs,
+                        currentChapterIndex = 0,
+                        totalChapters = 1,
+                        isPlaying = playbackProgress.isPlaying,
+                        speechRate = uiState.settings.speechRate,
+                        sleepTimerMinutes = uiState.sleepTimerMinutes,
+                        sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                        onPlayPauseClick = { AudioPlaybackCoordinator.togglePlayPause() },
+                        onPrevChapterClick = { AudioPlaybackCoordinator.previousChapter() },
+                        onNextChapterClick = { AudioPlaybackCoordinator.nextChapter() },
+                        onSleepTimerClick = { showSleepTimerDialog = true },
+                        onSpeedClick = { AudioPlaybackCoordinator.cycleSpeechRate() },
+                        onSeekParagraph = { paraIdx -> AudioPlaybackCoordinator.seekToParagraph(paraIdx) },
+                        isBrowserMode = true,
+                        onOpenAudioSettings = { showUnifiedAudioSettings = true }
+                    )
+                } else {
+                    TtsDock(
+                        currentParagraph = uiState.currentParagraphIndex,
+                        totalParagraphs = uiState.paragraphs.size,
+                        currentChapterIndex = uiState.currentChapter?.orderIndex ?: 0,
+                        totalChapters = uiState.chapters.size,
+                        isPlaying = uiState.isPlaying,
+                        speechRate = uiState.settings.speechRate,
+                        sleepTimerMinutes = uiState.sleepTimerMinutes,
+                        sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                        onPlayPauseClick = { viewModel.togglePlayPause() },
+                        onPrevChapterClick = { viewModel.previousChapter() },
+                        onNextChapterClick = { viewModel.nextChapter() },
+                        onSleepTimerClick = { showSleepTimerDialog = true },
+                        onSpeedClick = { viewModel.cycleSpeechRate() },
+                        onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) },
+                        isBrowserMode = false,
+                        onOpenAudioSettings = { showUnifiedAudioSettings = true }
+                    )
+                }
             }
         },
         modifier = modifier
@@ -303,6 +352,40 @@ fun ReaderScreen(
             isPlaying = uiState.isPlaying,
             onDismiss = { showSleepTimerDialog = false },
             onSetTimer = { viewModel.setSleepTimer(it) }
+        )
+    }
+
+    if (showUnifiedAudioSettings) {
+        UnifiedAudioSettingsDialog(
+            speechRate = uiState.settings.speechRate,
+            speechPitch = uiState.settings.speechPitch,
+            selectedVoiceName = uiState.settings.selectedVoiceName,
+            availableVoices = uiState.availableVoices,
+            sleepTimerMinutes = uiState.sleepTimerMinutes,
+            sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+            pronunciationRulesEnabled = uiState.settings.pronunciationRulesEnabled,
+            pronunciationRules = uiState.settings.pronunciationRules,
+            skipWordsEnabled = uiState.settings.skipWordsEnabled,
+            skipWords = uiState.settings.skipWords,
+            headerSkipEnabled = uiState.settings.headerSkipEnabled,
+            headerSkipString = uiState.settings.headerSkipString,
+            footerSkipEnabled = uiState.settings.footerSkipEnabled,
+            footerSkipString = uiState.settings.footerSkipString,
+            onSpeechRateChange = { viewModel.updateSpeechRate(it) },
+            onSpeechPitchChange = { viewModel.updateSpeechPitch(it) },
+            onVoiceChange = { viewModel.updateVoice(it) },
+            onSleepTimerChange = { viewModel.setSleepTimer(it) },
+            onPronunciationRulesEnabledChange = { viewModel.updatePronunciationRulesEnabled(it) },
+            onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
+            onRemovePronunciationRule = { viewModel.removePronunciationRule(it) },
+            onSkipWordsEnabledChange = { viewModel.updateSkipWordsEnabled(it) },
+            onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
+            onRemoveSkipWord = { viewModel.removeSkipWord(it) },
+            onHeaderSkipEnabledChange = { viewModel.updateHeaderSkipEnabled(it) },
+            onHeaderSkipStringChange = { viewModel.updateHeaderSkipString(it) },
+            onFooterSkipEnabledChange = { viewModel.updateFooterSkipEnabled(it) },
+            onFooterSkipStringChange = { viewModel.updateFooterSkipString(it) },
+            onDismiss = { showUnifiedAudioSettings = false }
         )
     }
 }
@@ -494,7 +577,8 @@ fun TtsDock(
     onSleepTimerClick: () -> Unit,
     onSpeedClick: () -> Unit,
     onSeekParagraph: (Int) -> Unit,
-    isBrowserMode: Boolean = false
+    isBrowserMode: Boolean = false,
+    onOpenAudioSettings: () -> Unit = {}
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var dragParaIndex by remember(currentParagraph) { mutableFloatStateOf(currentParagraph.toFloat()) }
@@ -518,28 +602,47 @@ fun TtsDock(
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            // Slider strictly controls progress within the current chapter
-            Slider(
-                value = if (isDragging) dragParaIndex else currentParagraph.toFloat().coerceIn(0f, (totalParagraphs - 1).coerceAtLeast(1).toFloat()),
-                onValueChange = { newVal ->
-                    isDragging = true
-                    dragParaIndex = newVal
-                },
-                onValueChangeFinished = {
-                    isDragging = false
-                    val target = dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
-                    onSeekParagraph(target)
-                },
-                valueRange = 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(30.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+            // Slider strictly controls progress within the current chapter, with centralized options button to the right
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Slider(
+                    value = if (isDragging) dragParaIndex else currentParagraph.toFloat().coerceIn(0f, (totalParagraphs - 1).coerceAtLeast(1).toFloat()),
+                    onValueChange = { newVal ->
+                        isDragging = true
+                        dragParaIndex = newVal
+                    },
+                    onValueChangeFinished = {
+                        isDragging = false
+                        val target = dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
+                        onSeekParagraph(target)
+                    },
+                    valueRange = 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(30.dp),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                    )
                 )
-            )
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                IconButton(
+                    onClick = onOpenAudioSettings,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = "TTS and Audio Settings",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -859,6 +962,8 @@ fun LibraryDrawerContent(
     onDeleteNovel: (Novel, deleteFromDisk: Boolean) -> Unit,
     onDeleteChapter: (Chapter, deleteFromDisk: Boolean) -> Unit = { _, _ -> },
     onMoveChapter: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onSortChapters: (ChapterSortPreset) -> Unit = {},
+    onToggleChapterReadStatus: (Chapter) -> Unit = {},
     onAddFolder: () -> Unit,
     onRefreshFolders: () -> Unit,
     onOpenBrowser: (createNewTab: Boolean) -> Unit,
@@ -873,6 +978,20 @@ fun LibraryDrawerContent(
     var deleteFilesFromDisk by remember { mutableStateOf(false) }
     var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
     var deleteChapterFromDisk by remember { mutableStateOf(false) }
+    var draggingIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOverIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+
+    val chapterListState = rememberLazyListState()
+    val activeChapterIndex = remember(chapters, currentChapter, currentNovel) {
+        val idx = chapters.indexOfFirst { it.id == currentChapter?.id }
+        if (idx >= 0) idx else (currentNovel?.currentChapterIndex ?: 0)
+    }
+    LaunchedEffect(selectedTab, activeChapterIndex) {
+        if (selectedTab == 1 && activeChapterIndex in chapters.indices) {
+            chapterListState.animateScrollToItem((activeChapterIndex - 2).coerceAtLeast(0))
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -926,49 +1045,6 @@ fun LibraryDrawerContent(
 
         if (selectedTab == 0) {
             Column(modifier = Modifier.weight(1f)) {
-                // Prominent Import Folder action card
-                Surface(
-                    onClick = onAddFolder,
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.FolderOpen,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Import Folder",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = "Scan novel chapters from storage",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                            )
-                        }
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     if (novels.isEmpty()) {
                         item {
@@ -1020,7 +1096,7 @@ fun LibraryDrawerContent(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    if (novel.isWebNovel) Icons.Default.Language else Icons.Default.Book,
+                                    Icons.Default.Book,
                                     contentDescription = null,
                                     tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
@@ -1034,20 +1110,6 @@ fun LibraryDrawerContent(
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f, fill = false)
                                         )
-                                        if (novel.isWebNovel) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = MaterialTheme.colorScheme.secondaryContainer
-                                            ) {
-                                                Text(
-                                                    text = "WEB",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
                                     }
                                     Text(
                                         text = "${novel.chapterCount} chapters • ${novel.currentChapterIndex + 1}/${novel.chapterCount}",
@@ -1175,101 +1237,145 @@ fun LibraryDrawerContent(
             }
         } else {
             // Chapters list
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                if (chapters.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No chapters in current novel",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        }
-                    }
-                } else {
-                    items(chapters.size) { i ->
-                        val chapter = chapters[i]
-                        val isCurrent = chapter.id == currentChapter?.id
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectChapter(i) }
-                                .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                                .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "${i + 1}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.width(28.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    state = chapterListState,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (chapters.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Text(
-                                    text = chapter.title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = "No chapters in current novel",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                 )
-                                if (chapter.isCompleted) {
-                                    Text(
-                                        text = "Done ✓",
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
-                                    )
-                                }
-                            }
-
-                            // Reordering & Deletion Actions
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { onMoveChapter(i, i - 1) },
-                                    enabled = i > 0,
-                                    modifier = Modifier.size(30.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.KeyboardArrowUp,
-                                        contentDescription = "Move Up",
-                                        tint = if (i > 0) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { onMoveChapter(i, i + 1) },
-                                    enabled = i < chapters.size - 1,
-                                    modifier = Modifier.size(30.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "Move Down",
-                                        tint = if (i < chapters.size - 1) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        chapterToDelete = chapter
-                                        deleteChapterFromDisk = false
-                                    },
-                                    modifier = Modifier.size(30.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Delete Chapter",
-                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
                             }
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    } else {
+                        items(chapters.size) { i ->
+                            val chapter = chapters[i]
+                            val isCurrent = chapter.id == currentChapter?.id
+                            val isDraggingThis = draggingIndex == i
+                            val isTargeted = dragOverIndex == i && !isDraggingThis
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .graphicsLayer {
+                                        if (isDraggingThis) {
+                                            translationY = dragOffsetY
+                                            shadowElevation = 16f
+                                        }
+                                    }
+                                    .zIndex(if (isDraggingThis) 10f else 0f)
+                                    .background(
+                                        when {
+                                            isDraggingThis -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                            isTargeted -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                            isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                            else -> Color.Transparent
+                                        }
+                                    )
+                                    .clickable { onSelectChapter(i) }
+                                    .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // 6 Dots Drag & Drop Reordering Handle on the FAR LEFT
+                                Icon(
+                                    imageVector = Icons.Default.DragIndicator,
+                                    contentDescription = "Hold and drag to reorder",
+                                    tint = if (isDraggingThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .pointerInput(i) {
+                                            detectDragGestures(
+                                                onDragStart = {
+                                                    draggingIndex = i
+                                                    dragOverIndex = i
+                                                    dragOffsetY = 0f
+                                                },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    dragOffsetY += dragAmount.y
+                                                    val approxItemHeightPx = 135f
+                                                    val diff = (dragOffsetY / approxItemHeightPx).toInt()
+                                                    val target = (i + diff).coerceIn(0, chapters.size - 1)
+                                                    if (target != dragOverIndex) {
+                                                        dragOverIndex = target
+                                                    }
+                                                },
+                                                onDragEnd = {
+                                                    val from = draggingIndex
+                                                    val to = dragOverIndex
+                                                    if (from != null && to != null && from != to) {
+                                                        onMoveChapter(from, to)
+                                                    }
+                                                    draggingIndex = null
+                                                    dragOverIndex = null
+                                                    dragOffsetY = 0f
+                                                },
+                                                onDragCancel = {
+                                                    draggingIndex = null
+                                                    dragOverIndex = null
+                                                    dragOffsetY = 0f
+                                                }
+                                            )
+                                        }
+                                        .padding(end = 4.dp)
+                                )
+
+                                Text(
+                                    text = "${i + 1}",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.width(28.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = chapter.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    )
+                                }
+
+                                // Actions: Read status toggle & Delete Chapter
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { onToggleChapterReadStatus(chapter) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            if (chapter.isCompleted) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                            contentDescription = if (chapter.isCompleted) "Mark as unread" else "Mark as read",
+                                            tint = if (chapter.isCompleted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            chapterToDelete = chapter
+                                            deleteChapterFromDisk = false
+                                        },
+                                        modifier = Modifier.size(30.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete Chapter",
+                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                        }
                     }
                 }
             }

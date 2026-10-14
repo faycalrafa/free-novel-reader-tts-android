@@ -51,6 +51,14 @@ class TtsManager(
         }
     }
 
+    fun setSpeechRate(rate: Float) {
+        try {
+            tts?.setSpeechRate(rate)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to set speech rate: ${e.message}")
+        }
+    }
+
     fun setLanguageOverride(locale: Locale?) {
         languageOverride = locale
         if (locale != null && isInitialized) {

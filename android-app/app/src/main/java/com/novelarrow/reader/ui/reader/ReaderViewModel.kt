@@ -13,6 +13,7 @@ import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.ThemeMode
 import com.novelarrow.reader.data.parser.ChapterParser
+import com.novelarrow.reader.data.repository.ChapterSortPreset
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
@@ -60,7 +61,7 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.0.1"
+    val installedVersionName: String = "2.1.0"
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -130,6 +131,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+        viewModelScope.launch {
+            AudioPlaybackCoordinator.sleepTimerMinutesState.collect { mins ->
+                _uiState.update { it.copy(sleepTimerMinutes = mins) }
+            }
+        }
+        viewModelScope.launch {
+            AudioPlaybackCoordinator.sleepTimerRemainingSecondsState.collect { secs ->
+                _uiState.update { it.copy(sleepTimerRemainingSeconds = secs) }
+            }
+        }
     }
 
     private fun observeSettings() {
@@ -137,9 +148,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             settingsRepository.settingsFlow.collect { settings ->
                 _uiState.update {
                     it.copy(
-                        settings = settings,
-                        sleepTimerMinutes = settings.sleepTimerMinutes,
-                        sleepTimerRemainingSeconds = if (it.sleepTimerRemainingSeconds == 0) settings.sleepTimerMinutes * 60 else it.sleepTimerRemainingSeconds
+                        settings = settings
                     )
                 }
             }
@@ -417,22 +426,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             voiceName = state.settings.selectedVoiceName
         )
 
-        // Sleep timer:
-        // - If remaining <= 0 (e.g. previous timer finished and paused), restart timer from configured minutes.
-        // - If remaining > 0 (user paused mid-timer), continue where left off!
-        val timerMinutes = _uiState.value.sleepTimerMinutes
-        if (timerMinutes > 0) {
-            val remainingSecs = _uiState.value.sleepTimerRemainingSeconds
-            if (remainingSecs <= 0) {
-                _uiState.update { it.copy(sleepTimerRemainingSeconds = timerMinutes * 60) }
-            }
-            startSleepTimerCountdown()
-        }
     }
 
     fun pauseTts() {
         AudioPlaybackCoordinator.pause()
-        sleepTimerJob?.cancel()
         _uiState.update { it.copy(isPlaying = false) }
     }
 
@@ -442,47 +439,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun stopTts() {
         AudioPlaybackCoordinator.stop()
-        sleepTimerJob?.cancel()
         _uiState.update { it.copy(isPlaying = false, isTtsDockVisible = false) }
     }
 
     fun setSleepTimer(minutes: Int) {
-        viewModelScope.launch {
-            settingsRepository.setSleepTimerMinutes(minutes)
-        }
-        _uiState.update {
-            it.copy(
-                sleepTimerMinutes = minutes,
-                sleepTimerRemainingSeconds = minutes * 60
-            )
-        }
-        sleepTimerJob?.cancel()
-        if (minutes > 0 && _uiState.value.isPlaying) {
-            startSleepTimerCountdown()
-        }
-    }
-
-    private fun startSleepTimerCountdown() {
-        sleepTimerJob?.cancel()
-        val totalSecs = if (_uiState.value.sleepTimerRemainingSeconds > 0) {
-            _uiState.value.sleepTimerRemainingSeconds
-        } else {
-            _uiState.value.sleepTimerMinutes * 60
-        }
-        _uiState.update { it.copy(sleepTimerRemainingSeconds = totalSecs) }
-
-        sleepTimerJob = viewModelScope.launch {
-            var remaining = totalSecs
-            while (remaining > 0 && _uiState.value.isPlaying) {
-                kotlinx.coroutines.delay(1000L)
-                remaining--
-                _uiState.update { it.copy(sleepTimerRemainingSeconds = remaining) }
-            }
-            if (remaining <= 0 && _uiState.value.isPlaying) {
-                pauseTts()
-                _uiState.update { it.copy(sleepTimerRemainingSeconds = 0, toastMessage = "Sleep timer paused playback") }
-            }
-        }
+        AudioPlaybackCoordinator.setSleepTimer(minutes)
     }
 
     fun speakAtParagraph(index: Int) {
@@ -690,6 +651,59 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun sortChapters(preset: ChapterSortPreset) {
+        val currentNovel = _uiState.value.currentNovel ?: return
+        viewModelScope.launch {
+            val (updatedNovel, updatedChapters) = libraryRepository.sortChapters(
+                novelId = currentNovel.id,
+                preset = preset
+            )
+            if (updatedNovel != null) {
+                val updatedNovels = _uiState.value.novels.map { nov ->
+                    if (nov.id == currentNovel.id) updatedNovel else nov
+                }
+                val currentChap = _uiState.value.currentChapter
+                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id }
+                    ?: updatedChapters.getOrNull(updatedNovel.currentChapterIndex)
+                    ?: updatedChapters.firstOrNull()
+                _uiState.update {
+                    it.copy(
+                        novels = updatedNovels,
+                        currentNovel = updatedNovel,
+                        chapters = updatedChapters,
+                        currentChapter = refreshedCurrentChap
+                    )
+                }
+                updatePlaybackServiceNotification()
+            }
+        }
+    }
+
+    fun toggleChapterReadStatus(chapter: Chapter) {
+        val currentNovel = _uiState.value.currentNovel ?: return
+        viewModelScope.launch {
+            val (updatedNovel, updatedChapters) = libraryRepository.toggleChapterReadStatus(
+                novelId = currentNovel.id,
+                chapterId = chapter.id
+            )
+            if (updatedNovel != null) {
+                val updatedNovels = _uiState.value.novels.map { nov ->
+                    if (nov.id == currentNovel.id) updatedNovel else nov
+                }
+                val currentChap = _uiState.value.currentChapter
+                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                _uiState.update {
+                    it.copy(
+                        novels = updatedNovels,
+                        currentNovel = updatedNovel,
+                        chapters = updatedChapters,
+                        currentChapter = refreshedCurrentChap
+                    )
+                }
+            }
+        }
+    }
+
     fun refreshLinkedFolders() {
         viewModelScope.launch {
             _uiState.update {
@@ -757,10 +771,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun cycleSpeechRate() {
-        val standardSpeeds = listOf(1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
-        val current = _uiState.value.settings.speechRate
-        val next = standardSpeeds.firstOrNull { it > current + 0.05f } ?: standardSpeeds.first()
-        updateSpeechRate(next)
+        AudioPlaybackCoordinator.cycleSpeechRate()
     }
 
     fun updateSpeechPitch(pitch: Float) {

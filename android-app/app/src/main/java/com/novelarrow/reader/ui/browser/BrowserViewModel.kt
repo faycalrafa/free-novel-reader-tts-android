@@ -183,6 +183,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
 
         observePlaybackService()
+
+        AudioPlaybackCoordinator.browserNextChapterCallback = { clickNextChapter() }
+        AudioPlaybackCoordinator.browserPrevChapterCallback = { clickPrevChapter() }
     }
 
     private fun observePlaybackService() {
@@ -209,6 +212,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 if (voices.isNotEmpty()) {
                     _uiState.update { it.copy(availableVoices = voices) }
                 }
+            }
+        }
+        viewModelScope.launch {
+            AudioPlaybackCoordinator.sleepTimerMinutesState.collect { mins ->
+                _uiState.update { it.copy(sleepTimerMinutes = mins) }
+            }
+        }
+        viewModelScope.launch {
+            AudioPlaybackCoordinator.sleepTimerRemainingSecondsState.collect { secs ->
+                _uiState.update { it.copy(sleepTimerRemainingSeconds = secs) }
             }
         }
     }
@@ -361,6 +374,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onPageStarted(url: String, canGoBack: Boolean = false, canGoForward: Boolean = false) {
+        if (_uiState.value.isLiveReading) {
+            AudioPlaybackCoordinator.pause()
+            clearWebHighlight()
+            _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0, isLivePlaying = false) }
+        }
         _uiState.update {
             it.copy(
                 currentUrl = url,
@@ -408,13 +426,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         // Inject JS helper and document-end userscripts
         injectHelperScript(url)
 
-        // 1. If batch download is active, trigger sequence
+        // 1. If batch download is active, trigger sequence and NEVER trigger TTS
         if (_uiState.value.isDownloading) {
             triggerBatchDownloadSequence()
+            return
         }
 
-        // 2. If Live Reading was active across page transitions or ttsAutoStart is enabled
-        if (_uiState.value.isLiveReading || _uiState.value.settings.ttsAutoStart) {
+        // 2. Only auto-read next chapter if explicitly enabled in settings (defaults to false)
+        if (_uiState.value.settings.autoReadNextChapter && (_uiState.value.isLiveReading || _uiState.value.settings.ttsAutoStart)) {
             viewModelScope.launch {
                 delay(700)
                 startLiveReadingInternal(forceStartAtBeginning = true)
@@ -881,17 +900,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun toggleLiveReading() {
         if (_uiState.value.isLiveReading) {
-            if (_uiState.value.isLivePlaying) {
-                pauseLiveReading()
-            } else {
-                resumeLiveReading()
-            }
+            stopLiveReading()
         } else {
             startLiveReading()
         }
     }
 
     fun startLiveReading() {
+        AudioPlaybackCoordinator.saveCurrentReaderProgress()
+        AudioPlaybackCoordinator.stop()
         _uiState.update { it.copy(isLiveReading = true, isLivePlaying = true) }
         startLiveReadingInternal(forceStartAtBeginning = false)
     }
@@ -978,23 +995,27 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         var clean = text
         val settings = _uiState.value.settings
 
-        for (rule in settings.pronunciationRules) {
-            if (rule.from.isBlank()) continue
-            clean = if (rule.exactMatch) {
-                val regex = Regex("""\b${Regex.escape(rule.from)}\b""", RegexOption.IGNORE_CASE)
-                clean.replace(regex, rule.to)
-            } else {
-                clean.replace(rule.from, rule.to, ignoreCase = true)
+        if (settings.pronunciationRulesEnabled) {
+            for (rule in settings.pronunciationRules) {
+                if (rule.from.isBlank()) continue
+                clean = if (rule.exactMatch) {
+                    val regex = Regex("""\b${Regex.escape(rule.from)}\b""", RegexOption.IGNORE_CASE)
+                    clean.replace(regex, rule.to)
+                } else {
+                    clean.replace(rule.from, rule.to, ignoreCase = true)
+                }
             }
         }
 
-        for (skip in settings.skipWords) {
-            if (skip.text.isBlank()) continue
-            clean = if (skip.exactMatch) {
-                val regex = Regex("""\b${Regex.escape(skip.text)}\b""", RegexOption.IGNORE_CASE)
-                clean.replace(regex, "")
-            } else {
-                clean.replace(skip.text, "", ignoreCase = true)
+        if (settings.skipWordsEnabled) {
+            for (skip in settings.skipWords) {
+                if (skip.text.isBlank()) continue
+                clean = if (skip.exactMatch) {
+                    val regex = Regex("""\b${Regex.escape(skip.text)}\b""", RegexOption.IGNORE_CASE)
+                    clean.replace(regex, "")
+                } else {
+                    clean.replace(skip.text, "", ignoreCase = true)
+                }
             }
         }
 
@@ -1077,18 +1098,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun cycleSpeechRate() {
-        val currentRate = _uiState.value.settings.ttsRate
-        val nextRate = when {
-            currentRate < 0.74f -> 0.75f
-            currentRate < 0.99f -> 1.0f
-            currentRate < 1.24f -> 1.25f
-            currentRate < 1.49f -> 1.5f
-            currentRate < 1.99f -> 2.0f
-            else -> 0.5f
-        }
-        viewModelScope.launch {
-            settingsRepository.setBrowserRate(nextRate)
-        }
+        AudioPlaybackCoordinator.cycleSpeechRate()
     }
 
     // =========================================================================
@@ -1104,40 +1114,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setSleepTimer(minutes: Int) {
-        sleepTimerJob?.cancel()
-        val totalSecs = minutes * 60
+        AudioPlaybackCoordinator.setSleepTimer(minutes)
         _uiState.update {
             it.copy(
-                sleepTimerMinutes = minutes,
-                sleepTimerRemainingSeconds = totalSecs,
                 showSleepTimerDialog = false,
                 toastMessage = if (minutes > 0) "Sleep timer set for $minutes minutes" else "Sleep timer turned off"
             )
-        }
-
-        viewModelScope.launch {
-            settingsRepository.setBrowserSleepTimerMinutes(minutes)
-        }
-
-        if (minutes > 0) {
-            sleepTimerJob = viewModelScope.launch {
-                var remaining = totalSecs
-                while (remaining > 0) {
-                    delay(1000)
-                    if (_uiState.value.isLivePlaying) {
-                        remaining--
-                        _uiState.update { it.copy(sleepTimerRemainingSeconds = remaining) }
-                    }
-                }
-                pauseLiveReading()
-                _uiState.update {
-                    it.copy(
-                        sleepTimerMinutes = 0,
-                        sleepTimerRemainingSeconds = 0,
-                        toastMessage = "Sleep timer expired. Playback paused."
-                    )
-                }
-            }
         }
     }
 
@@ -1208,6 +1190,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun toggleAutoReadNextChapter(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setAutoReadNextChapter(enabled)
+        }
+        _uiState.update { it.copy(settings = it.settings.copy(autoReadNextChapter = enabled)) }
+    }
+
     fun toggleTtsAutoStart(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setBrowserTtsAutoStart(enabled)
@@ -1227,21 +1216,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateVoice(voiceName: String?) {
-        viewModelScope.launch {
-            settingsRepository.setBrowserVoice(voiceName)
-        }
+        AudioPlaybackCoordinator.updateVoice(voiceName)
     }
 
     fun updateRate(rate: Float) {
-        viewModelScope.launch {
-            settingsRepository.setBrowserRate(rate)
-        }
+        AudioPlaybackCoordinator.updateSpeechRate(rate)
     }
 
     fun updatePitch(pitch: Float) {
-        viewModelScope.launch {
-            settingsRepository.setBrowserPitch(pitch)
-        }
+        AudioPlaybackCoordinator.updateSpeechPitch(pitch)
     }
 
     fun updateLoopCount(count: Int) {
@@ -1297,6 +1280,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun removePronunciationRule(index: Int) {
         viewModelScope.launch {
             settingsRepository.removeBrowserPronunciationRule(index)
+        }
+    }
+
+    fun togglePronunciationRulesEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setBrowserPronunciationRulesEnabled(enabled)
+        }
+    }
+
+    fun toggleSkipWordsEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setBrowserSkipWordsEnabled(enabled)
         }
     }
 

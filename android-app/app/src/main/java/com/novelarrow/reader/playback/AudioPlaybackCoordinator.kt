@@ -13,6 +13,7 @@ import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,10 +67,23 @@ object AudioPlaybackCoordinator {
     private var currentParagraphs: List<Paragraph> = emptyList()
     private var autoNextChapterEnabled: Boolean = true
 
-    private var currentSpeechRate: Float = 1.0f
-    private var currentSpeechPitch: Float = 1.0f
-    private var currentVoiceName: String? = null
+    var currentSpeechRate: Float = 1.0f
+        private set
+    private val _currentSpeechRateState = MutableStateFlow(1.0f)
+    val currentSpeechRateState: StateFlow<Float> = _currentSpeechRateState.asStateFlow()
+
+    var currentSpeechPitch: Float = 1.0f
+        private set
+    var currentVoiceName: String? = null
+        private set
     private var languageOverride: Locale? = null
+
+    private var sleepTimerJob: Job? = null
+    private val _sleepTimerMinutesState = MutableStateFlow(0)
+    val sleepTimerMinutesState: StateFlow<Int> = _sleepTimerMinutesState.asStateFlow()
+
+    private val _sleepTimerRemainingSecondsState = MutableStateFlow(0)
+    val sleepTimerRemainingSecondsState: StateFlow<Int> = _sleepTimerRemainingSecondsState.asStateFlow()
 
     fun initialize(context: Context) {
         if (appContext != null) return
@@ -95,8 +109,16 @@ object AudioPlaybackCoordinator {
         coordinatorScope.launch {
             settingsRepository?.settingsFlow?.collect { settings ->
                 currentSpeechRate = settings.speechRate
+                _currentSpeechRateState.value = settings.speechRate
                 currentSpeechPitch = settings.speechPitch
                 currentVoiceName = settings.selectedVoiceName
+                if (_sleepTimerMinutesState.value != settings.sleepTimerMinutes) {
+                    _sleepTimerMinutesState.value = settings.sleepTimerMinutes
+                    if (settings.sleepTimerMinutes == 0) {
+                        sleepTimerJob?.cancel()
+                        _sleepTimerRemainingSecondsState.value = 0
+                    }
+                }
                 applyTtsSettings()
             }
         }
@@ -190,6 +212,12 @@ object AudioPlaybackCoordinator {
         }
 
         updateServiceState()
+        if (_sleepTimerMinutesState.value > 0) {
+            if (_sleepTimerRemainingSecondsState.value <= 0) {
+                _sleepTimerRemainingSecondsState.value = _sleepTimerMinutesState.value * 60
+            }
+            startSleepTimerCountdown()
+        }
         speakCurrentParagraph()
     }
 
@@ -204,6 +232,11 @@ object AudioPlaybackCoordinator {
     ) {
         initialize(context)
         ensureServiceRunning(context)
+
+        // Audio focus handoff: if switching away from Reader, persist reader progress to library folder
+        if (currentSource == PlaybackSource.READER) {
+            saveCurrentReaderProgress()
+        }
 
         currentSource = PlaybackSource.BROWSER
         currentNovelId = null
@@ -241,7 +274,67 @@ object AudioPlaybackCoordinator {
 
         currentProgressText = "¶ ${currentParagraphIndex + 1}/${paragraphs.size}"
         updateServiceState()
+
+        if (_sleepTimerMinutesState.value > 0) {
+            if (_sleepTimerRemainingSecondsState.value <= 0) {
+                _sleepTimerRemainingSecondsState.value = _sleepTimerMinutesState.value * 60
+            }
+            startSleepTimerCountdown()
+        }
+
         speakCurrentParagraph()
+    }
+
+    fun saveCurrentReaderProgress() {
+        val novelId = currentNovelId ?: return
+        val chapIdx = currentChapterIndex
+        val paraIdx = currentParagraphIndex
+        val total = currentParagraphs.size
+        coordinatorScope.launch(Dispatchers.IO) {
+            libraryRepository?.updateChapterProgress(
+                novelId = novelId,
+                chapterIndex = chapIdx,
+                paragraphIndex = paraIdx,
+                scrollOffset = 0,
+                isCompleted = total > 0 && paraIdx >= total - 1
+            )
+        }
+    }
+
+    fun setSleepTimer(minutes: Int) {
+        _sleepTimerMinutesState.value = minutes
+        val totalSecs = minutes * 60
+        _sleepTimerRemainingSecondsState.value = totalSecs
+        coordinatorScope.launch(Dispatchers.IO) {
+            settingsRepository?.setSleepTimerMinutes(minutes)
+        }
+        sleepTimerJob?.cancel()
+        if (minutes > 0 && _isPlayingState.value) {
+            startSleepTimerCountdown()
+        }
+    }
+
+    private fun startSleepTimerCountdown() {
+        sleepTimerJob?.cancel()
+        val totalSecs = if (_sleepTimerRemainingSecondsState.value > 0) {
+            _sleepTimerRemainingSecondsState.value
+        } else {
+            _sleepTimerMinutesState.value * 60
+        }
+        _sleepTimerRemainingSecondsState.value = totalSecs
+
+        sleepTimerJob = coordinatorScope.launch {
+            var remaining = totalSecs
+            while (remaining > 0 && _isPlayingState.value) {
+                delay(1000L)
+                remaining--
+                _sleepTimerRemainingSecondsState.value = remaining
+            }
+            if (remaining <= 0 && _isPlayingState.value) {
+                pause()
+                _sleepTimerRemainingSecondsState.value = 0
+            }
+        }
     }
 
     fun play() {
@@ -249,12 +342,51 @@ object AudioPlaybackCoordinator {
             _isPlayingState.value = true
             _playbackProgressState.update { it.copy(isPlaying = true) }
             updateServiceState()
-            speakCurrentParagraph()
+
+            if (_sleepTimerMinutesState.value > 0) {
+                if (_sleepTimerRemainingSecondsState.value <= 0) {
+                    _sleepTimerRemainingSecondsState.value = _sleepTimerMinutesState.value * 60
+                }
+                startSleepTimerCountdown()
+            }
+
+            // If empty paragraphs in reader, reload active chapter
+            if (currentParagraphs.isEmpty() && currentSource == PlaybackSource.READER && currentNovelId != null) {
+                coordinatorScope.launch(Dispatchers.IO) {
+                    val repo = libraryRepository ?: return@launch
+                    val chapters = repo.getChapters(currentNovelId!!)
+                    val chap = chapters.getOrNull(currentChapterIndex) ?: chapters.firstOrNull() ?: return@launch
+                    val content = repo.readChapterContent(chap)
+                    val settings = settingsRepository?.getSettings() ?: com.novelarrow.reader.data.model.ReaderSettings()
+                    val parsed = ChapterParser.parse(
+                        content = content,
+                        fileName = chap.title,
+                        contentSelector = settings.contentSelector,
+                        contentSelectorEnabled = settings.contentSelectorEnabled,
+                        pronunciationRules = settings.pronunciationRules,
+                        pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                        skipWords = settings.skipWords,
+                        skipWordsEnabled = settings.skipWordsEnabled,
+                        headerSkipString = settings.headerSkipString,
+                        headerSkipEnabled = settings.headerSkipEnabled,
+                        footerSkipString = settings.footerSkipString,
+                        footerSkipEnabled = settings.footerSkipEnabled
+                    )
+                    withContext(Dispatchers.Main) {
+                        currentParagraphs = parsed
+                        totalParagraphsCount = parsed.size
+                        speakCurrentParagraph()
+                    }
+                }
+            } else {
+                speakCurrentParagraph()
+            }
         }
     }
 
     fun pause() {
         ttsManager?.stop()
+        sleepTimerJob?.cancel()
         _isPlayingState.value = false
         _playbackProgressState.update { it.copy(isPlaying = false) }
         updateServiceState()
@@ -266,6 +398,8 @@ object AudioPlaybackCoordinator {
 
     fun stop() {
         pause()
+        sleepTimerJob?.cancel()
+        _sleepTimerRemainingSecondsState.value = 0
         currentSource = PlaybackSource.NONE
         _playbackProgressState.update { it.copy(isPlaying = false, source = PlaybackSource.NONE) }
         attachedService?.stopServicePlayback()
@@ -297,15 +431,28 @@ object AudioPlaybackCoordinator {
         }
     }
 
+    var browserNextChapterCallback: (() -> Unit)? = null
+    var browserPrevChapterCallback: (() -> Unit)? = null
+
     fun nextChapter() {
         if (currentSource == PlaybackSource.READER) {
             advanceToNextChapter()
+        } else if (currentSource == PlaybackSource.BROWSER) {
+            browserNextChapterCallback?.invoke() ?: run {
+                val target = (currentParagraphIndex + 5).coerceAtMost(currentParagraphs.size - 1)
+                seekToParagraph(target)
+            }
         }
     }
 
     fun previousChapter() {
         if (currentSource == PlaybackSource.READER) {
             advanceToPreviousChapter()
+        } else if (currentSource == PlaybackSource.BROWSER) {
+            browserPrevChapterCallback?.invoke() ?: run {
+                val target = (currentParagraphIndex - 5).coerceAtLeast(0)
+                seekToParagraph(target)
+            }
         }
     }
 
@@ -331,11 +478,51 @@ object AudioPlaybackCoordinator {
         updateServiceState()
     }
 
+    fun cycleSpeechRate() {
+        val standardSpeeds = listOf(1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+        val current = currentSpeechRate
+        val next = standardSpeeds.firstOrNull { it > current + 0.05f } ?: standardSpeeds.first()
+        updateSpeechRate(next)
+    }
+
+    fun updateSpeechRate(rate: Float) {
+        currentSpeechRate = rate
+        _currentSpeechRateState.value = rate
+        applyTtsSettings()
+        if (_isPlayingState.value && currentParagraphs.isNotEmpty()) {
+            speakCurrentParagraph()
+        }
+        coordinatorScope.launch(Dispatchers.IO) {
+            settingsRepository?.setSpeechRate(rate)
+        }
+    }
+
+    fun updateSpeechPitch(pitch: Float) {
+        currentSpeechPitch = pitch
+        applyTtsSettings()
+        coordinatorScope.launch(Dispatchers.IO) {
+            settingsRepository?.setSpeechPitch(pitch)
+        }
+    }
+
+    fun updateVoice(voiceName: String?) {
+        currentVoiceName = voiceName
+        applyTtsSettings()
+        coordinatorScope.launch(Dispatchers.IO) {
+            settingsRepository?.setVoice(voiceName)
+        }
+    }
+
     fun updateTtsSettings(rate: Float, pitch: Float, voiceName: String?) {
         currentSpeechRate = rate
         currentSpeechPitch = pitch
         currentVoiceName = voiceName
         applyTtsSettings()
+        coordinatorScope.launch(Dispatchers.IO) {
+            settingsRepository?.setSpeechRate(rate)
+            settingsRepository?.setSpeechPitch(pitch)
+            settingsRepository?.setVoice(voiceName)
+        }
     }
 
     private fun applyTtsSettings() {

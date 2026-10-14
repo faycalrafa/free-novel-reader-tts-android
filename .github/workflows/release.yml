@@ -35,36 +35,37 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.0.1"
+          DATE_TAG="v2.1.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.0.1"
-        run: ./gradlew assembleRelease -PappVersionName=2.0.1 --no-daemon
+          APP_VERSION_NAME: "2.1.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.1.0 --no-daemon
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.0.1 (Stable)
+          name: NovelArrow Reader v2.1.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.0.1 (Stable) 📖🚀
+            ### NovelArrow Reader v2.1.0 (Stable) 📖🚀
 
-            **NovelArrow Reader v2.0.1** brings singular chapter deletion and playlist reordering, ultra-fast batched directory scanning, duplicate download prevention (no duplicate files or `(1)` renames), full system notification & lock screen media controls synchronization for both local reader and browser modes, and disabled edge-swipe gestures during browser vertical scrolling.
+            **NovelArrow Reader v2.1.0** introduces free drag-and-drop chapter reordering with 6-dot handles, a centralized options dialog for TTS & parsing filters directly in the media bar, continuous playback between library and browser, reactive lockscreen/notification metadata synchronization, unified download directory handling with hidden `.progress.json` persistence, and instant speech speed switching.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Features in this release:
-            - **Embedded Web Browser with Tabs**: Multi-tab browsing directly integrated into the library sidebar drawer.
-            - **Full Page & Batch Downloads**: Offline snapshot capture matching the userscript (inlined stylesheets, base64 images, standalone next button `#na-floating-next`).
-            - **Live Browser TTS Reader**: Interactive reading aloud with continuous sentence/paragraph navigation; webpage buttons and links remain fully clickable.
-            - **Robust Content Extraction**: Fallback to first readable `<p>` when aggressive filters match no text.
-            - **Library Sidebar Redesign**: Folder refresh button next to folder picker, and deletion confirmation popup with optional file deletion checkbox (unchecked by default).
-            - **Synchronized Playback Controls**: Unified media notification and lockscreen/earbuds playback controls between offline reader and browser.
+            - **Free Drag-and-Drop Chapter Reordering**: Intuitive 6-dots handle on the far left of each chapter row in the library sidebar to reorder chapters freely.
+            - **Centralized Rules, Skips, and TTS Settings**: Fast options button (`Tune`) neatly placed right beside the paragraph progress bar in the bottom media bar, bringing together Speech Speed, Pitch, Voice Selection, Sleep Timer, Pronunciation Rules, and Skip Words for the entire app.
+            - **Unified Media Control Bottom Bar**: Consistent media bottom bar across both the offline reader and embedded browser; ongoing playback seamlessly persists when switching screens.
+            - **Reactive Notification & Lockscreen Metadata**: Android System Media Notification reactively updates chapter name, novel title, artwork, and playback state when scrubbing or advancing paragraphs/chapters.
+            - **Download Directory as Default Library**: The `NovelReader` download directory is automatically scanned and treated identically to imported folders, storing progress in `.progress.json` that survives app reinstalls.
+            - **Browser TTS Stream Management**: Clean toggle behavior (tapping TTS button again halts playback and hides dock); page navigation stops the previous audio stream and respects auto-read next chapter settings.
+            - **Instant Speed Switching**: Speech speed changes apply instantaneously to the active TTS engine without delay.
             - Automated Release APK build from branch `${{ github.ref_name }}` (`${{ github.sha }}`).
 
             **Download and install `app-release.apk` below:**

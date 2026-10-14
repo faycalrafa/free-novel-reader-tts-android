@@ -508,6 +508,100 @@ class NovelAudioPlaybackService : MediaSessionService() {
         return super.onStartCommand(intent, flags, startId)
     }
 
+    private var cachedBookCoverBitmap: android.graphics.Bitmap? = null
+    private var cachedBookArtworkBytes: ByteArray? = null
+
+    private fun getBookCoverArtwork(): Pair<android.graphics.Bitmap, ByteArray> {
+        cachedBookCoverBitmap?.let { bmp ->
+            cachedBookArtworkBytes?.let { bytes ->
+                return Pair(bmp, bytes)
+            }
+        }
+        val size = 512
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+
+        val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            shader = android.graphics.LinearGradient(
+                0f, 0f, size.toFloat(), size.toFloat(),
+                intArrayOf(
+                    android.graphics.Color.rgb(24, 32, 54),
+                    android.graphics.Color.rgb(41, 72, 120),
+                    android.graphics.Color.rgb(18, 24, 38)
+                ),
+                floatArrayOf(0f, 0.6f, 1f),
+                android.graphics.Shader.TileMode.CLAMP
+            )
+        }
+        val rect = android.graphics.RectF(0f, 0f, size.toFloat(), size.toFloat())
+        canvas.drawRoundRect(rect, 48f, 48f, bgPaint)
+
+        val spinePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(70, 255, 215, 0)
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 14f
+        }
+        canvas.drawLine(48f, 40f, 48f, size.toFloat() - 40f, spinePaint)
+
+        val bookPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            style = android.graphics.Paint.Style.FILL
+        }
+        val cx = size / 2f
+        val cy = size / 2f
+
+        val path = android.graphics.Path().apply {
+            moveTo(cx, cy + 90f)
+            cubicTo(cx - 60f, cy + 60f, cx - 130f, cy + 70f, cx - 170f, cy + 80f)
+            lineTo(cx - 170f, cy - 80f)
+            cubicTo(cx - 130f, cy - 90f, cx - 60f, cy - 100f, cx, cy - 70f)
+            close()
+
+            moveTo(cx, cy + 90f)
+            cubicTo(cx + 60f, cy + 60f, cx + 130f, cy + 70f, cx + 170f, cy + 80f)
+            lineTo(cx + 170f, cy - 80f)
+            cubicTo(cx + 130f, cy - 90f, cx + 60f, cy - 100f, cx, cy - 70f)
+            close()
+        }
+        canvas.drawPath(path, bookPaint)
+
+        val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(120, 24, 32, 54)
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 6f
+            strokeCap = android.graphics.Paint.Cap.ROUND
+        }
+        canvas.drawLine(cx - 140f, cy - 40f, cx - 40f, cy - 48f, linePaint)
+        canvas.drawLine(cx - 140f, cy - 10f, cx - 40f, cy - 18f, linePaint)
+        canvas.drawLine(cx - 140f, cy + 20f, cx - 40f, cy + 12f, linePaint)
+
+        canvas.drawLine(cx + 40f, cy - 48f, cx + 140f, cy - 40f, linePaint)
+        canvas.drawLine(cx + 40f, cy - 18f, cx + 140f, cy - 10f, linePaint)
+        canvas.drawLine(cx + 40f, cy + 12f, cx + 140f, cy + 20f, linePaint)
+
+        val ribbonPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(234, 88, 12)
+            style = android.graphics.Paint.Style.FILL
+        }
+        val ribbonPath = android.graphics.Path().apply {
+            moveTo(cx - 12f, cy - 70f)
+            lineTo(cx + 12f, cy - 70f)
+            lineTo(cx + 12f, cy + 115f)
+            lineTo(cx, cy + 100f)
+            lineTo(cx - 12f, cy + 115f)
+            close()
+        }
+        canvas.drawPath(ribbonPath, ribbonPaint)
+
+        val stream = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+        val bytes = stream.toByteArray()
+
+        cachedBookCoverBitmap = bitmap
+        cachedBookArtworkBytes = bytes
+        return Pair(bitmap, bytes)
+    }
+
     fun updatePlaybackState(
         isPlaying: Boolean,
         novelTitle: String,
@@ -531,19 +625,27 @@ class NovelAudioPlaybackService : MediaSessionService() {
         virtualDurationMs = safeParas.toLong() * PARAGRAPH_UNIT_MS
         virtualPositionMs = (currentParagraph.coerceIn(0, safeParas).toLong() * PARAGRAPH_UNIT_MS).coerceIn(0L, virtualDurationMs)
 
+        val (coverBitmap, coverArtworkBytes) = getBookCoverArtwork()
+
         val metadata = MediaMetadata.Builder()
             .setTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
             .setArtist(novelTitle.ifBlank { "Text-to-Speech" })
-            .setAlbumTitle("NovelArrow Reader")
+            .setAlbumTitle(novelTitle.ifBlank { "NovelArrow Reader" })
             .setDisplayTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
             .setSubtitle(paragraphProgress)
+            .setArtworkData(coverArtworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
             .build()
         currentMediaMetadata = metadata
+        val mediaItem = androidx.media3.common.MediaItem.Builder()
+            .setMediaId("novel_tts_${novelTitle.hashCode()}_${chapterTitle.hashCode()}")
+            .setMediaMetadata(metadata)
+            .build()
         try {
+            exoPlayer?.setMediaItem(mediaItem, false)
             exoPlayer?.setPlaylistMetadata(metadata)
         } catch (_: Exception) {}
 
-        val notification = buildForegroundNotification(novelTitle, chapterTitle, paragraphProgress, isPlaying)
+        val notification = buildForegroundNotification(novelTitle, chapterTitle, paragraphProgress, isPlaying, coverBitmap)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (isPlaying) {
@@ -593,7 +695,21 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 exoPlayer?.pause()
             }
 
-            manager.notify(NOTIFICATION_ID, notification)
+            // Keep notification persistent in the notification panel when paused so headset buttons can resume instantly
+            if (!isForegroundServiceStarted) {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                    } else {
+                        startForeground(NOTIFICATION_ID, notification)
+                    }
+                    isForegroundServiceStarted = true
+                } catch (e: Exception) {
+                    manager.notify(NOTIFICATION_ID, notification)
+                }
+            } else {
+                manager.notify(NOTIFICATION_ID, notification)
+            }
         }
     }
 
@@ -620,7 +736,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
         novelTitle: String,
         chapterTitle: String,
         progressText: String,
-        isPlaying: Boolean
+        isPlaying: Boolean,
+        coverBitmap: android.graphics.Bitmap? = null
     ): Notification {
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -644,7 +761,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
         )
 
         val playPausePendingIntent = PendingIntent.getService(
-            this, 3,
+            this, if (isPlaying) 3 else 33,
             Intent(this, NovelAudioPlaybackService::class.java).apply {
                 action = if (isPlaying) ACTION_PAUSE else ACTION_PLAY
             },
@@ -678,22 +795,27 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
-            .setContentText("$novelTitle  ($progressText)")
+            .setContentText(novelTitle.ifBlank { "NovelArrow Reader" })
             .setSubText(progressText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openAppPendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(isPlaying)
-            .setProgress(
-                totalParagraphsCount.coerceAtLeast(1),
-                (currentParagraphIndex + 1).coerceIn(0, totalParagraphsCount.coerceAtLeast(1)),
-                false
-            )
-            .addAction(android.R.drawable.ic_media_previous, "Prev Chap", prevChapPendingIntent)
-            .addAction(playPauseAction)
-            .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)
-            .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)
-            .addAction(android.R.drawable.ic_media_ff, "Next ¶", nextParaPendingIntent)
+            .setOngoing(true) // Persistent notification in notification panel even when playback is paused
+
+        if (coverBitmap != null) {
+            builder.setLargeIcon(coverBitmap)
+        }
+
+        builder.setProgress(
+            totalParagraphsCount.coerceAtLeast(1),
+            (currentParagraphIndex + 1).coerceIn(0, totalParagraphsCount.coerceAtLeast(1)),
+            false
+        )
+        .addAction(android.R.drawable.ic_media_previous, "Prev Chap", prevChapPendingIntent)
+        .addAction(playPauseAction)
+        .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)
+        .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)
+        .addAction(android.R.drawable.ic_media_ff, "Next ¶", nextParaPendingIntent)
 
         mediaSession?.let { session ->
             val mediaStyle = MediaStyleNotificationHelper.MediaStyle(session)
@@ -732,9 +854,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        if (!AudioPlaybackCoordinator.isPlayingState.value) {
-            stopServicePlayback()
-        }
+        // Notification is persistent: retain exact chapter and paragraph so hardware headset buttons can resume instantly
     }
 
     override fun onDestroy() {

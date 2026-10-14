@@ -131,8 +131,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.WebBrowserSettings
+import com.novelarrow.reader.playback.AudioPlaybackCoordinator
+import com.novelarrow.reader.playback.PlaybackSource
 import com.novelarrow.reader.ui.reader.SleepTimerDialog
 import com.novelarrow.reader.ui.reader.TtsDock
+import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
 
 @Composable
 fun BrowserScreen(
@@ -142,8 +145,12 @@ fun BrowserScreen(
     onOpenDrawer: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
+    val isReaderActive = playbackProgress.source == PlaybackSource.READER && (playbackProgress.isPlaying || playbackProgress.novelId != null)
+    val isMediaDockVisible = uiState.isLiveReading || isReaderActive
     val context = LocalContext.current
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var showAudioSettingsDialog by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(uiState.toastMessage) {
@@ -284,28 +291,53 @@ fun BrowserScreen(
 
         // TTS Player Dock - Reuses the exact same TtsDock component from ReaderScreen
         AnimatedVisibility(
-            visible = uiState.isLiveReading,
+            visible = isMediaDockVisible,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            TtsDock(
-                currentParagraph = uiState.liveCurrentParagraphIndex,
-                totalParagraphs = uiState.liveParagraphs.size,
-                currentChapterIndex = 0,
-                totalChapters = 0,
-                isPlaying = uiState.isLivePlaying,
-                speechRate = uiState.settings.ttsRate,
-                sleepTimerMinutes = uiState.sleepTimerMinutes,
-                sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
-                onPlayPauseClick = { viewModel.toggleLiveReading() },
-                onPrevChapterClick = { viewModel.clickPrevChapter() },
-                onNextChapterClick = { viewModel.clickNextChapter() },
-                onSleepTimerClick = { viewModel.openSleepTimerDialog() },
-                onSpeedClick = { viewModel.cycleSpeechRate() },
-                onSeekParagraph = { viewModel.seekToParagraph(it) },
-                isBrowserMode = true
-            )
+            if (uiState.isLiveReading) {
+                TtsDock(
+                    currentParagraph = uiState.liveCurrentParagraphIndex,
+                    totalParagraphs = uiState.liveParagraphs.size,
+                    currentChapterIndex = 0,
+                    totalChapters = 0,
+                    isPlaying = uiState.isLivePlaying,
+                    speechRate = uiState.settings.ttsRate,
+                    sleepTimerMinutes = uiState.sleepTimerMinutes,
+                    sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                    onPlayPauseClick = { viewModel.toggleLiveReading() },
+                    onPrevChapterClick = { viewModel.clickPrevChapter() },
+                    onNextChapterClick = { viewModel.clickNextChapter() },
+                    onSleepTimerClick = { viewModel.openSleepTimerDialog() },
+                    onSpeedClick = { viewModel.cycleSpeechRate() },
+                    onSeekParagraph = { viewModel.seekToParagraph(it) },
+                    isBrowserMode = true,
+                    onOpenAudioSettings = { showAudioSettingsDialog = true }
+                )
+            } else if (isReaderActive) {
+                TtsDock(
+                    currentParagraph = playbackProgress.currentParagraphIndex,
+                    totalParagraphs = playbackProgress.totalParagraphs,
+                    currentChapterIndex = playbackProgress.chapterIndex,
+                    totalChapters = playbackProgress.totalChapters,
+                    isPlaying = playbackProgress.isPlaying,
+                    speechRate = AudioPlaybackCoordinator.currentSpeechRate,
+                    sleepTimerMinutes = uiState.sleepTimerMinutes,
+                    sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                    onPlayPauseClick = {
+                        if (playbackProgress.isPlaying) AudioPlaybackCoordinator.pause()
+                        else AudioPlaybackCoordinator.play()
+                    },
+                    onPrevChapterClick = { AudioPlaybackCoordinator.previousChapter() },
+                    onNextChapterClick = { AudioPlaybackCoordinator.nextChapter() },
+                    onSleepTimerClick = { viewModel.openSleepTimerDialog() },
+                    onSpeedClick = { viewModel.cycleSpeechRate() },
+                    onSeekParagraph = { AudioPlaybackCoordinator.seekToParagraph(it) },
+                    isBrowserMode = false,
+                    onOpenAudioSettings = { showAudioSettingsDialog = true }
+                )
+            }
         }
 
         // Multi-Tab Switcher: slides the library sidebar open instead of popup dialog
@@ -345,6 +377,32 @@ fun BrowserScreen(
             )
         }
 
+        if (showAudioSettingsDialog) {
+            UnifiedAudioSettingsDialog(
+                speechRate = uiState.settings.ttsRate,
+                speechPitch = uiState.settings.ttsPitch,
+                selectedVoiceName = uiState.settings.ttsVoice,
+                availableVoices = uiState.availableVoices,
+                sleepTimerMinutes = uiState.sleepTimerMinutes,
+                sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                pronunciationRulesEnabled = uiState.settings.pronunciationRulesEnabled,
+                pronunciationRules = uiState.settings.pronunciationRules,
+                skipWordsEnabled = uiState.settings.skipWordsEnabled,
+                skipWords = uiState.settings.skipWords,
+                onSpeechRateChange = { viewModel.updateRate(it) },
+                onSpeechPitchChange = { viewModel.updatePitch(it) },
+                onVoiceChange = { viewModel.updateVoice(it) },
+                onSleepTimerChange = { viewModel.setSleepTimer(it) },
+                onPronunciationRulesEnabledChange = { viewModel.togglePronunciationRulesEnabled(it) },
+                onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
+                onRemovePronunciationRule = { viewModel.removePronunciationRule(it) },
+                onSkipWordsEnabledChange = { viewModel.toggleSkipWordsEnabled(it) },
+                onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
+                onRemoveSkipWord = { viewModel.removeSkipWord(it) },
+                onDismiss = { showAudioSettingsDialog = false }
+            )
+        }
+
         // Complete Userscript Settings Modal
         if (uiState.showSettingsDialog) {
             BrowserSettingsDialog(
@@ -355,6 +413,7 @@ fun BrowserScreen(
                 onUpdateVoice = { viewModel.updateVoice(it) },
                 onUpdateRate = { viewModel.updateRate(it) },
                 onUpdatePitch = { viewModel.updatePitch(it) },
+                onToggleAutoReadNextChapter = { viewModel.toggleAutoReadNextChapter(it) },
                 onToggleTtsAutoScroll = { viewModel.toggleTtsAutoScroll(it) },
                 onToggleTtsAutoStart = { viewModel.toggleTtsAutoStart(it) },
                 onToggleTtsSynthByParagraph = { viewModel.toggleTtsSynthByParagraph(it) },
@@ -638,21 +697,16 @@ private fun BrowserTopBar(
                     Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter", modifier = Modifier.size(20.dp))
                 }
 
-                // Read Aloud / TTS
+                // Read Aloud / TTS - Matching ReaderTopBar design
                 IconButton(
                     onClick = onLiveReadClicked,
-                    modifier = Modifier
-                        .size(34.dp)
-                        .background(
-                            if (isLiveReading) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            shape = CircleShape
-                        )
+                    modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
                         Icons.Default.Headphones,
                         contentDescription = "TTS Read Aloud",
                         tint = if (isLiveReading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
@@ -1063,6 +1117,7 @@ private fun BrowserSettingsDialog(
     onUpdateVoice: (String?) -> Unit,
     onUpdateRate: (Float) -> Unit,
     onUpdatePitch: (Float) -> Unit,
+    onToggleAutoReadNextChapter: (Boolean) -> Unit = {},
     onToggleTtsAutoScroll: (Boolean) -> Unit,
     onToggleTtsAutoStart: (Boolean) -> Unit,
     onToggleTtsSynthByParagraph: (Boolean) -> Unit,
@@ -1365,6 +1420,22 @@ private fun BrowserSettingsDialog(
                                 Switch(
                                     checked = settings.ttsAutoScroll,
                                     onCheckedChange = onToggleTtsAutoScroll
+                                )
+                            }
+
+                            // Auto-read when next chapter loads switch (default Off)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Auto-read when next chapter loads", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                                    Text("Wait for user input before reading new page when Off", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                }
+                                Switch(
+                                    checked = settings.autoReadNextChapter,
+                                    onCheckedChange = onToggleAutoReadNextChapter
                                 )
                             }
 
