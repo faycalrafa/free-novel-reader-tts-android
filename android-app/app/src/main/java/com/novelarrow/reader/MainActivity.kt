@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.novelarrow.reader.playback.NovelAudioPlaybackService
 import com.novelarrow.reader.theme.NovelArrowReaderTheme
 import com.novelarrow.reader.ui.about.AboutScreen
 import com.novelarrow.reader.ui.browser.BrowserScreen
@@ -79,9 +80,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            LaunchedEffect(currentScreen) {
+                if (currentScreen == AppScreen.BROWSER) {
+                    if (browserUiState.isLiveReading) {
+                        NovelAudioPlaybackService.activeClient = browserViewModel
+                    }
+                } else if (currentScreen == AppScreen.READER) {
+                    if (uiState.isPlaying) {
+                        NovelAudioPlaybackService.activeClient = viewModel
+                    }
+                }
+            }
+
             NovelArrowReaderTheme(themeMode = uiState.settings.theme) {
                 ModalNavigationDrawer(
                     drawerState = drawerState,
+                    gesturesEnabled = currentScreen != AppScreen.BROWSER,
                     drawerContent = {
                         ModalDrawerSheet(
                             drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -107,6 +121,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onDeleteNovel = { novel, deleteFromDisk ->
                                     viewModel.deleteNovel(novel.id, deleteFromDisk)
+                                },
+                                onDeleteChapter = { chapter, deleteFromDisk ->
+                                    viewModel.deleteChapter(chapter, deleteFromDisk)
+                                },
+                                onMoveChapter = { from, to ->
+                                    viewModel.moveChapter(from, to)
                                 },
                                 onAddFolder = { folderPickerLauncher.launch(null) },
                                 onRefreshFolders = { viewModel.refreshLinkedFolders() },

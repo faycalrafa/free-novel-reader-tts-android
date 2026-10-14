@@ -120,37 +120,53 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
         fun dispatchPlay() {
             _isPlayingState.value = true
-            activeClient?.onPlay() ?: onPlayRequested?.invoke()
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onPlay() ?: onPlayRequested?.invoke()
+            }
         }
 
         fun dispatchPause() {
             _isPlayingState.value = false
-            activeClient?.onPause() ?: onPauseRequested?.invoke()
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onPause() ?: onPauseRequested?.invoke()
+            }
         }
 
         fun dispatchStop() {
             _isPlayingState.value = false
-            activeClient?.onStop() ?: onStopRequested?.invoke()
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onStop() ?: onStopRequested?.invoke()
+            }
         }
 
         fun dispatchNextPara() {
-            activeClient?.onNextParagraph() ?: onNextParaRequested?.invoke()
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onNextParagraph() ?: onNextParaRequested?.invoke()
+            }
         }
 
         fun dispatchPrevPara() {
-            activeClient?.onPrevParagraph() ?: onPrevParaRequested?.invoke()
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onPrevParagraph() ?: onPrevParaRequested?.invoke()
+            }
         }
 
         fun dispatchNextChap() {
-            activeClient?.onNextChapter() ?: onNextChapRequested?.invoke()
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onNextChapter() ?: onNextChapRequested?.invoke()
+            }
         }
 
         fun dispatchPrevChap() {
-            activeClient?.onPrevChapter() ?: onPrevChapRequested?.invoke()
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onPrevChapter() ?: onPrevChapRequested?.invoke()
+            }
         }
 
         fun dispatchSeekToPara(targetPara: Int) {
-            activeClient?.onSeekToParagraph(targetPara) ?: onSeekToParaRequested?.invoke(targetPara)
+            Handler(Looper.getMainLooper()).post {
+                activeClient?.onSeekToParagraph(targetPara) ?: onSeekToParaRequested?.invoke(targetPara)
+            }
         }
 
         fun startOrUpdateService(
@@ -275,6 +291,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     .build()
             }
 
+            override fun hasNextMediaItem(): Boolean = true
+
+            override fun hasPreviousMediaItem(): Boolean = true
+
             override fun play() {
                 super.play()
                 dispatchPlay()
@@ -299,6 +319,14 @@ class NovelAudioPlaybackService : MediaSessionService() {
             }
 
             override fun seekToPreviousMediaItem() {
+                dispatchPrevChap()
+            }
+
+            override fun seekForward() {
+                dispatchNextChap()
+            }
+
+            override fun seekBack() {
                 dispatchPrevChap()
             }
 
@@ -331,6 +359,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS)
                     .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_FORWARD)
+                    .add(Player.COMMAND_SEEK_BACK)
                     .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                     .add(Player.COMMAND_STOP)
                     .build()
@@ -343,6 +373,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     Player.COMMAND_SEEK_TO_PREVIOUS,
                     Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                     Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_FORWARD,
+                    Player.COMMAND_SEEK_BACK,
                     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
                     Player.COMMAND_STOP -> true
                     else -> super.isCommandAvailable(command)
@@ -529,7 +561,9 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .setSubtitle(paragraphProgress)
             .build()
         currentMediaMetadata = metadata
-        exoPlayer?.setPlaylistMetadata(metadata)
+        try {
+            exoPlayer?.setPlaylistMetadata(metadata)
+        } catch (_: Exception) {}
 
         val notification = buildForegroundNotification(novelTitle, chapterTitle, paragraphProgress, isPlaying)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

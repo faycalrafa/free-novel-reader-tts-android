@@ -85,4 +85,16 @@ class WebNovelDownloaderTest {
         assertFalse(html.contains("<a "))
         assertFalse(html.contains("#na-floating-next"))
     }
+
+    @Test
+    fun testDuplicateChapterFilenameDetectionRegex() {
+        val chapterNum = 42
+        val regex = Regex("""(?i)(?:chapter[_\s-]*0*42|ch[_\s-]*0*42|c0*42)(?:\D|$)""")
+        assertTrue(regex.containsMatchIn("Shadow Slave Chapter 0042.html"))
+        assertTrue(regex.containsMatchIn("Shadow_Slave_Chapter_42.txt"))
+        assertTrue(regex.containsMatchIn("ch-42-the-battle.epub"))
+        assertTrue(regex.containsMatchIn("c042.mhtml"))
+        assertFalse(regex.containsMatchIn("Shadow Slave Chapter 00420.html"))
+        assertFalse(regex.containsMatchIn("Shadow Slave Chapter 04.html"))
+    }
 }

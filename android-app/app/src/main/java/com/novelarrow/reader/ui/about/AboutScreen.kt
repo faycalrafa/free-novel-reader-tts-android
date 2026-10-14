@@ -170,13 +170,13 @@ fun AboutScreen(
                             }
                             Surface(
                                 shape = CircleShape,
-                                color = MaterialTheme.colorScheme.errorContainer
+                                color = MaterialTheme.colorScheme.primaryContainer
                             ) {
                                 Text(
-                                    text = "Unstable",
+                                    text = "Stable",
                                     style = MaterialTheme.typography.labelMedium.copy(
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
                                     ),
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )

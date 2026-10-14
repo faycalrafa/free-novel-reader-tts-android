@@ -213,6 +213,57 @@ object WebNovelDownloader {
     }
 
     /**
+     * Thorough check before starting a download to catch duplicates before they start.
+     * Checks formatted chapter filename, regex variations of chapter number in folder, and MediaStore.
+     */
+    fun chapterAlreadyExists(
+        context: Context,
+        novelTitle: String,
+        chapterNumber: Int,
+        currentUrl: String = ""
+    ): Boolean {
+        if (chapterFileExists(context, novelTitle, chapterNumber)) return true
+
+        val safeTitle = sanitizeFileName(novelTitle)
+        val targetDir = getNovelDownloadDirectory(context, novelTitle)
+        val fallbackDir = getAppFallbackDirectory(context, safeTitle)
+
+        // Check if any existing file in directory matches chapter number
+        // e.g. "Shadow Slave Chapter 0001.html", "Chapter 1.html", "ch1.html"
+        val chNumRegex = Regex("""(?:^|[\s_/-])(?:chapter|chap|ch|c)?\s*0*${chapterNumber}(?:[\s_.-]|$)""", RegexOption.IGNORE_CASE)
+        val dirFiles = (targetDir.listFiles() ?: emptyArray()) + (fallbackDir.listFiles() ?: emptyArray())
+        for (f in dirFiles) {
+            if (f.isFile && f.length() > 0L) {
+                if (chNumRegex.containsMatchIn(f.nameWithoutExtension)) {
+                    return true
+                }
+            }
+        }
+
+        // Check MediaStore
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val resolver = context.contentResolver
+                val fileName = formatChapterFileName(novelTitle, chapterNumber)
+                val projection = arrayOf(android.provider.MediaStore.Downloads._ID)
+                val selection = "${android.provider.MediaStore.Downloads.DISPLAY_NAME} = ? AND ${android.provider.MediaStore.Downloads.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf(fileName, "%$safeTitle%")
+                resolver.query(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) return true
+                }
+            } catch (_: Exception) {}
+        }
+
+        return false
+    }
+
+    /**
      * Generates clean HTML containing only the novel chapter heading and paragraphs.
      */
     fun generateCleanChapterHtml(
@@ -259,6 +310,7 @@ object WebNovelDownloader {
 
     /**
      * Saves file content to both public Downloads/NovelReader and MediaStore.
+     * Prevents MediaStore duplicate naming like "(1)" by overwriting existing entries.
      */
     private fun writeContentToFileAndMediaStore(
         context: Context,
@@ -278,28 +330,56 @@ object WebNovelDownloader {
             Log.w(TAG, "Direct file write error: ${e.message}")
         }
 
-        // 2. Also ensure MediaStore creates the entry in Download/NovelReader/<novelTitle>
+        // 2. Also ensure MediaStore creates or updates the entry in Download/NovelReader/<novelTitle>
+        // Check if an entry already exists so MediaStore does not append (1)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 val resolver = context.contentResolver
                 val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/NovelReader/$safeTitle"
-                val contentValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/html")
-                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, relativePath)
-                    put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+
+                val projection = arrayOf(android.provider.MediaStore.Downloads._ID)
+                val selection = "${android.provider.MediaStore.Downloads.DISPLAY_NAME} = ? AND ${android.provider.MediaStore.Downloads.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf(fileName, "%$safeTitle%")
+                var existingUri: android.net.Uri? = null
+                resolver.query(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val id = cursor.getLong(cursor.getColumnIndexOrThrow(android.provider.MediaStore.Downloads._ID))
+                        existingUri = android.content.ContentUris.withAppendedId(
+                            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                            id
+                        )
+                    }
                 }
-                val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri != null) {
-                    resolver.openOutputStream(uri)?.use { os ->
+
+                if (existingUri != null) {
+                    resolver.openOutputStream(existingUri)?.use { os ->
                         os.write(content.toByteArray(Charsets.UTF_8))
                     }
-                    contentValues.clear()
-                    contentValues.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
-                    resolver.update(uri, contentValues, null, null)
+                } else {
+                    val contentValues = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/html")
+                        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, relativePath)
+                        put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        resolver.openOutputStream(uri)?.use { os ->
+                            os.write(content.toByteArray(Charsets.UTF_8))
+                        }
+                        contentValues.clear()
+                        contentValues.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                        resolver.update(uri, contentValues, null, null)
+                    }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "MediaStore insert error: ${e.message}")
+                Log.w(TAG, "MediaStore insert/update error: ${e.message}")
             }
         }
 

@@ -60,7 +60,7 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.0.0"
+    val installedVersionName: String = "2.0.1"
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application), NovelAudioPlaybackService.PlaybackClient {
@@ -190,36 +190,52 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
                 )
             }
             try {
-                // Take persistable permission so it's permanently granted
-                getApplication<Application>().contentResolver.takePersistableUriPermission(
-                    treeUri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+                try {
+                    val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    getApplication<Application>().contentResolver.takePersistableUriPermission(treeUri, flags)
+                } catch (_: Exception) {
+                    try {
+                        getApplication<Application>().contentResolver.takePersistableUriPermission(
+                            treeUri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: Exception) {}
+                }
 
-            val novels = libraryRepository.scanRootDirectory(treeUri) { current, total, name ->
-                val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
+                val novels = libraryRepository.scanRootDirectory(treeUri) { current, total, name ->
+                    val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
+                    _uiState.update {
+                        it.copy(
+                            scanProgress = progress.coerceIn(0f, 1f),
+                            scanCurrentIndex = current,
+                            scanTotalItems = total,
+                            scanCurrentItem = name
+                        )
+                    }
+                }
+
                 _uiState.update {
                     it.copy(
-                        scanProgress = progress.coerceIn(0f, 1f),
-                        scanCurrentIndex = current,
-                        scanTotalItems = total,
-                        scanCurrentItem = name
+                        novels = novels,
+                        isLibraryScanning = false,
+                        toastMessage = if (novels.isNotEmpty()) {
+                            "Loaded ${novels.size} playlists from folder"
+                        } else {
+                            "No supported chapters found in selected folder."
+                        }
                     )
                 }
-            }
-
-            _uiState.update {
-                it.copy(
-                    novels = novels,
-                    isLibraryScanning = false,
-                    toastMessage = "Loaded ${novels.size} playlists from folder"
-                )
-            }
-            if (novels.isNotEmpty()) {
-                selectNovel(novels.first())
+                if (novels.isNotEmpty()) {
+                    selectNovel(novels.first())
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _uiState.update {
+                    it.copy(
+                        isLibraryScanning = false,
+                        toastMessage = "Error importing folder: ${e.message}"
+                    )
+                }
             }
         }
     }
@@ -581,6 +597,101 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application),
         viewModelScope.launch {
             libraryRepository.deleteNovel(novelId, deleteFilesFromDisk)
             loadInitialLibrary()
+        }
+    }
+
+    fun deleteChapter(chapter: Chapter, deleteFromDisk: Boolean = false) {
+        val currentNovel = _uiState.value.currentNovel ?: return
+        val wasPlaying = _uiState.value.isPlaying
+        val isDeletingCurrent = _uiState.value.currentChapter?.id == chapter.id
+
+        if (isDeletingCurrent && wasPlaying) {
+            ttsManager?.stop()
+        }
+
+        viewModelScope.launch {
+            val (updatedNovel, updatedChapters) = libraryRepository.deleteChapter(
+                novelId = currentNovel.id,
+                chapterId = chapter.id,
+                deleteFromDisk = deleteFromDisk
+            )
+
+            val updatedNovels = _uiState.value.novels.map { nov ->
+                if (nov.id == currentNovel.id && updatedNovel != null) updatedNovel else nov
+            }
+
+            if (isDeletingCurrent) {
+                if (updatedChapters.isNotEmpty()) {
+                    val nextIdx = chapter.orderIndex.coerceIn(0, updatedChapters.size - 1)
+                    val nextChapter = updatedChapters[nextIdx]
+                    _uiState.update {
+                        it.copy(
+                            novels = updatedNovels,
+                            currentNovel = updatedNovel ?: currentNovel,
+                            chapters = updatedChapters,
+                            currentChapter = nextChapter,
+                            toastMessage = "Deleted chapter: ${chapter.title}"
+                        )
+                    }
+                    loadChapterContent(nextChapter, restoreProgress = false)
+                    if (wasPlaying) {
+                        speakParagraph(0)
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            novels = updatedNovels,
+                            currentNovel = updatedNovel ?: currentNovel,
+                            chapters = emptyList(),
+                            currentChapter = null,
+                            paragraphs = emptyList(),
+                            isPlaying = false,
+                            toastMessage = "Deleted last chapter of novel."
+                        )
+                    }
+                    NovelAudioPlaybackService.stopService(getApplication())
+                }
+            } else {
+                val currentChap = _uiState.value.currentChapter
+                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                _uiState.update {
+                    it.copy(
+                        novels = updatedNovels,
+                        currentNovel = updatedNovel ?: currentNovel,
+                        chapters = updatedChapters,
+                        currentChapter = refreshedCurrentChap,
+                        toastMessage = "Deleted chapter: ${chapter.title}"
+                    )
+                }
+                updatePlaybackServiceNotification()
+            }
+        }
+    }
+
+    fun moveChapter(fromIndex: Int, toIndex: Int) {
+        val currentNovel = _uiState.value.currentNovel ?: return
+        viewModelScope.launch {
+            val (updatedNovel, updatedChapters) = libraryRepository.reorderChapters(
+                novelId = currentNovel.id,
+                fromIndex = fromIndex,
+                toIndex = toIndex
+            )
+            if (updatedNovel != null) {
+                val updatedNovels = _uiState.value.novels.map { nov ->
+                    if (nov.id == currentNovel.id) updatedNovel else nov
+                }
+                val currentChap = _uiState.value.currentChapter
+                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                _uiState.update {
+                    it.copy(
+                        novels = updatedNovels,
+                        currentNovel = updatedNovel,
+                        chapters = updatedChapters,
+                        currentChapter = refreshedCurrentChap
+                    )
+                }
+                updatePlaybackServiceNotification()
+            }
         }
     }
 

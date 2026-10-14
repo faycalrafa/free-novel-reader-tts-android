@@ -228,7 +228,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     override fun onNextParagraph() { nextLiveParagraph() }
     override fun onPrevParagraph() { prevLiveParagraph() }
     override fun onNextChapter() { clickNextChapter() }
-    override fun onPrevChapter() { prevLiveParagraph() }
+    override fun onPrevChapter() { clickPrevChapter() }
     override fun onSeekToParagraph(index: Int) { seekToParagraph(index) }
 
     fun attachWebView(webView: WebView) {
@@ -934,6 +934,89 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         webView.evaluateJavascript(script, null)
     }
 
+    fun clickPrevChapter() {
+        playClickSound()
+        if (_uiState.value.isLiveReading) {
+            ttsManager?.stop()
+            clearWebHighlight()
+            _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
+        }
+        val webView = webViewRef ?: return
+        val script = """
+            (function() {
+                function getPrevEl() {
+                    var selectors = [
+                        'button[title*="Prev Chapter" i]', 'a[title*="Prev Chapter" i]',
+                        'button[title*="Previous Chapter" i]', 'a[title*="Previous Chapter" i]',
+                        'button[title*="Prev" i]', 'a[title*="Prev" i]',
+                        'button[title*="Previous" i]', 'a[title*="Previous" i]',
+                        '#prev_chap', '.prev-chap', '.prev-chapter', '.btn-prev', 'a.prev', 'a.previous',
+                        'a[rel="prev"]', '.chapter-prev a', '#prev-chapter', '.nav-prev a', '#prev_chapter'
+                    ];
+                    for (var s = 0; s < selectors.length; s++) {
+                        try {
+                            var selEl = document.querySelector(selectors[s]);
+                            if (selEl) return selEl;
+                        } catch(e) {}
+                    }
+                    var candidates = Array.from(document.querySelectorAll('a, button, span[role="button"], div[role="button"]'));
+                    for (var i = 0; i < candidates.length; i++) {
+                        var c = candidates[i];
+                        var txt = (c.innerText || c.textContent || c.title || '').trim().toLowerCase();
+                        if (txt === 'prev chapter' || txt === 'previous chapter' || txt === '< prev' || txt === '« prev' || txt === 'prev' || txt === 'previous' || txt.indexOf('prev chapter') !== -1 || txt.indexOf('previous chapter') !== -1) {
+                            return c;
+                        }
+                    }
+                    return null;
+                }
+
+                function decrementUrl() {
+                    try {
+                        var urlObj = new URL(window.location.href);
+                        var pathname = urlObj.pathname;
+                        var regex = /(\d+)(?=\.html?$)/i;
+                        if (!regex.test(pathname)) { regex = /(\d+)(?!.*\d)/; }
+                        if (regex.test(pathname)) {
+                            urlObj.pathname = pathname.replace(regex, function(match) {
+                                var len = match.length;
+                                var prevNum = Math.max(1, parseInt(match, 10) - 1);
+                                return prevNum.toString().padStart(len, '0');
+                            });
+                            window.location.href = urlObj.href;
+                            return true;
+                        }
+                    } catch(e) {}
+                    return false;
+                }
+
+                var target = getPrevEl();
+                if (target) {
+                    var oldUrl = window.location.href;
+                    try {
+                        target.scrollIntoView({ block: 'center' });
+                        target.focus();
+                        target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                        target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                        target.click();
+                    } catch(e) {}
+                    setTimeout(function() {
+                        if (window.location.href === oldUrl) {
+                            var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : target.closest('a');
+                            if (aTag && aTag.href && !aTag.getAttribute('href').startsWith('javascript:')) {
+                                window.location.href = aTag.href;
+                            }
+                        }
+                    }, 500);
+                } else {
+                    if (!decrementUrl()) {
+                        window.history.back();
+                    }
+                }
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(script, null)
+    }
+
     // =========================================================================
     // Autodetection & Setup Dialog
     // =========================================================================
@@ -1057,10 +1140,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
             val novelTitle = _uiState.value.downloadNovelTitle.ifBlank { detected.novelTitle }
 
-            val isDuplicate = (lastBatchDownloadedUrl.isNotBlank() && lastBatchDownloadedUrl == currentUrl) ||
-                    (lastBatchDownloadedChapterNum != -1 && (detected.chapterNumber == lastBatchDownloadedChapterNum || WebNovelDownloader.chapterFileExists(getApplication(), novelTitle, detected.chapterNumber)))
+            val chapterNum = if (_uiState.value.downloadCurrentChapter > 0) {
+                _uiState.value.downloadCurrentChapter
+            } else {
+                detected.chapterNumber
+            }
 
-            if (isDuplicate) {
+            val isDuplicateUrl = (lastBatchDownloadedUrl.isNotBlank() && lastBatchDownloadedUrl == currentUrl)
+            val chapterAlreadyExists = WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, chapterNum, currentUrl) ||
+                    (detected.chapterNumber > 0 && WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, detected.chapterNumber, currentUrl))
+
+            if (isDuplicateUrl) {
                 duplicatePageRetryCount++
                 if (duplicatePageRetryCount == 1) {
                     for (sec in 5 downTo 1) {
@@ -1068,7 +1158,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         _uiState.update {
                             it.copy(
                                 downloadCountdownSeconds = sec,
-                                downloadStatus = "Chapter already downloaded. Retrying in ${sec}s..."
+                                downloadStatus = "Page URL unchanged. Retrying next chapter in ${sec}s..."
                             )
                         }
                         delay(1000)
@@ -1087,7 +1177,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         _uiState.update {
                             it.copy(
                                 downloadCountdownSeconds = sec,
-                                downloadStatus = "Chapter still duplicate. Waiting ${sec}s before 2nd retry..."
+                                downloadStatus = "Page still unchanged. Waiting ${sec}s before 2nd retry..."
                             )
                         }
                         delay(1000)
@@ -1105,11 +1195,43 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     _uiState.update {
                         it.copy(
                             downloadStatus = "Stopped: Chapter did not advance",
-                            toastMessage = "Batch download stopped: chapter already exists or did not advance."
+                            toastMessage = "Batch download stopped: end of chapters reached or page did not advance."
                         )
                     }
                     return@launch
                 }
+            }
+
+            if (chapterAlreadyExists) {
+                Log.d(TAG, "Chapter $chapterNum already exists on disk. Skipping download to avoid duplicates.")
+                duplicatePageRetryCount = 0
+                val remaining = _uiState.value.downloadRemainingCount
+                val newRemaining = remaining - 1
+                val nextChapterNum = chapterNum + 1
+                lastBatchDownloadedUrl = currentUrl
+                lastBatchDownloadedChapterNum = chapterNum
+
+                _uiState.update {
+                    it.copy(
+                        downloadRemainingCount = newRemaining,
+                        downloadCurrentChapter = nextChapterNum,
+                        downloadStatus = "Chapter $chapterNum already exists, advancing to next..."
+                    )
+                }
+
+                if (newRemaining <= 0) {
+                    _uiState.update {
+                        it.copy(
+                            isDownloading = false,
+                            downloadStatus = "Completed",
+                            toastMessage = "Batch download completed for $novelTitle!"
+                        )
+                    }
+                } else {
+                    delay(600)
+                    clickNextChapter()
+                }
+                return@launch
             }
 
             duplicatePageRetryCount = 0
@@ -1151,9 +1273,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentUrl = _uiState.value.currentUrl
         if (!isBatch) {
             val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
-            if (WebNovelDownloader.chapterFileExists(getApplication(), detected.novelTitle, detected.chapterNumber)) {
+            if (WebNovelDownloader.chapterAlreadyExists(getApplication(), detected.novelTitle, detected.chapterNumber, currentUrl)) {
                 _uiState.update {
-                    it.copy(toastMessage = "Chapter ${detected.chapterNumber} already exists in ${detected.novelTitle}")
+                    it.copy(toastMessage = "Chapter ${detected.chapterNumber} already downloaded for ${detected.novelTitle}")
                 }
                 return
             }
@@ -1193,6 +1315,31 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val chapterNum = state.downloadCurrentChapter
             val remaining = state.downloadRemainingCount
             val chapterTitle = pageTitle.ifBlank { "$novelTitle Chapter $chapterNum" }
+
+            if (WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, chapterNum, currentUrl)) {
+                Log.d(TAG, "Batch download: Chapter $chapterNum already exists on disk. Skipping file write.")
+                val newRemaining = remaining - 1
+                val nextChapterNum = chapterNum + 1
+                _uiState.update {
+                    it.copy(
+                        downloadRemainingCount = newRemaining,
+                        downloadCurrentChapter = nextChapterNum,
+                        downloadStatus = "Chapter $chapterNum already saved, advancing to next..."
+                    )
+                }
+                if (newRemaining <= 0) {
+                    _uiState.update {
+                        it.copy(
+                            isDownloading = false,
+                            downloadStatus = "Completed",
+                            toastMessage = "Finished batch download for $novelTitle!"
+                        )
+                    }
+                } else {
+                    clickNextChapter()
+                }
+                return
+            }
 
             viewModelScope.launch {
                 try {
@@ -1254,9 +1401,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentUrl = _uiState.value.currentUrl
         val pageTitle = _uiState.value.pageTitle
         val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
-        if (WebNovelDownloader.chapterFileExists(getApplication(), detected.novelTitle, detected.chapterNumber)) {
+        if (WebNovelDownloader.chapterAlreadyExists(getApplication(), detected.novelTitle, detected.chapterNumber, currentUrl)) {
             _uiState.update {
-                it.copy(toastMessage = "Chapter ${detected.chapterNumber} already exists in ${detected.novelTitle}")
+                it.copy(toastMessage = "Chapter ${detected.chapterNumber} already downloaded for ${detected.novelTitle}")
             }
             return
         }

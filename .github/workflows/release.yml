@@ -35,26 +35,26 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.0.0-unstable.$(date +'%Y%m%d%H%M%S')"
+          DATE_TAG="v2.0.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: ${{ env.RELEASE_TAG }}
-        run: ./gradlew assembleRelease -PappVersionName=${{ env.RELEASE_TAG }} --no-daemon
+          APP_VERSION_NAME: "2.0.1"
+        run: ./gradlew assembleRelease -PappVersionName=2.0.1 --no-daemon
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.0.0 (Unstable)
-          prerelease: true
+          name: NovelArrow Reader v2.0.1 (Stable)
+          prerelease: false
           body: |
-            ### NovelArrow Reader v2.0.0 (Unstable) 📖🚀
+            ### NovelArrow Reader v2.0.1 (Stable) 📖🚀
 
-            > ⚠️ **Note: This release is marked as UNSTABLE.** Experimental browser TTS, live web extraction, batch page downloads, and tab management features are under active development.
+            **NovelArrow Reader v2.0.1** brings singular chapter deletion and playlist reordering, ultra-fast batched directory scanning, duplicate download prevention (no duplicate files or `(1)` renames), full system notification & lock screen media controls synchronization for both local reader and browser modes, and disabled edge-swipe gestures during browser vertical scrolling.
 
             **100% Free and Open Source Software (FOSS)**
 
