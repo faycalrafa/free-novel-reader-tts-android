@@ -1,10 +1,12 @@
 package com.novelarrow.reader.playback
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
+import android.util.Log
 import java.util.Locale
 
 class TtsManager(
@@ -23,7 +25,16 @@ class TtsManager(
     init {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.getDefault()
+                try {
+                    val audioAttributes = AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                    tts?.setAudioAttributes(audioAttributes)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to set AudioAttributes: ${e.message}")
+                }
+                configureLanguageSafely()
                 isInitialized = true
                 setupProgressListener()
                 onInitComplete(true)
@@ -34,40 +45,174 @@ class TtsManager(
         }
     }
 
+    /**
+     * Safely selects an available language for the TTS engine, falling back cleanly
+     * without hardcoding Locale.getDefault() if unsupported.
+     */
+    fun configureLanguageSafely(targetText: String? = null) {
+        val t = tts ?: return
+        try {
+            // 1. If text is provided, check for CJK script characters
+            if (!targetText.isNullOrBlank()) {
+                val hasHiraganaOrKatakana = targetText.any {
+                    val script = Character.UnicodeScript.of(it.code)
+                    script == Character.UnicodeScript.HIRAGANA || script == Character.UnicodeScript.KATAKANA
+                }
+                val hasHangul = targetText.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HANGUL }
+                val hasCjk = targetText.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN }
+
+                val detectedLocale = when {
+                    hasHiraganaOrKatakana -> Locale.JAPANESE
+                    hasHangul -> Locale.KOREAN
+                    hasCjk -> Locale.CHINESE
+                    else -> null
+                }
+                if (detectedLocale != null && t.isLanguageAvailable(detectedLocale) >= TextToSpeech.LANG_AVAILABLE) {
+                    t.language = detectedLocale
+                    return
+                }
+            }
+
+            // 2. Try default system locale if available
+            val defaultLocale = Locale.getDefault()
+            if (t.isLanguageAvailable(defaultLocale) >= TextToSpeech.LANG_AVAILABLE) {
+                t.language = defaultLocale
+                return
+            }
+
+            // 3. Fallback to English US
+            if (t.isLanguageAvailable(Locale.US) >= TextToSpeech.LANG_AVAILABLE) {
+                t.language = Locale.US
+                return
+            }
+
+            // 4. Fallback to first available language from available voices
+            val voiceLocale = t.voices?.mapNotNull { it.locale }?.firstOrNull {
+                t.isLanguageAvailable(it) >= TextToSpeech.LANG_AVAILABLE
+            }
+            if (voiceLocale != null) {
+                t.language = voiceLocale
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Safe language configuration error: ${e.message}")
+        }
+    }
+
     private fun setupProgressListener() {
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
-                val index = utteranceId?.toIntOrNull() ?: return
-                onParagraphStart?.invoke(index)
+                if (utteranceId == null) return
+                if (utteranceId.startsWith("chunk_")) {
+                    val parts = utteranceId.split("_")
+                    if (parts.size >= 4) {
+                        val index = parts[1].toIntOrNull() ?: return
+                        val chunkIdx = parts[2].toIntOrNull() ?: return
+                        if (chunkIdx == 0) {
+                            onParagraphStart?.invoke(index)
+                        }
+                    }
+                } else {
+                    val index = utteranceId.toIntOrNull() ?: return
+                    onParagraphStart?.invoke(index)
+                }
             }
 
             override fun onDone(utteranceId: String?) {
-                val index = utteranceId?.toIntOrNull() ?: return
-                onParagraphDone?.invoke(index)
+                if (utteranceId == null) return
+                if (utteranceId.startsWith("chunk_")) {
+                    val parts = utteranceId.split("_")
+                    if (parts.size >= 4) {
+                        val index = parts[1].toIntOrNull() ?: return
+                        val chunkIdx = parts[2].toIntOrNull() ?: return
+                        val total = parts[3].toIntOrNull() ?: return
+                        if (chunkIdx == total - 1) {
+                            onParagraphDone?.invoke(index)
+                        }
+                    }
+                } else {
+                    val index = utteranceId.toIntOrNull() ?: return
+                    onParagraphDone?.invoke(index)
+                }
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                val index = utteranceId?.toIntOrNull() ?: -1
+                val index = parseIndexFromUtteranceId(utteranceId)
                 onError?.invoke(index, "Playback error")
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
-                val index = utteranceId?.toIntOrNull() ?: -1
+                val index = parseIndexFromUtteranceId(utteranceId)
                 onError?.invoke(index, "Error code $errorCode")
+            }
+
+            private fun parseIndexFromUtteranceId(utteranceId: String?): Int {
+                if (utteranceId == null) return -1
+                return if (utteranceId.startsWith("chunk_")) {
+                    utteranceId.split("_").getOrNull(1)?.toIntOrNull() ?: -1
+                } else {
+                    utteranceId.toIntOrNull() ?: -1
+                }
             }
         })
     }
 
+    /**
+     * Splits long text into chunks that do not exceed the TTS engine max input length.
+     */
+    private fun chunkText(text: String, maxChunkSize: Int): List<String> {
+        if (text.length <= maxChunkSize) return listOf(text)
+        val chunks = mutableListOf<String>()
+        var remaining = text
+        while (remaining.isNotEmpty()) {
+            if (remaining.length <= maxChunkSize) {
+                chunks.add(remaining)
+                break
+            }
+            var breakIdx = -1
+            val candidate = remaining.substring(0, maxChunkSize)
+            val punctMatch = Regex("""[.!?。！？\n]\s*""").findAll(candidate).lastOrNull()
+            if (punctMatch != null && punctMatch.range.last > maxChunkSize / 3) {
+                breakIdx = punctMatch.range.last + 1
+            } else {
+                val lastSpace = candidate.lastIndexOf(' ')
+                if (lastSpace > maxChunkSize / 3) {
+                    breakIdx = lastSpace + 1
+                }
+            }
+            if (breakIdx <= 0) {
+                breakIdx = maxChunkSize
+            }
+            val chunk = remaining.substring(0, breakIdx).trim()
+            if (chunk.isNotEmpty()) chunks.add(chunk)
+            remaining = remaining.substring(breakIdx).trim()
+        }
+        return chunks.ifEmpty { listOf(text) }
+    }
+
     fun speak(index: Int, text: String, rate: Float = 1.0f, pitch: Float = 1.0f) {
         if (!isInitialized) return
+        configureLanguageSafely(text)
         tts?.setSpeechRate(rate)
         tts?.setPitch(pitch)
 
-        val params = Bundle().apply {
-            putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, index.toString())
+        val maxInputLength = try {
+            TextToSpeech.getMaxSpeechInputLength().coerceAtLeast(500)
+        } catch (_: Exception) {
+            3900
         }
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, index.toString())
+        val safeMaxLen = minOf(maxInputLength, 3500)
+
+        val chunks = chunkText(text, safeMaxLen)
+        for (i in chunks.indices) {
+            val chunk = chunks[i]
+            val utteranceId = if (chunks.size == 1) "$index" else "chunk_${index}_${i}_${chunks.size}"
+            val queueMode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            val params = Bundle().apply {
+                putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
+            }
+            tts?.speak(chunk, queueMode, params, utteranceId)
+        }
     }
 
     fun stop() {
@@ -91,6 +236,19 @@ class TtsManager(
         val voice = getAvailableVoices().firstOrNull { it.name == voiceName }
         if (voice != null) {
             tts?.voice = voice
+            try {
+                voice.locale?.let { loc ->
+                    if ((tts?.isLanguageAvailable(loc) ?: -1) >= TextToSpeech.LANG_AVAILABLE) {
+                        tts?.language = loc
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun setLanguage(locale: Locale) {
+        if (isInitialized && (tts?.isLanguageAvailable(locale) ?: -1) >= TextToSpeech.LANG_AVAILABLE) {
+            tts?.language = locale
         }
     }
 
@@ -107,5 +265,9 @@ class TtsManager(
         tts?.shutdown()
         tts = null
         isInitialized = false
+    }
+
+    companion object {
+        private const val TAG = "TtsManager"
     }
 }

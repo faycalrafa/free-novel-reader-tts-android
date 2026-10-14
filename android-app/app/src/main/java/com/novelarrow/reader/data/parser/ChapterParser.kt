@@ -49,7 +49,9 @@ object ChapterParser {
         Regex("""^copyright\s*(©|\(c\))?.*all rights reserved.*$""", RegexOption.IGNORE_CASE)
     )
 
-    private val SENTENCE_PATTERN = Pattern.compile("[^.!?。！？]+[.!?。！？]+(?=\\s|$)|[^.!?。！？]+$")
+    private val SENTENCE_PATTERN = Pattern.compile(
+        "[^.!?。！？]+(?:[.!?]+[\"'”’」』）］｝»)\\]}]*(?=\\s|$)|[。！？]+[\"'”’」』）］｝»)\\]}]*)|[^.!?。！？]+$"
+    )
 
     fun parse(
         content: String,

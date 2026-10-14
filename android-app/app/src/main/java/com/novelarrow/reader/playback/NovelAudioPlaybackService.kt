@@ -13,6 +13,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.speech.tts.Voice
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
@@ -31,9 +33,42 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.novelarrow.reader.MainActivity
 import com.novelarrow.reader.R
+import com.novelarrow.reader.data.model.Paragraph
+import com.novelarrow.reader.data.parser.ChapterParser
+import com.novelarrow.reader.data.repository.LibraryRepository
+import com.novelarrow.reader.data.repository.SettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+enum class PlaybackSource {
+    NONE,
+    READER,
+    BROWSER
+}
+
+data class PlaybackProgress(
+    val isPlaying: Boolean = false,
+    val source: PlaybackSource = PlaybackSource.NONE,
+    val novelId: String? = null,
+    val novelTitle: String = "NovelArrow Reader",
+    val chapterId: String? = null,
+    val chapterTitle: String = "No chapter loaded",
+    val chapterIndex: Int = 0,
+    val totalChapters: Int = 0,
+    val currentParagraphIndex: Int = 0,
+    val totalParagraphs: Int = 0,
+    val currentParagraphText: String = "",
+    val availableVoices: List<Voice> = emptyList()
+)
 
 class NovelAudioPlaybackService : MediaSessionService() {
 
@@ -53,13 +88,21 @@ class NovelAudioPlaybackService : MediaSessionService() {
     }
 
     private val binder = LocalBinder()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private lateinit var libraryRepository: LibraryRepository
+    private lateinit var settingsRepository: SettingsRepository
+
+    private var ttsManager: TtsManager? = null
     private var mediaSession: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var isForegroundServiceStarted = false
     private var currentMediaMetadata: MediaMetadata = MediaMetadata.EMPTY
 
+    private var currentSource: PlaybackSource = PlaybackSource.NONE
+    private var currentNovelId: String? = null
     private var currentNovelTitle: String = "NovelArrow Reader"
+    private var currentChapterId: String? = null
     private var currentChapterTitle: String = "No chapter loaded"
     private var currentProgressText: String = "Ready"
 
@@ -67,6 +110,13 @@ class NovelAudioPlaybackService : MediaSessionService() {
     private var totalChaptersCount: Int = 0
     private var currentParagraphIndex: Int = 0
     private var totalParagraphsCount: Int = 0
+    private var currentParagraphs: List<Paragraph> = emptyList()
+    private var autoNextChapterEnabled: Boolean = true
+
+    private var currentSpeechRate: Float = 1.0f
+    private var currentSpeechPitch: Float = 1.0f
+    private var currentVoiceName: String? = null
+
     private var virtualDurationMs: Long = 0L
     private var virtualPositionMs: Long = 0L
 
@@ -97,17 +147,22 @@ class NovelAudioPlaybackService : MediaSessionService() {
         var instance: NovelAudioPlaybackService? = null
             private set
 
-        // State shared with UI
         private val _isPlayingState = MutableStateFlow(false)
         val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
 
         private val _currentInfo = MutableStateFlow("Idle")
         val currentInfo: StateFlow<String> = _currentInfo.asStateFlow()
 
+        private val _playbackProgressState = MutableStateFlow(PlaybackProgress())
+        val playbackProgressState: StateFlow<PlaybackProgress> = _playbackProgressState.asStateFlow()
+
+        private val _availableVoicesState = MutableStateFlow<List<Voice>>(emptyList())
+        val availableVoicesState: StateFlow<List<Voice>> = _availableVoicesState.asStateFlow()
+
         @Volatile
+        @Deprecated("ViewModels should observe playbackProgressState and send commands rather than registering directly")
         var activeClient: PlaybackClient? = null
 
-        // Callbacks to ViewModel coordinator
         var onPlayRequested: (() -> Unit)? = null
         var onPauseRequested: (() -> Unit)? = null
         var onStopRequested: (() -> Unit)? = null
@@ -120,52 +175,193 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
         fun dispatchPlay() {
             _isPlayingState.value = true
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onPlay() ?: onPlayRequested?.invoke()
+            val service = instance
+            if (service != null) {
+                service.resumePlayback()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onPlay() ?: onPlayRequested?.invoke()
+                }
             }
         }
 
         fun dispatchPause() {
             _isPlayingState.value = false
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onPause() ?: onPauseRequested?.invoke()
+            val service = instance
+            if (service != null) {
+                service.pausePlayback()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onPause() ?: onPauseRequested?.invoke()
+                }
             }
         }
 
         fun dispatchStop() {
             _isPlayingState.value = false
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onStop() ?: onStopRequested?.invoke()
+            val service = instance
+            if (service != null) {
+                service.stopPlayback()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onStop() ?: onStopRequested?.invoke()
+                }
             }
         }
 
         fun dispatchNextPara() {
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onNextParagraph() ?: onNextParaRequested?.invoke()
+            val service = instance
+            if (service != null) {
+                service.nextParagraph()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onNextParagraph() ?: onNextParaRequested?.invoke()
+                }
             }
         }
 
         fun dispatchPrevPara() {
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onPrevParagraph() ?: onPrevParaRequested?.invoke()
+            val service = instance
+            if (service != null) {
+                service.previousParagraph()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onPrevParagraph() ?: onPrevParaRequested?.invoke()
+                }
             }
         }
 
         fun dispatchNextChap() {
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onNextChapter() ?: onNextChapRequested?.invoke()
+            val service = instance
+            if (service != null) {
+                service.advanceToNextChapter()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onNextChapter() ?: onNextChapRequested?.invoke()
+                }
             }
         }
 
         fun dispatchPrevChap() {
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onPrevChapter() ?: onPrevChapRequested?.invoke()
+            val service = instance
+            if (service != null) {
+                service.previousChapter()
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onPrevChapter() ?: onPrevChapRequested?.invoke()
+                }
             }
         }
 
         fun dispatchSeekToPara(targetPara: Int) {
-            Handler(Looper.getMainLooper()).post {
-                activeClient?.onSeekToParagraph(targetPara) ?: onSeekToParaRequested?.invoke(targetPara)
+            val service = instance
+            if (service != null) {
+                service.seekToParagraph(targetPara)
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    activeClient?.onSeekToParagraph(targetPara) ?: onSeekToParaRequested?.invoke(targetPara)
+                }
+            }
+        }
+
+        fun playReaderChapter(
+            context: Context,
+            novelId: String,
+            novelTitle: String,
+            chapterId: String,
+            chapterTitle: String,
+            chapterIndex: Int,
+            totalChapters: Int,
+            paragraphs: List<Paragraph>,
+            startParagraphIndex: Int,
+            autoNext: Boolean = true,
+            rate: Float = 1.0f,
+            pitch: Float = 1.0f,
+            voiceName: String? = null
+        ) {
+            val service = instance
+            if (service != null) {
+                service.startReaderChapterPlayback(
+                    novelId = novelId,
+                    novelTitle = novelTitle,
+                    chapterId = chapterId,
+                    chapterTitle = chapterTitle,
+                    chapterIndex = chapterIndex,
+                    totalChapters = totalChapters,
+                    paragraphs = paragraphs,
+                    startParagraphIndex = startParagraphIndex,
+                    autoNext = autoNext,
+                    rate = rate,
+                    pitch = pitch,
+                    voiceName = voiceName
+                )
+            } else {
+                val intent = Intent(context, NovelAudioPlaybackService::class.java).apply {
+                    action = ACTION_PLAY
+                }
+                try {
+                    ContextCompat.startForegroundService(context, intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                // Once instance initializes, it will be invoked or state observed
+                Handler(Looper.getMainLooper()).postDelayed({
+                    instance?.startReaderChapterPlayback(
+                        novelId = novelId,
+                        novelTitle = novelTitle,
+                        chapterId = chapterId,
+                        chapterTitle = chapterTitle,
+                        chapterIndex = chapterIndex,
+                        totalChapters = totalChapters,
+                        paragraphs = paragraphs,
+                        startParagraphIndex = startParagraphIndex,
+                        autoNext = autoNext,
+                        rate = rate,
+                        pitch = pitch,
+                        voiceName = voiceName
+                    )
+                }, 300)
+            }
+        }
+
+        fun playBrowserParagraphs(
+            context: Context,
+            chapterTitle: String,
+            paragraphs: List<Paragraph>,
+            startParagraphIndex: Int,
+            rate: Float = 1.0f,
+            pitch: Float = 1.0f,
+            voiceName: String? = null
+        ) {
+            val service = instance
+            if (service != null) {
+                service.startBrowserPlayback(
+                    chapterTitle = chapterTitle,
+                    paragraphs = paragraphs,
+                    startParagraphIndex = startParagraphIndex,
+                    rate = rate,
+                    pitch = pitch,
+                    voiceName = voiceName
+                )
+            } else {
+                val intent = Intent(context, NovelAudioPlaybackService::class.java).apply {
+                    action = ACTION_PLAY
+                }
+                try {
+                    ContextCompat.startForegroundService(context, intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                Handler(Looper.getMainLooper()).postDelayed({
+                    instance?.startBrowserPlayback(
+                        chapterTitle = chapterTitle,
+                        paragraphs = paragraphs,
+                        startParagraphIndex = startParagraphIndex,
+                        rate = rate,
+                        pitch = pitch,
+                        voiceName = voiceName
+                    )
+                }, 300)
             }
         }
 
@@ -236,8 +432,31 @@ class NovelAudioPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        libraryRepository = LibraryRepository(applicationContext)
+        settingsRepository = SettingsRepository(applicationContext)
         createNotificationChannel()
 
+        // Initialize TtsManager owned strictly by the foreground service
+        ttsManager = TtsManager(applicationContext) { success ->
+            if (success) {
+                val voices = ttsManager?.getAvailableVoices() ?: emptyList()
+                _availableVoicesState.value = voices
+                _playbackProgressState.update { it.copy(availableVoices = voices) }
+                applyTtsSettings()
+            }
+        }.apply {
+            onParagraphStart = { index ->
+                handleParagraphStart(index)
+            }
+            onParagraphDone = { index ->
+                handleParagraphDone(index)
+            }
+            onError = { index, error ->
+                handleParagraphError(index, error)
+            }
+        }
+
+        // Base ExoPlayer configured for speech audio attributes & noisy headset disconnects
         val basePlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(
                 Media3AudioAttributes.Builder()
@@ -248,41 +467,33 @@ class NovelAudioPlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true)
             .build()
+
         exoPlayer = basePlayer
 
-        // Listen for external focus loss or headset disconnect to pause cleanly
+        // TASK 2: Direct dispatchPause() on audio focus loss or headphones disconnection
         basePlayer.addListener(object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (!playWhenReady) {
                     when (reason) {
                         Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS,
                         Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY -> {
-                            onPauseRequested?.invoke()
+                            dispatchPause()
                         }
                     }
                 }
             }
         })
 
-        // SilenceMediaSource keeps an active audio pipeline for system media controls & earbud key events
+        // Silence loop maintains the media audio pipeline for notification and lockscreen controls
         val silenceSource = SilenceMediaSource(3_600_000_000L) // 1 hour silence loop
         basePlayer.setMediaSource(silenceSource)
         basePlayer.repeatMode = Player.REPEAT_MODE_ALL
         basePlayer.prepare()
 
-        // ForwardingPlayer delegates lockscreen, notification seekbar, & earbud button controls
         val forwardingPlayer = object : ForwardingPlayer(basePlayer) {
-            override fun isPlaying(): Boolean {
-                return _isPlayingState.value
-            }
-
-            override fun getPlayWhenReady(): Boolean {
-                return _isPlayingState.value
-            }
-
-            override fun getPlaybackState(): Int {
-                return if (_isPlayingState.value) Player.STATE_READY else super.getPlaybackState()
-            }
+            override fun isPlaying(): Boolean = _isPlayingState.value
+            override fun getPlayWhenReady(): Boolean = _isPlayingState.value
+            override fun getPlaybackState(): Int = if (_isPlayingState.value) Player.STATE_READY else super.getPlaybackState()
 
             override fun getCurrentMediaItem(): androidx.media3.common.MediaItem? {
                 return androidx.media3.common.MediaItem.Builder()
@@ -292,7 +503,6 @@ class NovelAudioPlaybackService : MediaSessionService() {
             }
 
             override fun hasNextMediaItem(): Boolean = true
-
             override fun hasPreviousMediaItem(): Boolean = true
 
             override fun play() {
@@ -305,46 +515,18 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 dispatchPause()
             }
 
-            // In notification and lockscreen, forward/backward skips chapters
-            override fun seekToNext() {
-                dispatchNextChap()
-            }
+            override fun seekToNext() = dispatchNextChap()
+            override fun seekToPrevious() = dispatchPrevChap()
+            override fun seekToNextMediaItem() = dispatchNextChap()
+            override fun seekToPreviousMediaItem() = dispatchPrevChap()
+            override fun seekForward() = dispatchNextChap()
+            override fun seekBack() = dispatchPrevChap()
 
-            override fun seekToPrevious() {
-                dispatchPrevChap()
-            }
+            override fun getDuration(): Long = if (virtualDurationMs > 0) virtualDurationMs else super.getDuration()
+            override fun getCurrentPosition(): Long = if (virtualDurationMs > 0) virtualPositionMs else super.getCurrentPosition()
 
-            override fun seekToNextMediaItem() {
-                dispatchNextChap()
-            }
-
-            override fun seekToPreviousMediaItem() {
-                dispatchPrevChap()
-            }
-
-            override fun seekForward() {
-                dispatchNextChap()
-            }
-
-            override fun seekBack() {
-                dispatchPrevChap()
-            }
-
-            override fun getDuration(): Long {
-                return if (virtualDurationMs > 0) virtualDurationMs else super.getDuration()
-            }
-
-            override fun getCurrentPosition(): Long {
-                return if (virtualDurationMs > 0) virtualPositionMs else super.getCurrentPosition()
-            }
-
-            override fun seekTo(positionMs: Long) {
-                handleSeekTo(positionMs)
-            }
-
-            override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
-                handleSeekTo(positionMs)
-            }
+            override fun seekTo(positionMs: Long) = handleSeekTo(positionMs)
+            override fun seekTo(mediaItemIndex: Int, positionMs: Long) = handleSeekTo(positionMs)
 
             override fun stop() {
                 super.stop()
@@ -381,13 +563,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 }
             }
 
-            override fun getMediaMetadata(): MediaMetadata {
-                return currentMediaMetadata
-            }
-
-            override fun getPlaylistMetadata(): MediaMetadata {
-                return currentMediaMetadata
-            }
+            override fun getMediaMetadata(): MediaMetadata = currentMediaMetadata
+            override fun getPlaylistMetadata(): MediaMetadata = currentMediaMetadata
         }
 
         val sessionActivityIntent = PendingIntent.getActivity(
@@ -451,19 +628,27 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NovelArrow::PlaybackWakeLock")
+
+        // Sync with settings repository
+        serviceScope.launch {
+            settingsRepository.settingsFlow.collect { settings ->
+                currentSpeechRate = settings.speechRate
+                currentSpeechPitch = settings.speechPitch
+                currentVoiceName = settings.selectedVoiceName
+                applyTtsSettings()
+            }
+        }
     }
 
     private fun handleSeekTo(positionMs: Long) {
         if (totalParagraphsCount > 0 && virtualDurationMs > 0) {
             val targetPara = (positionMs.toFloat() / virtualDurationMs.toFloat() * totalParagraphsCount).toInt()
                 .coerceIn(0, totalParagraphsCount - 1)
-            dispatchSeekToPara(targetPara)
+            seekToParagraph(targetPara)
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        return mediaSession
-    }
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onBind(intent: Intent?): IBinder {
         super.onBind(intent)
@@ -509,6 +694,390 @@ class NovelAudioPlaybackService : MediaSessionService() {
         return super.onStartCommand(intent, flags, startId)
     }
 
+    // =========================================================================
+    // Core TTS Playback Coordination
+    // =========================================================================
+
+    fun startReaderChapterPlayback(
+        novelId: String,
+        novelTitle: String,
+        chapterId: String,
+        chapterTitle: String,
+        chapterIndex: Int,
+        totalChapters: Int,
+        paragraphs: List<Paragraph>,
+        startParagraphIndex: Int,
+        autoNext: Boolean = true,
+        rate: Float = currentSpeechRate,
+        pitch: Float = currentSpeechPitch,
+        voiceName: String? = currentVoiceName
+    ) {
+        currentSource = PlaybackSource.READER
+        currentNovelId = novelId
+        currentNovelTitle = novelTitle
+        currentChapterId = chapterId
+        currentChapterTitle = chapterTitle
+        currentChapterIndex = chapterIndex
+        totalChaptersCount = totalChapters
+        currentParagraphs = paragraphs
+        totalParagraphsCount = paragraphs.size
+        currentParagraphIndex = startParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+        autoNextChapterEnabled = autoNext
+        currentSpeechRate = rate
+        currentSpeechPitch = pitch
+        currentVoiceName = voiceName
+
+        applyTtsSettings()
+
+        _isPlayingState.value = true
+        _playbackProgressState.update {
+            it.copy(
+                isPlaying = true,
+                source = PlaybackSource.READER,
+                novelId = novelId,
+                novelTitle = novelTitle,
+                chapterId = chapterId,
+                chapterTitle = chapterTitle,
+                chapterIndex = chapterIndex,
+                totalChapters = totalChapters,
+                currentParagraphIndex = currentParagraphIndex,
+                totalParagraphs = paragraphs.size,
+                currentParagraphText = paragraphs.getOrNull(currentParagraphIndex)?.spokenText ?: ""
+            )
+        }
+
+        val progressText = if (totalChapters > 0) "Ch. ${chapterIndex + 1}/$totalChapters • ¶ ${currentParagraphIndex + 1}/${paragraphs.size}" else "Ready"
+        updatePlaybackState(
+            isPlaying = true,
+            novelTitle = novelTitle,
+            chapterTitle = chapterTitle,
+            paragraphProgress = progressText,
+            chapterIndex = chapterIndex,
+            totalChapters = totalChapters,
+            currentParagraph = currentParagraphIndex,
+            totalParagraphs = paragraphs.size
+        )
+
+        speakCurrentParagraph()
+    }
+
+    fun startBrowserPlayback(
+        chapterTitle: String,
+        paragraphs: List<Paragraph>,
+        startParagraphIndex: Int,
+        rate: Float = currentSpeechRate,
+        pitch: Float = currentSpeechPitch,
+        voiceName: String? = currentVoiceName
+    ) {
+        currentSource = PlaybackSource.BROWSER
+        currentNovelId = null
+        currentNovelTitle = "Web Reading"
+        currentChapterId = null
+        currentChapterTitle = chapterTitle
+        currentChapterIndex = 0
+        totalChaptersCount = 1
+        currentParagraphs = paragraphs
+        totalParagraphsCount = paragraphs.size
+        currentParagraphIndex = startParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+        autoNextChapterEnabled = false
+        currentSpeechRate = rate
+        currentSpeechPitch = pitch
+        currentVoiceName = voiceName
+
+        applyTtsSettings()
+
+        _isPlayingState.value = true
+        _playbackProgressState.update {
+            it.copy(
+                isPlaying = true,
+                source = PlaybackSource.BROWSER,
+                novelId = null,
+                novelTitle = "Web Reading",
+                chapterId = null,
+                chapterTitle = chapterTitle,
+                chapterIndex = 0,
+                totalChapters = 1,
+                currentParagraphIndex = currentParagraphIndex,
+                totalParagraphs = paragraphs.size,
+                currentParagraphText = paragraphs.getOrNull(currentParagraphIndex)?.spokenText ?: ""
+            )
+        }
+
+        val progressText = "¶ ${currentParagraphIndex + 1}/${paragraphs.size}"
+        updatePlaybackState(
+            isPlaying = true,
+            novelTitle = "Web Reading",
+            chapterTitle = chapterTitle,
+            paragraphProgress = progressText,
+            chapterIndex = 0,
+            totalChapters = 1,
+            currentParagraph = currentParagraphIndex,
+            totalParagraphs = paragraphs.size
+        )
+
+        speakCurrentParagraph()
+    }
+
+    private fun applyTtsSettings() {
+        ttsManager?.setRate(currentSpeechRate)
+        ttsManager?.setPitch(currentSpeechPitch)
+        ttsManager?.setVoiceByName(currentVoiceName)
+    }
+
+    fun updateTtsSettings(rate: Float, pitch: Float, voiceName: String?) {
+        currentSpeechRate = rate
+        currentSpeechPitch = pitch
+        currentVoiceName = voiceName
+        applyTtsSettings()
+    }
+
+    private fun speakCurrentParagraph() {
+        val paras = currentParagraphs
+        val idx = currentParagraphIndex
+        if (idx !in paras.indices) return
+
+        val p = paras[idx]
+        val spoken = p.spokenText.ifBlank { p.rawText }.trim()
+        if (spoken.isBlank()) {
+            handleParagraphDone(idx)
+            return
+        }
+
+        ttsManager?.speak(
+            index = idx,
+            text = spoken,
+            rate = currentSpeechRate,
+            pitch = currentSpeechPitch
+        )
+    }
+
+    private fun handleParagraphStart(index: Int) {
+        currentParagraphIndex = index
+        _isPlayingState.value = true
+        _playbackProgressState.update {
+            it.copy(
+                isPlaying = true,
+                currentParagraphIndex = index,
+                currentParagraphText = currentParagraphs.getOrNull(index)?.spokenText ?: ""
+            )
+        }
+        val progressText = if (currentSource == PlaybackSource.READER && totalChaptersCount > 0) {
+            "Ch. ${currentChapterIndex + 1}/$totalChaptersCount • ¶ ${index + 1}/$totalParagraphsCount"
+        } else {
+            "¶ ${index + 1}/$totalParagraphsCount"
+        }
+        updatePlaybackState(
+            isPlaying = true,
+            novelTitle = currentNovelTitle,
+            chapterTitle = currentChapterTitle,
+            paragraphProgress = progressText,
+            chapterIndex = currentChapterIndex,
+            totalChapters = totalChaptersCount,
+            currentParagraph = index,
+            totalParagraphs = totalParagraphsCount
+        )
+    }
+
+    private fun handleParagraphDone(index: Int) {
+        if (index != currentParagraphIndex) return
+        val total = currentParagraphs.size
+        val nextIndex = index + 1
+
+        if (currentSource == PlaybackSource.READER && currentNovelId != null) {
+            val novelId = currentNovelId!!
+            val chapIdx = currentChapterIndex
+            serviceScope.launch(Dispatchers.IO) {
+                libraryRepository.updateChapterProgress(
+                    novelId = novelId,
+                    chapterIndex = chapIdx,
+                    paragraphIndex = index,
+                    scrollOffset = 0,
+                    isCompleted = nextIndex >= total
+                )
+            }
+        }
+
+        if (nextIndex < total) {
+            if (_isPlayingState.value) {
+                currentParagraphIndex = nextIndex
+                _playbackProgressState.update { it.copy(currentParagraphIndex = nextIndex) }
+                speakCurrentParagraph()
+            }
+        } else {
+            if (currentSource == PlaybackSource.READER && autoNextChapterEnabled) {
+                advanceToNextChapter()
+            } else {
+                pausePlayback()
+            }
+        }
+    }
+
+    private fun handleParagraphError(index: Int, error: String) {
+        Log.w("NovelAudioPlayback", "TTS Error on paragraph $index: $error")
+        val next = index + 1
+        if (next < currentParagraphs.size && _isPlayingState.value) {
+            serviceScope.launch {
+                delay(120)
+                if (_isPlayingState.value) {
+                    currentParagraphIndex = next
+                    _playbackProgressState.update { it.copy(currentParagraphIndex = next) }
+                    speakCurrentParagraph()
+                }
+            }
+        } else {
+            pausePlayback()
+        }
+    }
+
+    fun nextParagraph() {
+        if (currentParagraphIndex + 1 < currentParagraphs.size) {
+            currentParagraphIndex++
+            _playbackProgressState.update { it.copy(currentParagraphIndex = currentParagraphIndex) }
+            speakCurrentParagraph()
+        } else {
+            if (currentSource == PlaybackSource.READER && autoNextChapterEnabled) {
+                advanceToNextChapter()
+            }
+        }
+    }
+
+    fun previousParagraph() {
+        if (currentParagraphIndex - 1 >= 0) {
+            currentParagraphIndex--
+            _playbackProgressState.update { it.copy(currentParagraphIndex = currentParagraphIndex) }
+            speakCurrentParagraph()
+        }
+    }
+
+    fun seekToParagraph(targetPara: Int) {
+        if (targetPara in currentParagraphs.indices) {
+            currentParagraphIndex = targetPara
+            _playbackProgressState.update { it.copy(currentParagraphIndex = currentParagraphIndex) }
+            speakCurrentParagraph()
+        }
+    }
+
+    fun advanceToNextChapter() {
+        val novelId = currentNovelId ?: return
+        serviceScope.launch(Dispatchers.IO) {
+            val chapters = libraryRepository.getChapters(novelId)
+            val nextIdx = currentChapterIndex + 1
+            if (nextIdx in chapters.indices) {
+                val nextChap = chapters[nextIdx]
+                val content = libraryRepository.readChapterContent(nextChap)
+                val settings = settingsRepository.getSettings()
+                val parsedParas = ChapterParser.parse(
+                    content = content,
+                    fileName = nextChap.title,
+                    contentSelector = settings.contentSelector,
+                    contentSelectorEnabled = settings.contentSelectorEnabled,
+                    pronunciationRules = settings.pronunciationRules,
+                    pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                    skipWords = settings.skipWords,
+                    skipWordsEnabled = settings.skipWordsEnabled,
+                    headerSkipString = settings.headerSkipString,
+                    headerSkipEnabled = settings.headerSkipEnabled,
+                    footerSkipString = settings.footerSkipString,
+                    footerSkipEnabled = settings.footerSkipEnabled
+                )
+                withContext(Dispatchers.Main) {
+                    startReaderChapterPlayback(
+                        novelId = novelId,
+                        novelTitle = currentNovelTitle,
+                        chapterId = nextChap.id,
+                        chapterTitle = nextChap.title,
+                        chapterIndex = nextIdx,
+                        totalChapters = chapters.size,
+                        paragraphs = parsedParas,
+                        startParagraphIndex = 0,
+                        autoNext = autoNextChapterEnabled
+                    )
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    pausePlayback()
+                }
+            }
+        }
+    }
+
+    fun previousChapter() {
+        val novelId = currentNovelId ?: return
+        serviceScope.launch(Dispatchers.IO) {
+            val chapters = libraryRepository.getChapters(novelId)
+            val prevIdx = currentChapterIndex - 1
+            if (prevIdx in chapters.indices) {
+                val prevChap = chapters[prevIdx]
+                val content = libraryRepository.readChapterContent(prevChap)
+                val settings = settingsRepository.getSettings()
+                val parsedParas = ChapterParser.parse(
+                    content = content,
+                    fileName = prevChap.title,
+                    contentSelector = settings.contentSelector,
+                    contentSelectorEnabled = settings.contentSelectorEnabled,
+                    pronunciationRules = settings.pronunciationRules,
+                    pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                    skipWords = settings.skipWords,
+                    skipWordsEnabled = settings.skipWordsEnabled,
+                    headerSkipString = settings.headerSkipString,
+                    headerSkipEnabled = settings.headerSkipEnabled,
+                    footerSkipString = settings.footerSkipString,
+                    footerSkipEnabled = settings.footerSkipEnabled
+                )
+                withContext(Dispatchers.Main) {
+                    startReaderChapterPlayback(
+                        novelId = novelId,
+                        novelTitle = currentNovelTitle,
+                        chapterId = prevChap.id,
+                        chapterTitle = prevChap.title,
+                        chapterIndex = prevIdx,
+                        totalChapters = chapters.size,
+                        paragraphs = parsedParas,
+                        startParagraphIndex = 0,
+                        autoNext = autoNextChapterEnabled
+                    )
+                }
+            }
+        }
+    }
+
+    fun pausePlayback() {
+        ttsManager?.stop()
+        _isPlayingState.value = false
+        _playbackProgressState.update { it.copy(isPlaying = false) }
+        updatePlaybackState(
+            isPlaying = false,
+            novelTitle = currentNovelTitle,
+            chapterTitle = currentChapterTitle,
+            paragraphProgress = currentProgressText,
+            chapterIndex = currentChapterIndex,
+            totalChapters = totalChaptersCount,
+            currentParagraph = currentParagraphIndex,
+            totalParagraphs = totalParagraphsCount
+        )
+    }
+
+    fun resumePlayback() {
+        _isPlayingState.value = true
+        _playbackProgressState.update { it.copy(isPlaying = true) }
+        updatePlaybackState(
+            isPlaying = true,
+            novelTitle = currentNovelTitle,
+            chapterTitle = currentChapterTitle,
+            paragraphProgress = currentProgressText,
+            chapterIndex = currentChapterIndex,
+            totalChapters = totalChaptersCount,
+            currentParagraph = currentParagraphIndex,
+            totalParagraphs = totalParagraphsCount
+        )
+        speakCurrentParagraph()
+    }
+
+    fun stopPlayback() {
+        pausePlayback()
+        stopServicePlayback()
+    }
+
     fun updatePlaybackState(
         isPlaying: Boolean,
         novelTitle: String,
@@ -543,7 +1112,6 @@ class NovelAudioPlaybackService : MediaSessionService() {
         currentParagraphIndex = currentParagraph
         totalParagraphsCount = totalParagraphs
 
-        // Virtual progress timeline represents the CURRENT chapter's paragraphs
         val PARAGRAPH_UNIT_MS = 1_000L
         val safeParas = totalParagraphs.coerceAtLeast(1)
         virtualDurationMs = safeParas.toLong() * PARAGRAPH_UNIT_MS
@@ -552,7 +1120,6 @@ class NovelAudioPlaybackService : MediaSessionService() {
         _isPlayingState.value = isPlaying
         _currentInfo.value = "$novelTitle • $chapterTitle"
 
-        // Update MediaSession metadata for lockscreen and system media controller
         val metadata = MediaMetadata.Builder()
             .setTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
             .setArtist(novelTitle.ifBlank { "Text-to-Speech" })
@@ -655,7 +1222,6 @@ class NovelAudioPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Actions: forward / backward skip chapters (Prev Chap & Next Chap)
         val prevChapPendingIntent = PendingIntent.getService(
             this, 1,
             Intent(this, NovelAudioPlaybackService::class.java).apply { action = ACTION_PREV_CHAP },
@@ -700,12 +1266,6 @@ class NovelAudioPlaybackService : MediaSessionService() {
             ).build()
         }
 
-        // Action list order:
-        // 0: Prev Chap
-        // 1: Play/Pause
-        // 2: Next Chap
-        // 3: Prev Para
-        // 4: Next Para
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
             .setContentText("$novelTitle  ($progressText)")
@@ -719,15 +1279,15 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 (currentParagraphIndex + 1).coerceIn(0, totalParagraphsCount.coerceAtLeast(1)),
                 false
             )
-            .addAction(android.R.drawable.ic_media_previous, "Prev Chap", prevChapPendingIntent) // action 0
-            .addAction(playPauseAction)                                                            // action 1
-            .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)      // action 2
-            .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)          // action 3
-            .addAction(android.R.drawable.ic_media_ff, "Next ¶", nextParaPendingIntent)          // action 4
+            .addAction(android.R.drawable.ic_media_previous, "Prev Chap", prevChapPendingIntent)
+            .addAction(playPauseAction)
+            .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)
+            .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)
+            .addAction(android.R.drawable.ic_media_ff, "Next ¶", nextParaPendingIntent)
 
         mediaSession?.let { session ->
             val mediaStyle = MediaStyleNotificationHelper.MediaStyle(session)
-                .setShowActionsInCompactView(0, 1, 2) // Compact view: Prev Chap, Play/Pause, Next Chap
+                .setShowActionsInCompactView(0, 1, 2)
             builder.setStyle(mediaStyle)
         }
 
@@ -736,7 +1296,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld != true) {
-            wakeLock?.acquire(4 * 60 * 60 * 1000L) // 4 hours timeout safety
+            wakeLock?.acquire(4 * 60 * 60 * 1000L)
         }
     }
 
@@ -769,6 +1329,9 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         instance = null
+        serviceScope.cancel()
+        ttsManager?.shutdown()
+        ttsManager = null
         releaseWakeLock()
         mediaSession?.run {
             player.release()

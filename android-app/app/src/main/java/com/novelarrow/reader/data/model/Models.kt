@@ -46,13 +46,13 @@ enum class ThemeMode {
 data class PronunciationRule(
     val from: String,
     val to: String,
-    val exactMatch: Boolean = false
+    val exactMatch: Boolean = true
 )
 
 @Serializable
 data class SkipWord(
     val text: String,
-    val exactMatch: Boolean = false
+    val exactMatch: Boolean = true
 )
 
 @Serializable

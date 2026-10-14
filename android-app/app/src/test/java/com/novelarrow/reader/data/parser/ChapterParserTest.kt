@@ -249,4 +249,37 @@ class ChapterParserTest {
 
         assertEquals("This foo is baz.", paragraphs[0].spokenText)
     }
+
+    @Test
+    fun testSplitIntoSentences_quotationMarks() {
+        val dialogueText = "\"Stop!\" she said."
+        val dialogueSentences = ChapterParser.splitIntoSentences(dialogueText)
+        assertEquals(2, dialogueSentences.size)
+        assertEquals("\"Stop!\"", dialogueSentences[0])
+        assertEquals("she said.", dialogueSentences[1])
+
+        val quotedEndingText = "She said, \"Stop!\" Then she walked away."
+        val quotedEndingSentences = ChapterParser.splitIntoSentences(quotedEndingText)
+        assertEquals(2, quotedEndingSentences.size)
+        assertEquals("She said, \"Stop!\"", quotedEndingSentences[0])
+        assertEquals("Then she walked away.", quotedEndingSentences[1])
+    }
+
+    @Test
+    fun testSplitIntoSentences_cjkPunctuationWithoutSpaces() {
+        val text = "这是第一句。这是第二句！第三句？"
+        val sentences = ChapterParser.splitIntoSentences(text)
+        assertEquals(3, sentences.size)
+        assertEquals("这是第一句。", sentences[0])
+        assertEquals("这是第二句！", sentences[1])
+        assertEquals("第三句？", sentences[2])
+    }
+
+    @Test
+    fun testDefaultExactMatchIsTrue() {
+        val rule = com.novelarrow.reader.data.model.PronunciationRule(from = "apple", to = "orange")
+        val skip = com.novelarrow.reader.data.model.SkipWord(text = "banana")
+        assertTrue("PronunciationRule exactMatch must default to true", rule.exactMatch)
+        assertTrue("SkipWord exactMatch must default to true", skip.exactMatch)
+    }
 }

@@ -159,30 +159,23 @@ object WebNovelDownloader {
     }
 
     /**
-     * Returns the target folder under Downloads/NovelReader/<NovelTitle>/
+     * Returns the target folder under app-specific external storage:
+     * context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)/NovelReader/<NovelTitle>/
+     * Requires ZERO permissions on all Android versions.
      */
     fun getNovelDownloadDirectory(context: Context, novelTitle: String): File {
         val safeTitle = sanitizeFileName(novelTitle)
-        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val root = File(publicDownloads, "NovelReader")
+        val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        val root = if (extDir != null) File(extDir, "NovelReader") else File(context.filesDir, "NovelReader")
         val target = File(root, safeTitle)
-
-        try {
-            if (!root.exists()) root.mkdirs()
-            if (!target.exists()) target.mkdirs()
-            if (target.exists() && target.canWrite()) {
-                return target
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Direct public download mkdirs failed: ${e.message}")
+        if (!target.exists()) {
+            target.mkdirs()
         }
-
-        return getAppFallbackDirectory(context, safeTitle)
+        return target
     }
 
     private fun getAppFallbackDirectory(context: Context, safeTitle: String): File {
-        val external = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        val root = if (external != null) File(external, "NovelReader") else File(context.filesDir, "NovelReader")
+        val root = File(context.filesDir, "NovelReader")
         val target = File(root, safeTitle)
         if (!target.exists()) target.mkdirs()
         return target

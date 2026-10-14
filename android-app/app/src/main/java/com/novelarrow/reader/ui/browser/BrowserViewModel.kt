@@ -3,10 +3,8 @@ package com.novelarrow.reader.ui.browser
 import android.app.Application
 import android.content.Context
 import android.media.AudioManager
-import android.media.ToneGenerator
 import android.speech.tts.Voice
 import android.util.Log
-import android.webkit.WebView
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelarrow.reader.data.browser.WebNovelDownloader
@@ -19,19 +17,30 @@ import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.NovelAudioPlaybackService
-import com.novelarrow.reader.playback.TtsManager
+import com.novelarrow.reader.playback.PlaybackSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.util.UUID
+
+sealed interface WebViewCommand {
+    data class LoadUrl(val url: String) : WebViewCommand
+    object GoBack : WebViewCommand
+    object GoForward : WebViewCommand
+    object Reload : WebViewCommand
+    data class EvaluateJavascript(val script: String, val callback: ((String?) -> Unit)? = null) : WebViewCommand
+}
 
 data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
@@ -101,7 +110,7 @@ data class BrowserUiState(
     val lastDownloadedNovel: Novel? = null
 )
 
-class BrowserViewModel(application: Application) : AndroidViewModel(application), NovelAudioPlaybackService.PlaybackClient {
+class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val libraryRepository = LibraryRepository(application)
     private val settingsRepository = SettingsRepository(application)
@@ -109,11 +118,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
 
-    private var ttsManager: TtsManager? = null
+    private val _webViewCommands = Channel<WebViewCommand>(Channel.BUFFERED)
+    val webViewCommands: Flow<WebViewCommand> = _webViewCommands.receiveAsFlow()
+
     private var downloadCountdownJob: Job? = null
     private var autoLoopJob: Job? = null
     private var sleepTimerJob: Job? = null
-    private var webViewRef: WebView? = null
     private var retryExtractionJob: Job? = null
 
     private var lastBatchDownloadedUrl: String = ""
@@ -125,18 +135,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         private const val DEFAULT_URL = "https://www.google.com"
     }
 
+    private fun dispatchLoadUrl(url: String) {
+        _webViewCommands.trySend(WebViewCommand.LoadUrl(url))
+    }
+
+    private fun dispatchEvaluateJs(script: String, callback: ((String?) -> Unit)? = null) {
+        _webViewCommands.trySend(WebViewCommand.EvaluateJavascript(script, callback))
+    }
+
     fun playClickSound() {
         try {
             val audioManager = getApplication<android.app.Application>().getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 1.0f)
-        } catch (_: Exception) {}
-        try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_MUSIC, 50)
-            toneGen.startTone(ToneGenerator.TONE_PROP_ACK, 40)
-            viewModelScope.launch {
-                delay(120)
-                try { toneGen.release() } catch (_: Exception) {}
-            }
         } catch (_: Exception) {}
     }
 
@@ -168,75 +178,38 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         sleepTimerRemainingSeconds = if (it.sleepTimerRemainingSeconds == 0) newSettings.sleepTimerMinutes * 60 else it.sleepTimerRemainingSeconds
                     )
                 }
-                applyVoiceSettings()
             }
         }
 
-        initTts(application)
-        setupPlaybackServiceCallbacks()
+        observePlaybackService()
     }
 
-    private fun initTts(application: android.app.Application) {
-        ttsManager = TtsManager(application) { success ->
-            if (success) {
-                val voices = ttsManager?.getAvailableVoices() ?: emptyList()
-                _uiState.update { it.copy(availableVoices = voices) }
-                applyVoiceSettings()
-            }
-        }.apply {
-            onParagraphStart = { index ->
-                viewModelScope.launch(Dispatchers.Main) {
-                    _uiState.update { it.copy(liveCurrentParagraphIndex = index, isLivePlaying = true) }
-                    highlightWebParagraph(index)
-                    updateLivePlaybackNotification()
-                }
-            }
-            onParagraphDone = { index ->
-                viewModelScope.launch(Dispatchers.Main) {
-                    handleLiveParagraphDone(index)
-                }
-            }
-            onError = { index, err ->
-                Log.w(TAG, "TTS Error on paragraph $index: $err")
-                // Advance to next paragraph safely on error
-                viewModelScope.launch(Dispatchers.Main) {
-                    val next = index + 1
+    private fun observePlaybackService() {
+        viewModelScope.launch {
+            NovelAudioPlaybackService.playbackProgressState.collect { progress ->
+                if (progress.source == PlaybackSource.BROWSER) {
+                    val idx = progress.currentParagraphIndex
+                    _uiState.update {
+                        it.copy(
+                            isLivePlaying = progress.isPlaying,
+                            liveCurrentParagraphIndex = idx
+                        )
+                    }
+                    highlightWebParagraph(idx)
                     val paras = _uiState.value.liveParagraphs
-                    if (next < paras.size && _uiState.value.isLiveReading && _uiState.value.isLivePlaying) {
-                        _uiState.update { it.copy(liveCurrentParagraphIndex = next) }
-                        speakLiveParagraph(next)
+                    if (!progress.isPlaying && idx >= paras.size - 1 && paras.isNotEmpty()) {
+                        handleLiveChapterEnd()
                     }
                 }
             }
         }
-    }
-
-    private fun applyVoiceSettings() {
-        val settings = _uiState.value.settings
-        ttsManager?.setRate(settings.ttsRate)
-        ttsManager?.setPitch(settings.ttsPitch)
-        ttsManager?.setVoiceByName(settings.ttsVoice)
-    }
-
-    private fun setupPlaybackServiceCallbacks() {
-        // Active client is registered dynamically when live reading starts
-    }
-
-    override fun onPlay() { resumeLiveReading() }
-    override fun onPause() { pauseLiveReading() }
-    override fun onStop() { stopLiveReading() }
-    override fun onNextParagraph() { nextLiveParagraph() }
-    override fun onPrevParagraph() { prevLiveParagraph() }
-    override fun onNextChapter() { clickNextChapter() }
-    override fun onPrevChapter() { clickPrevChapter() }
-    override fun onSeekToParagraph(index: Int) { seekToParagraph(index) }
-
-    fun attachWebView(webView: WebView) {
-        webViewRef = webView
-    }
-
-    fun detachWebView() {
-        webViewRef = null
+        viewModelScope.launch {
+            NovelAudioPlaybackService.availableVoicesState.collect { voices ->
+                if (voices.isNotEmpty()) {
+                    _uiState.update { it.copy(availableVoices = voices) }
+                }
+            }
+        }
     }
 
     // =========================================================================
@@ -256,7 +229,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 showTabSwitcher = false
             )
         }
-        webViewRef?.loadUrl(url)
+        dispatchLoadUrl(url)
     }
 
     fun selectTab(tabId: String) {
@@ -270,7 +243,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 showTabSwitcher = false
             )
         }
-        webViewRef?.loadUrl(tab.url)
+        dispatchLoadUrl(tab.url)
     }
 
     fun closeTab(tabId: String) {
@@ -288,7 +261,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     showTabSwitcher = false
                 )
             }
-            webViewRef?.loadUrl(DEFAULT_URL)
+            dispatchLoadUrl(DEFAULT_URL)
             return
         }
 
@@ -310,7 +283,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
 
         if (_uiState.value.currentTabId != newActiveTab.id) {
-            webViewRef?.loadUrl(newActiveTab.url)
+            dispatchLoadUrl(newActiveTab.url)
         }
     }
 
@@ -347,7 +320,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             )
         }
         updateCurrentTabUrl(cleanUrl, _uiState.value.pageTitle)
-        webViewRef?.loadUrl(cleanUrl)
+        dispatchLoadUrl(cleanUrl)
         saveLastUrl(cleanUrl)
     }
 
@@ -356,19 +329,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun goBack() {
-        if (webViewRef?.canGoBack() == true) {
-            webViewRef?.goBack()
-        }
+        _webViewCommands.trySend(WebViewCommand.GoBack)
     }
 
     fun goForward() {
-        if (webViewRef?.canGoForward() == true) {
-            webViewRef?.goForward()
-        }
+        _webViewCommands.trySend(WebViewCommand.GoForward)
     }
 
     fun reload() {
-        webViewRef?.reload()
+        _webViewCommands.trySend(WebViewCommand.Reload)
+    }
+
+    fun onNavigationStateChanged(canGoBack: Boolean, canGoForward: Boolean) {
+        _uiState.update { it.copy(canGoBack = canGoBack, canGoForward = canGoForward) }
     }
 
     private fun updateCurrentTabUrl(url: String, title: String) {
@@ -387,13 +360,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun onPageStarted(url: String) {
+    fun onPageStarted(url: String, canGoBack: Boolean = false, canGoForward: Boolean = false) {
         _uiState.update {
             it.copy(
                 currentUrl = url,
                 inputUrl = url,
                 isLoading = true,
-                progress = 15
+                progress = 15,
+                canGoBack = canGoBack,
+                canGoForward = canGoForward
             )
         }
         updateCurrentTabUrl(url, _uiState.value.pageTitle)
@@ -408,7 +383,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun onPageFinished(url: String, title: String?) {
+    fun onPageFinished(url: String, title: String?, canGoBack: Boolean = false, canGoForward: Boolean = false) {
         val safeTitle = title.orEmpty().ifBlank { if (url.contains("google")) "Google" else "Web Page" }
         _uiState.update {
             it.copy(
@@ -417,8 +392,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 pageTitle = safeTitle,
                 isLoading = false,
                 progress = 100,
-                canGoBack = webViewRef?.canGoBack() ?: false,
-                canGoForward = webViewRef?.canGoForward() ?: false
+                canGoBack = canGoBack,
+                canGoForward = canGoForward
             )
         }
         updateCurrentTabUrl(url, safeTitle)
@@ -446,7 +421,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // =========================================================================
 
     private fun injectHelperScript() {
-        val webView = webViewRef ?: return
         val js = """
             (function() {
                 // 1. Inject highlight and hover styles
@@ -493,7 +467,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
             })();
         """.trimIndent()
-        webView.evaluateJavascript(js, null)
+        dispatchEvaluateJs(js)
     }
 
     fun buildContentExtractionScript(contentSelector: String, ignoredSelectors: List<String>): String {
@@ -661,109 +635,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         """.trimIndent()
     }
 
-    fun buildCaptureFullPageScript(isBatch: Boolean): String {
-        return """
-            (async function() {
-                try {
-                    var isBatchMode = $isBatch;
-                    var clonedDoc = document.documentElement.cloneNode(true);
-
-                    // 1. Remove app injected overlays and internal UI
-                    var toRemove = [
-                        '#na-root', '#na-player-bar', '.na-modal-backdrop', '.na-loading-toast',
-                        '#na-tts-styles', '#na-floating-next'
-                    ];
-                    for (var r = 0; r < toRemove.length; r++) {
-                        var items = clonedDoc.querySelectorAll(toRemove[r]);
-                        for (var m = 0; m < items.length; m++) items[m].remove();
-                    }
-
-                    // 2. Remove script tags from cloned doc to freeze state cleanly
-                    var scripts = clonedDoc.querySelectorAll('script');
-                    for (var s = 0; s < scripts.length; s++) scripts[s].remove();
-
-                    var clonedHead = clonedDoc.querySelector('head') || clonedDoc;
-                    var clonedBody = clonedDoc.querySelector('body') || clonedDoc;
-
-                    // 3. Add standalone next button (from userscript)
-                    var standaloneBtn = document.createElement('button');
-                    standaloneBtn.id = 'na-floating-next';
-                    standaloneBtn.title = 'Increment URL Digit (Next File)';
-                    standaloneBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width:20px;height:20px;fill:currentColor;"><path d="M52.5 440.6c-9.5 7.9-22.8 9.7-34.1 4.4S0 428.4 0 416V96C0 83.6 7.2 72.3 18.4 67s24.5-3.6 34.1 4.4L224 214.3V96c0-12.4 7.2-23.7 18.4-29s24.5-3.6 34.1 4.4L448 214.3V96c0-17.7 14.3-32 32-32s32 14.3 32 32v320c0 17.7-14.3 32-32 32s-32-14.3-32-32V297.7L276.5 440.6c-9.5 7.9-22.8 9.7-34.1 4.4S224 428.4 224 416V297.7L52.5 440.6z"/></svg>';
-
-                    var inlineStyle = document.createElement('style');
-                    inlineStyle.textContent = '#na-floating-next { position: fixed; bottom: 24px; right: 24px; z-index: 2147483000; background: #2563eb; color: #fff; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; box-shadow: 0 4px 16px rgba(0,0,0,0.4); transition: transform 0.2s, background 0.2s; } #na-floating-next:hover { transform: scale(1.08); background: #1d4ed8; }';
-                    clonedHead.appendChild(inlineStyle);
-                    clonedBody.appendChild(standaloneBtn);
-
-                    var standaloneScript = document.createElement('script');
-                    standaloneScript.textContent = "document.getElementById('na-floating-next').addEventListener('click', function() { let urlObj; try { urlObj = new URL(window.location.href); } catch(e) { return; } let pathname = urlObj.pathname; let regex = /(\\d+)(?=\\.html?$)/i; if (!regex.test(pathname)) { regex = /(\\d+)(?!.*\\d)/; } if (regex.test(pathname)) { urlObj.pathname = pathname.replace(regex, function(m) { return (parseInt(m, 10) + 1).toString().padStart(m.length, '0'); }); window.location.href = urlObj.href; } else { alert('No digit found in URL to increment.'); } });";
-                    clonedBody.appendChild(standaloneScript);
-
-                    // 4. Inline CSS stylesheets
-                    var links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
-                    for (var k = 0; k < links.length; k++) {
-                        var link = links[k];
-                        try {
-                            var cssText = '';
-                            for (var ss = 0; ss < document.styleSheets.length; ss++) {
-                                var sheet = document.styleSheets[ss];
-                                if (sheet.href === link.href) {
-                                    try {
-                                        var rules = sheet.cssRules || sheet.rules;
-                                        if (rules) {
-                                            for (var ri = 0; ri < rules.length; ri++) cssText += rules[ri].cssText + '\n';
-                                        }
-                                    } catch(e) {}
-                                    break;
-                                }
-                            }
-                            if (!cssText && link.href && link.href.indexOf('http') === 0) {
-                                var res = await fetch(link.href);
-                                if (res.ok) cssText = await res.text();
-                            }
-                            if (cssText) {
-                                var styleTag = document.createElement('style');
-                                styleTag.textContent = cssText;
-                                var cLink = clonedDoc.querySelector('link[href="' + link.getAttribute('href') + '"]');
-                                if (cLink) cLink.replaceWith(styleTag);
-                            }
-                        } catch(e) {}
-                    }
-
-                    // 5. Convert images to base64 where possible
-                    var images = Array.from(clonedDoc.querySelectorAll('img[src]'));
-                    for (var imgIdx = 0; imgIdx < images.length; imgIdx++) {
-                        var img = images[imgIdx];
-                        var src = img.getAttribute('src');
-                        if (src && !src.startsWith('data:') && src.startsWith('http')) {
-                            try {
-                                var resImg = await fetch(src);
-                                var blob = await resImg.blob();
-                                var b64 = await new Promise(function(resolve) {
-                                    var reader = new FileReader();
-                                    reader.onloadend = function() { resolve(reader.result); };
-                                    reader.onerror = function() { resolve(src); };
-                                    reader.readAsDataURL(blob);
-                                });
-                                img.setAttribute('src', b64);
-                            } catch(e) {}
-                        }
-                    }
-
-                    var fullHtml = '<!DOCTYPE html>\n' + clonedDoc.outerHTML;
-                    var pageTitle = (document.title || '').trim();
-
-                    if (window.AndroidBridge && window.AndroidBridge.onFullPageCaptured) {
-                        window.AndroidBridge.onFullPageCaptured(fullHtml, pageTitle, isBatchMode);
-                    }
-                } catch(err) {
-                    console.error('Error in captureFullPage:', err);
-                }
-            })();
-        """.trimIndent()
-    }
-
     private fun parseJavascriptResultToJson(result: String?): JSONObject? {
         if (result == null || result == "null" || result.isBlank()) return null
         return try {
@@ -785,7 +656,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun highlightWebParagraph(index: Int) {
-        val webView = webViewRef ?: return
         val autoScroll = _uiState.value.settings.ttsAutoScroll
         val script = """
             (function() {
@@ -830,11 +700,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
             })();
         """.trimIndent()
-        webView.evaluateJavascript(script, null)
+        dispatchEvaluateJs(script)
     }
 
     private fun clearWebHighlight() {
-        val webView = webViewRef ?: return
         val script = """
             (function() {
                 var prev = document.querySelectorAll('.na-tts-highlight');
@@ -843,17 +712,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
             })();
         """.trimIndent()
-        webView.evaluateJavascript(script, null)
+        dispatchEvaluateJs(script)
     }
 
     fun clickNextChapter() {
         playClickSound()
         if (_uiState.value.isLiveReading) {
-            ttsManager?.stop()
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
         }
-        val webView = webViewRef ?: return
         val nextSelector = JSONObject.quote(_uiState.value.settings.nextSelector.trim())
         val script = """
             (function() {
@@ -931,17 +798,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
             })();
         """.trimIndent()
-        webView.evaluateJavascript(script, null)
+        dispatchEvaluateJs(script)
     }
 
     fun clickPrevChapter() {
         playClickSound()
         if (_uiState.value.isLiveReading) {
-            ttsManager?.stop()
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
         }
-        val webView = webViewRef ?: return
         val script = """
             (function() {
                 function getPrevEl() {
@@ -1014,7 +879,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
             })();
         """.trimIndent()
-        webView.evaluateJavascript(script, null)
+        dispatchEvaluateJs(script)
     }
 
     // =========================================================================
@@ -1118,6 +983,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         duplicatePageRetryCount = 0
         lastBatchDownloadedUrl = ""
         lastBatchDownloadedChapterNum = -1
+        val novelTitle = _uiState.value.downloadNovelTitle
+        if (novelTitle.isNotBlank()) {
+            viewModelScope.launch {
+                libraryRepository.commitBatch(novelTitle)
+            }
+        }
         _uiState.update {
             it.copy(
                 isDownloading = false,
@@ -1256,38 +1127,50 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     downloadStatus = "Downloading Chapter ${_uiState.value.downloadCurrentChapter}..."
                 )
             }
-            captureFullPage(isBatch = true)
+            extractAndSaveChapter(isBatch = true)
         }
     }
 
-    fun captureFullPage(isBatch: Boolean) {
-        val webView = webViewRef ?: return
+    fun extractAndSaveChapter(isBatch: Boolean) {
         if (!isBatch) {
-            _uiState.update { it.copy(toastMessage = "Capturing full page...") }
+            _uiState.update { it.copy(toastMessage = "Extracting chapter content...") }
         }
-        val script = buildCaptureFullPageScript(isBatch)
-        webView.evaluateJavascript(script, null)
+        val settings = _uiState.value.settings
+        val script = buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+        dispatchEvaluateJs(script) { result ->
+            handleExtractedChapter(result, isBatch)
+        }
     }
 
-    fun onFullPageCaptured(html: String, pageTitle: String, isBatch: Boolean) {
+    private fun handleExtractedChapter(result: String?, isBatch: Boolean) {
         val currentUrl = _uiState.value.currentUrl
+        val pageTitle = _uiState.value.pageTitle
+        val json = parseJavascriptResultToJson(result)
+        val title = json?.optString("title", pageTitle)?.ifBlank { pageTitle } ?: pageTitle
+        val paragraphsArray = json?.optJSONArray("paragraphs") ?: JSONArray()
+        val paragraphs = mutableListOf<String>()
+        for (i in 0 until paragraphsArray.length()) {
+            val p = paragraphsArray.optString(i, "").trim()
+            if (p.isNotBlank()) paragraphs.add(p)
+        }
+
         if (!isBatch) {
-            val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
+            val detected = WebNovelDownloader.detectNovelInfo(currentUrl, title)
             if (WebNovelDownloader.chapterAlreadyExists(getApplication(), detected.novelTitle, detected.chapterNumber, currentUrl)) {
                 _uiState.update {
                     it.copy(toastMessage = "Chapter ${detected.chapterNumber} already downloaded for ${detected.novelTitle}")
                 }
                 return
             }
-            val chapterTitle = pageTitle.ifBlank { "${detected.novelTitle} Chapter ${detected.chapterNumber}" }
+            val chapterTitle = title.ifBlank { "${detected.novelTitle} Chapter ${detected.chapterNumber}" }
             viewModelScope.launch {
                 try {
-                    val savedFile = WebNovelDownloader.saveFrozenHtml(
+                    val savedFile = WebNovelDownloader.saveChapter(
                         context = getApplication(),
                         novelTitle = detected.novelTitle,
                         chapterTitle = chapterTitle,
                         chapterNumber = detected.chapterNumber,
-                        frozenHtml = html,
+                        paragraphs = paragraphs,
                         sourceUrl = currentUrl
                     )
                     val updatedNovel = libraryRepository.addDownloadedChapter(
@@ -1295,7 +1178,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         chapterFile = savedFile,
                         chapterTitle = chapterTitle,
                         chapterNumber = detected.chapterNumber,
-                        sourceUrl = currentUrl
+                        sourceUrl = currentUrl,
+                        commitNow = true
                     )
                     _uiState.update {
                         it.copy(
@@ -1314,7 +1198,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val novelTitle = state.downloadNovelTitle
             val chapterNum = state.downloadCurrentChapter
             val remaining = state.downloadRemainingCount
-            val chapterTitle = pageTitle.ifBlank { "$novelTitle Chapter $chapterNum" }
+            val chapterTitle = title.ifBlank { "$novelTitle Chapter $chapterNum" }
 
             if (WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, chapterNum, currentUrl)) {
                 Log.d(TAG, "Batch download: Chapter $chapterNum already exists on disk. Skipping file write.")
@@ -1328,6 +1212,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     )
                 }
                 if (newRemaining <= 0) {
+                    viewModelScope.launch {
+                        libraryRepository.commitBatch(novelTitle)
+                    }
                     _uiState.update {
                         it.copy(
                             isDownloading = false,
@@ -1343,12 +1230,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
             viewModelScope.launch {
                 try {
-                    val savedFile = WebNovelDownloader.saveFrozenHtml(
+                    val savedFile = WebNovelDownloader.saveChapter(
                         context = getApplication(),
                         novelTitle = novelTitle,
                         chapterTitle = chapterTitle,
                         chapterNumber = chapterNum,
-                        frozenHtml = html,
+                        paragraphs = paragraphs,
                         sourceUrl = currentUrl
                     )
                     val updatedNovel = libraryRepository.addDownloadedChapter(
@@ -1356,7 +1243,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         chapterFile = savedFile,
                         chapterTitle = chapterTitle,
                         chapterNumber = chapterNum,
-                        sourceUrl = currentUrl
+                        sourceUrl = currentUrl,
+                        commitNow = false
                     )
                     lastBatchDownloadedUrl = currentUrl
                     lastBatchDownloadedChapterNum = chapterNum
@@ -1374,6 +1262,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     }
 
                     if (newRemaining <= 0) {
+                        libraryRepository.commitBatch(novelTitle)
                         _uiState.update {
                             it.copy(
                                 isDownloading = false,
@@ -1407,7 +1296,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
             return
         }
-        captureFullPage(isBatch = false)
+        extractAndSaveChapter(isBatch = false)
     }
 
     fun saveFrozenHtml() = saveSingleChapter()
@@ -1429,18 +1318,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun startLiveReading() {
-        NovelAudioPlaybackService.activeClient = this
         _uiState.update { it.copy(isLiveReading = true, isLivePlaying = true) }
         startLiveReadingInternal(forceStartAtBeginning = false)
     }
 
     private fun startLiveReadingInternal(forceStartAtBeginning: Boolean = false, retryCount: Int = 0) {
-        NovelAudioPlaybackService.activeClient = this
-        val webView = webViewRef ?: return
         val settings = _uiState.value.settings
         val script = buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
 
-        webView.evaluateJavascript(script) { result ->
+        dispatchEvaluateJs(script) { result ->
             val json = parseJavascriptResultToJson(result)
             if (json == null) {
                 if (retryCount < 2) {
@@ -1450,7 +1336,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         startLiveReadingInternal(forceStartAtBeginning, retryCount + 1)
                     }
                 }
-                return@evaluateJavascript
+                return@dispatchEvaluateJs
             }
 
             try {
@@ -1482,8 +1368,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             isLivePlaying = true
                         )
                     }
-                    speakLiveParagraph(targetIndex)
-                    updateLivePlaybackNotification()
+                    NovelAudioPlaybackService.playBrowserParagraphs(
+                        context = getApplication(),
+                        chapterTitle = title,
+                        paragraphs = paragraphs,
+                        startParagraphIndex = targetIndex,
+                        rate = settings.ttsRate,
+                        pitch = settings.ttsPitch,
+                        voiceName = settings.ttsVoice
+                    )
                 } else {
                     if (retryCount < 2) {
                         retryExtractionJob?.cancel()
@@ -1536,46 +1429,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         return clean.replace(Regex("""\s+"""), " ").trim()
     }
 
-    private fun speakLiveParagraph(index: Int) {
-        val paras = _uiState.value.liveParagraphs
-        if (paras.isEmpty()) return
-
-        if (index !in paras.indices) {
-            // End of chapter reached!
-            handleLiveChapterEnd()
-            return
-        }
-
-        val target = paras[index]
-        val spoken = target.spokenText.ifBlank { target.rawText }
-        if (spoken.isBlank()) {
-            handleLiveParagraphDone(index)
-            return
-        }
-
-        val settings = _uiState.value.settings
-        ttsManager?.speak(
-            index = index,
-            text = spoken,
-            rate = settings.ttsRate,
-            pitch = settings.ttsPitch
-        )
-    }
-
-    private fun handleLiveParagraphDone(index: Int) {
-        if (!_uiState.value.isLiveReading || !_uiState.value.isLivePlaying) return
-
-        val paras = _uiState.value.liveParagraphs
-        val nextIdx = index + 1
-
-        if (nextIdx < paras.size) {
-            _uiState.update { it.copy(liveCurrentParagraphIndex = nextIdx) }
-            speakLiveParagraph(nextIdx)
-        } else {
-            handleLiveChapterEnd()
-        }
-    }
-
     private fun handleLiveChapterEnd() {
         if (_uiState.value.liveParagraphs.isEmpty()) return
 
@@ -1593,24 +1446,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun pauseLiveReading() {
-        ttsManager?.stop()
+        NovelAudioPlaybackService.dispatchPause()
         _uiState.update { it.copy(isLivePlaying = false) }
-        updateLivePlaybackNotification()
     }
 
     fun resumeLiveReading() {
-        NovelAudioPlaybackService.activeClient = this
         if (_uiState.value.liveParagraphs.isEmpty()) {
             startLiveReading()
             return
         }
-        val currentIdx = _uiState.value.liveCurrentParagraphIndex
+        NovelAudioPlaybackService.dispatchPlay()
         _uiState.update { it.copy(isLivePlaying = true, isLiveReading = true) }
-        speakLiveParagraph(currentIdx)
     }
 
     fun stopLiveReading() {
-        ttsManager?.stop()
+        NovelAudioPlaybackService.dispatchStop()
         clearWebHighlight()
         _uiState.update {
             it.copy(
@@ -1619,18 +1469,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 liveParagraphs = emptyList()
             )
         }
-        NovelAudioPlaybackService.stopService(getApplication())
     }
 
     fun seekToParagraph(index: Int) {
-        NovelAudioPlaybackService.activeClient = this
         val paras = _uiState.value.liveParagraphs
         if (paras.isEmpty()) return
         val target = index.coerceIn(0, paras.size - 1)
-        ttsManager?.stop()
+        NovelAudioPlaybackService.dispatchSeekToPara(target)
         _uiState.update { it.copy(liveCurrentParagraphIndex = target, isLivePlaying = true, isLiveReading = true) }
-        speakLiveParagraph(target)
-        updateLivePlaybackNotification()
     }
 
     fun nextLiveParagraph() {
@@ -1723,33 +1569,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun updateLivePlaybackNotification() {
-        if (!_uiState.value.isLiveReading) {
-            NovelAudioPlaybackService.stopService(getApplication())
-            return
-        }
-        val currentUrl = _uiState.value.currentUrl
-        val pageTitle = _uiState.value.pageTitle
-        val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
-        val novelName = detected.novelTitle.ifBlank { "Web Browser Reader" }
-        val chapterName = _uiState.value.liveChapterTitle.ifBlank {
-            if (detected.chapterNumber > 0) "Chapter ${detected.chapterNumber}" else pageTitle.ifBlank { "Web Page" }
-        }
-        val current = _uiState.value.liveCurrentParagraphIndex + 1
-        val total = _uiState.value.liveParagraphs.size
-        NovelAudioPlaybackService.startOrUpdateService(
-            context = getApplication(),
-            isPlaying = _uiState.value.isLivePlaying,
-            novelTitle = novelName,
-            chapterTitle = chapterName,
-            progressText = if (total > 0) "¶ $current / $total" else "Live Web TTS",
-            currentChapterIndex = if (detected.chapterNumber > 0) detected.chapterNumber else 1,
-            totalChapters = if (detected.chapterNumber > 0) (detected.chapterNumber + 50).coerceAtLeast(100) else 1,
-            currentParagraph = _uiState.value.liveCurrentParagraphIndex,
-            totalParagraphs = total
-        )
-    }
-
     // =========================================================================
     // Browser Settings Dialog & Voice Test
     // =========================================================================
@@ -1771,11 +1590,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { it.copy(isVoiceTesting = true) }
         val sampleText = "Hello, this is a preview of the selected voice for NovelArrow Reader."
         val settings = _uiState.value.settings
-        ttsManager?.speak(
-            index = 999999,
-            text = sampleText,
+        val previewPara = Paragraph(
+            index = 0,
+            rawText = sampleText,
+            spokenText = sampleText,
+            isHeading = false
+        )
+        NovelAudioPlaybackService.playBrowserParagraphs(
+            context = getApplication(),
+            chapterTitle = "Voice Preview",
+            paragraphs = listOf(previewPara),
+            startParagraphIndex = 0,
             rate = settings.ttsRate,
-            pitch = settings.ttsPitch
+            pitch = settings.ttsPitch,
+            voiceName = settings.ttsVoice
         )
         viewModelScope.launch {
             delay(4000)
@@ -1785,7 +1613,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun stopVoiceTest() {
         if (_uiState.value.isVoiceTesting) {
-            ttsManager?.stop()
+            NovelAudioPlaybackService.dispatchStop()
             _uiState.update { it.copy(isVoiceTesting = false) }
         }
     }
@@ -1912,8 +1740,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
-        stopLiveReading()
-        ttsManager?.shutdown()
         downloadCountdownJob?.cancel()
         autoLoopJob?.cancel()
         sleepTimerJob?.cancel()

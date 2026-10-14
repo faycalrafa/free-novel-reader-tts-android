@@ -165,9 +165,16 @@ fun BrowserScreen(
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            viewModel.detachWebView()
+    LaunchedEffect(webViewInstance) {
+        val wv = webViewInstance ?: return@LaunchedEffect
+        viewModel.webViewCommands.collect { cmd ->
+            when (cmd) {
+                is WebViewCommand.LoadUrl -> wv.loadUrl(cmd.url)
+                is WebViewCommand.GoBack -> if (wv.canGoBack()) wv.goBack()
+                is WebViewCommand.GoForward -> if (wv.canGoForward()) wv.goForward()
+                is WebViewCommand.Reload -> wv.reload()
+                is WebViewCommand.EvaluateJavascript -> wv.evaluateJavascript(cmd.script, cmd.callback)
+            }
         }
     }
 
@@ -230,7 +237,6 @@ fun BrowserScreen(
                     factory = { ctx ->
                         createConfiguredWebView(ctx, viewModel).also { wv ->
                             webViewInstance = wv
-                            viewModel.attachWebView(wv)
                             wv.loadUrl(uiState.currentUrl)
                         }
                     },
@@ -1632,11 +1638,6 @@ private fun createConfiguredWebView(
                 fun onParagraphClicked(index: Int) {
                     post { viewModel.seekToParagraph(index) }
                 }
-
-                @JavascriptInterface
-                fun onFullPageCaptured(html: String, pageTitle: String, isBatch: Boolean) {
-                    post { viewModel.onFullPageCaptured(html, pageTitle, isBatch) }
-                }
             },
             "AndroidBridge"
         )
@@ -1649,7 +1650,14 @@ private fun createConfiguredWebView(
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                url?.let { viewModel.onPageFinished(it, view?.title) }
+                url?.let {
+                    viewModel.onPageFinished(
+                        url = it,
+                        title = view?.title,
+                        canGoBack = view?.canGoBack() == true,
+                        canGoForward = view?.canGoForward() == true
+                    )
+                }
             }
         }
 
@@ -1662,7 +1670,12 @@ private fun createConfiguredWebView(
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
                 val currentUrl = view?.url ?: ""
-                viewModel.onPageFinished(currentUrl, title)
+                viewModel.onPageFinished(
+                    url = currentUrl,
+                    title = title,
+                    canGoBack = view?.canGoBack() == true,
+                    canGoForward = view?.canGoForward() == true
+                )
             }
         }
     }

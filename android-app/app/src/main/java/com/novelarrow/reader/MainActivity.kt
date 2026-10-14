@@ -5,6 +5,8 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -62,10 +64,14 @@ class MainActivity : ComponentActivity() {
             val browserViewModel: BrowserViewModel = viewModel()
             val uiState by viewModel.uiState.collectAsState()
             val browserUiState by browserViewModel.uiState.collectAsState()
-            var currentScreen by remember { mutableStateOf(AppScreen.READER) }
+            var currentScreen by rememberSaveable { mutableStateOf(AppScreen.READER) }
             val context = LocalContext.current
             val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
             val scope = rememberCoroutineScope()
+
+            BackHandler(enabled = drawerState.isOpen) {
+                scope.launch { drawerState.close() }
+            }
 
             val folderPickerLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.OpenDocumentTree()
@@ -77,18 +83,6 @@ class MainActivity : ComponentActivity() {
                 uiState.toastMessage?.let { msg ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     viewModel.clearToast()
-                }
-            }
-
-            LaunchedEffect(currentScreen) {
-                if (currentScreen == AppScreen.BROWSER) {
-                    if (browserUiState.isLiveReading) {
-                        NovelAudioPlaybackService.activeClient = browserViewModel
-                    }
-                } else if (currentScreen == AppScreen.READER) {
-                    if (uiState.isPlaying) {
-                        NovelAudioPlaybackService.activeClient = viewModel
-                    }
                 }
             }
 
