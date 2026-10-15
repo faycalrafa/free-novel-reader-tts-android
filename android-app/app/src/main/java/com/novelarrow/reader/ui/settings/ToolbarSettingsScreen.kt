@@ -264,15 +264,6 @@ fun ToolbarSettingsScreen(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(Color(0xFFEA580C), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("NA", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Novel Title Here", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Text("Ch. 45 • ¶ 12/80 • Ready", color = Color(0xFF94A3B8), fontSize = 11.sp)
@@ -286,27 +277,36 @@ fun ToolbarSettingsScreen(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFFEA580C))
+                                    .background(Color(0xFF1E293B))
+                                    .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
                                     .padding(horizontal = 7.dp, vertical = 3.dp)
                             ) {
-                                Text("1.25x", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("1.25x", color = Color(0xFFF1F5F9), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                         if (toolbarSettings.showSleepTimerButton) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFFEA580C))
+                                    .background(Color(0xFF1E293B))
+                                    .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
                                     .padding(horizontal = 7.dp, vertical = 3.dp)
                             ) {
-                                Text("💤 15m", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("⏱ 29:45", color = Color(0xFFF1F5F9), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                         if (toolbarSettings.showPrevChapButton) {
                             Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                         }
                         if (toolbarSettings.showPlayPauseButton) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color(0xFFEA580C), modifier = Modifier.size(22.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(Color(0xFF7C3AED), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
                         }
                         if (toolbarSettings.showNextChapButton) {
                             Icon(Icons.Default.SkipNext, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
@@ -315,7 +315,7 @@ fun ToolbarSettingsScreen(
                             Icon(Icons.Default.Language, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
                         }
                         if (toolbarSettings.showCloseButton) {
-                            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                         }
                     }
                 }

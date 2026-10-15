@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.4.4"
+          DATE_TAG="v2.5.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.4.4"
-        run: ./gradlew assembleRelease -PappVersionName=2.4.4 --no-daemon
+          APP_VERSION_NAME: "2.5.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.5.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,22 +53,31 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.4.4 (Stable)
+          name: NovelArrow Reader v2.5.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.4.4 (Stable) 📖✨
+            ### NovelArrow Reader v2.5.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.4.4** fixes persistent notification toolbar visibility across modern Android versions (Android 14, 15, and 16) and OEM skins (OnePlus OxygenOS, ColorOS, Xiaomi MIUI) by promoting the notification channel to standard alert importance, ensuring clean layout fitting, and adding runtime notification diagnostics.
+            **NovelArrow Reader v2.5.0** delivers a complete visual and functional redesign of the persistent quick reading notification toolbar, adding sleek modern icons, prominent playback controls, live real-time sleep timer countdown, and space-optimized layout.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Changes in this release:
-            - **Notification Channel Visibility Fix (Channel v4)**: Migrated toolbar notification to a fresh channel (`novel_quick_toolbar_channel_v4`) with `IMPORTANCE_DEFAULT`, `setSound(null, null)`, and `enableVibration(false)`. Prevents OnePlus/OxygenOS and modern Android from classifying the toolbar as "Silent" and hiding it from the status bar, shade, and lock screen.
-            - **Clean Up Obsolete Channels**: Automatically prunes previous low-importance toolbar channels from system storage on service start.
-            - **Notification Builder Attributes**: Added standard `setContentTitle()`, `setContentText()`, `CATEGORY_SERVICE`, and `PRIORITY_DEFAULT` to ensure complete metadata compatibility with Android 12–16 SystemUI templates and lock screen displays.
-            - **Explicit Notification Dispatch**: Added explicit `notificationManager.notify()` alongside `startForeground()` to guarantee an immediate SystemUI layout pass.
-            - **Layout Fitting Optimization**: Optimized `notification_quick_toolbar.xml` height to `wrap_content` with `minHeight="48dp"` and streamlined vertical padding, guaranteeing it fits within Android's `DecoratedCustomViewStyle` boundaries without vertical clipping.
-            - **Enhanced Developer Logs Diagnostics**: Logs real-time notification permissions, channel importance level, and active posted notification IDs in Developer Logs (`About -> Developer & Diagnostic Logs`).
+            - **Notification Toolbar Visual Redesign**:
+              - Eliminated the double-border "card-inside-card" appearance by integrating seamlessly with Android's system notification container (`@android:color/transparent`).
+              - Removed duplicate header icon inside the custom view to grant full horizontal space to novel title and chapter reading status.
+              - Replaced legacy Gingerbread media icons with crisp Material 3 vector assets for Previous, Play/Pause, Next, and Site Next (`ic_toolbar_*`).
+              - Added a prominent circular accent purple (`#7C3AED`) background for the Play/Pause button.
+              - Redesigned speed and sleep timer badges into sleek dark slate (`#1E293B`) pills with `#334155` subtle borders.
+            - **Live Sleep Timer Countdown**:
+              - The notification toolbar sleep timer pill now actively counts down in real time (e.g. `⏱ 29:45`, `⏱ 14:02`, `⏱ 0:45`) synchronized with TTS playback.
+              - Live updates dispatched via coroutine state flows in `QuickToolbarForegroundService`.
+            - **Speed Formatter Fix**:
+              - Fixed string formatting bug where speech rates like 1.75x were displayed as `"1.75xx"`.
+            - **Settings Live Mockup Harmonization**:
+              - Updated `ToolbarSettingsScreen` live mockup preview to perfectly mirror the new dark slate pills, purple circular play button, and slate icons.
+            - **Unit Tests**:
+              - Added comprehensive unit tests in `QuickToolbarFormattingTest` validating speed rate string formatting and live countdown timer conversion.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

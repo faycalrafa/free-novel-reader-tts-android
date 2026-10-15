@@ -338,14 +338,10 @@ object AudioPlaybackCoordinator {
     }
 
     fun formatSleepTimerForNotification(): String {
-        val mins = _sleepTimerMinutesState.value
-        val remainingSecs = _sleepTimerRemainingSecondsState.value
-        return if (mins <= 0 || remainingSecs <= 0) {
-            "💤 Off"
-        } else {
-            val remainMins = (remainingSecs + 59) / 60
-            "💤 ${remainMins}m"
-        }
+        return QuickToolbarForegroundService.formatSleepTimer(
+            mins = _sleepTimerMinutesState.value,
+            remainingSecs = _sleepTimerRemainingSecondsState.value
+        )
     }
 
     private fun startSleepTimerCountdown() {

@@ -20,14 +20,64 @@ import com.novelarrow.reader.R
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.util.AppErrorBus
 import com.novelarrow.reader.util.AppLogger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 class QuickToolbarForegroundService : Service() {
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var isForegroundActive = false
 
     override fun onCreate() {
         super.onCreate()
         AppLogger.i(TAG, "QuickToolbarForegroundService created")
         createNotificationChannel()
+
+        // Observe settings changes to update toolbar dynamically
+        serviceScope.launch {
+            SettingsRepository(applicationContext).settingsFlow
+                .map { it.quickToolbarSettings }
+                .distinctUntilChanged()
+                .collect {
+                    updateForegroundNotification()
+                }
+        }
+
+        // Observe playback state, progress, speed, and live sleep timer countdown
+        serviceScope.launch {
+            AudioPlaybackCoordinator.isPlayingState.collect {
+                updateForegroundNotification()
+            }
+        }
+        serviceScope.launch {
+            AudioPlaybackCoordinator.playbackProgressState.collect {
+                updateForegroundNotification()
+            }
+        }
+        serviceScope.launch {
+            AudioPlaybackCoordinator.currentSpeechRateState.collect {
+                updateForegroundNotification()
+            }
+        }
+        serviceScope.launch {
+            AudioPlaybackCoordinator.sleepTimerRemainingSecondsState.collect {
+                // Sleep timer ticks down every second while active
+                updateForegroundNotification()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
+        isForegroundActive = false
+        AppLogger.i(TAG, "QuickToolbarForegroundService destroyed")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -37,6 +87,7 @@ class QuickToolbarForegroundService : Service() {
         when (action) {
             ACTION_STOP -> {
                 AppLogger.i(TAG, "Stopping foreground toolbar service")
+                isForegroundActive = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -49,6 +100,7 @@ class QuickToolbarForegroundService : Service() {
                     AppLogger.d(TAG, "Restoring toolbar notification after swipe-dismiss on Android 14+")
                     updateForegroundNotification()
                 } else {
+                    isForegroundActive = false
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     return START_NOT_STICKY
@@ -70,6 +122,7 @@ class QuickToolbarForegroundService : Service() {
 
             if (!toolbarSettings.enabled) {
                 AppLogger.d(TAG, "Toolbar disabled in preferences, stopping service")
+                isForegroundActive = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return
@@ -77,15 +130,18 @@ class QuickToolbarForegroundService : Service() {
 
             val notification = buildToolbarNotification()
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                ServiceCompat.startForeground(
-                    this,
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
+            if (!isForegroundActive) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceCompat.startForeground(
+                        this,
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    )
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+                isForegroundActive = true
             }
 
             // Force immediate layout pass in SystemUI
@@ -100,9 +156,9 @@ class QuickToolbarForegroundService : Service() {
                 notificationManager?.activeNotifications?.map { "${it.id}:${it.notification.channelId}" } ?: emptyList()
             } else emptyList()
 
-            AppLogger.i(
+            AppLogger.d(
                 TAG,
-                "startForeground success for ID=$NOTIFICATION_ID on channel=$CHANNEL_ID | " +
+                "Toolbar notification updated: ID=$NOTIFICATION_ID on channel=$CHANNEL_ID | " +
                         "enabled=$areNotifsEnabled, importance=${channel?.importance}, " +
                         "activeNotifs=$activeNotifList"
             )
@@ -178,7 +234,7 @@ class QuickToolbarForegroundService : Service() {
 
             setImageViewResource(
                 R.id.btn_play_pause,
-                if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+                if (isPlaying) R.drawable.ic_toolbar_pause else R.drawable.ic_toolbar_play
             )
 
             setViewVisibility(R.id.btn_speed, if (toolbarSettings.showSpeedButton) View.VISIBLE else View.GONE)
@@ -209,7 +265,7 @@ class QuickToolbarForegroundService : Service() {
 
             setImageViewResource(
                 R.id.btn_play_pause_exp,
-                if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+                if (isPlaying) R.drawable.ic_toolbar_pause else R.drawable.ic_toolbar_play
             )
 
             setViewVisibility(R.id.btn_speed_exp, if (toolbarSettings.showSpeedButton) View.VISIBLE else View.GONE)
@@ -271,7 +327,7 @@ class QuickToolbarForegroundService : Service() {
         } else {
             builder
                 .addAction(
-                    if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                    if (isPlaying) R.drawable.ic_toolbar_pause else R.drawable.ic_toolbar_play,
                     if (isPlaying) "Pause" else "Play",
                     playPausePendingIntent
                 )
@@ -289,15 +345,7 @@ class QuickToolbarForegroundService : Service() {
         )
     }
 
-    private fun formatSpeed(rate: Float): String {
-        return if (rate == rate.toInt().toFloat()) {
-            "${rate.toInt()}.0x"
-        } else {
-            String.format(Locale.US, "%.2fx", rate).trimEnd('0').let {
-                if (it.endsWith(".")) "${it}0x" else "${it}x"
-            }
-        }
-    }
+    // buildToolbarNotification uses formatSpeed and AudioPlaybackCoordinator.formatSleepTimerForNotification()
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -337,5 +385,30 @@ class QuickToolbarForegroundService : Service() {
         const val ACTION_START_OR_UPDATE = "com.novelarrow.reader.ACTION_START_OR_UPDATE_TOOLBAR"
         const val ACTION_STOP = "com.novelarrow.reader.ACTION_STOP_TOOLBAR"
         const val ACTION_RESTORE_TOOLBAR = "com.novelarrow.reader.ACTION_RESTORE_TOOLBAR"
+
+        internal fun formatSpeed(rate: Float): String {
+            return if (rate == rate.toInt().toFloat()) {
+                "${rate.toInt()}.0x"
+            } else {
+                val formatted = String.format(Locale.US, "%.2f", rate).trimEnd('0').trimEnd('.')
+                "${formatted}x"
+            }
+        }
+
+        internal fun formatSleepTimer(mins: Int, remainingSecs: Int): String {
+            return if (mins <= 0 || remainingSecs <= 0) {
+                "💤 Off"
+            } else {
+                val m = remainingSecs / 60
+                val s = remainingSecs % 60
+                if (m >= 60) {
+                    val h = m / 60
+                    val remM = m % 60
+                    "⏱ $h:${remM.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}"
+                } else {
+                    "⏱ $m:${s.toString().padStart(2, '0')}"
+                }
+            }
+        }
     }
 }
