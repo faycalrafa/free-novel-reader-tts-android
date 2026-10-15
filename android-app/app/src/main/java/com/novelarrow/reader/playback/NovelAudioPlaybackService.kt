@@ -114,6 +114,9 @@ class NovelAudioPlaybackService : MediaSessionService() {
         const val EXTRA_PROGRESS_CURRENT = "extra_progress_current"
         const val EXTRA_PROGRESS_TOTAL = "extra_progress_total"
 
+        const val ACTION_EDIT_CSS_SELECTOR = "com.novelarrow.reader.EDIT_CSS_SELECTOR"
+        const val EXTRA_OPEN_CSS_SELECTOR = "open_css_selector"
+
         @Volatile
         var instance: NovelAudioPlaybackService? = null
             private set
@@ -818,6 +821,17 @@ class NovelAudioPlaybackService : MediaSessionService() {
             builder.setLargeIcon(coverBitmap)
         }
 
+        val cssSelectorIntent = Intent(this, MainActivity::class.java).apply {
+            action = ACTION_EDIT_CSS_SELECTOR
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_OPEN_CSS_SELECTOR, true)
+        }
+        val cssSelectorPendingIntent = PendingIntent.getActivity(
+            this, 99,
+            cssSelectorIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         builder.setProgress(
             totalParagraphsCount.coerceAtLeast(1),
             (currentParagraphIndex + 1).coerceIn(0, totalParagraphsCount.coerceAtLeast(1)),
@@ -828,6 +842,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
         .addAction(forwardAction)    // Action 2: Forward (advances where user last paused)
         .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)
         .addAction(android.R.drawable.ic_media_ff, "Next Chap", nextChapPendingIntent)
+        .addAction(android.R.drawable.ic_menu_edit, "CSS Selector", cssSelectorPendingIntent)
 
         mediaSession?.let { session ->
             val mediaStyle = MediaStyleNotificationHelper.MediaStyle(session)

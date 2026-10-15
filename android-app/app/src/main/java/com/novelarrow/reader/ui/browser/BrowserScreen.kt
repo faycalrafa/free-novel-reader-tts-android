@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Home
@@ -136,6 +137,7 @@ import com.novelarrow.reader.playback.PlaybackSource
 import com.novelarrow.reader.ui.reader.SleepTimerDialog
 import com.novelarrow.reader.ui.reader.TtsDock
 import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
+import com.novelarrow.reader.ui.common.MonacoCodeEditorDialog
 
 @Composable
 fun BrowserScreen(
@@ -221,6 +223,7 @@ fun BrowserScreen(
                 onTabsBadgeClicked = onOpenDrawer,
                 onLoopClicked = { viewModel.onLoopButtonClicked() },
                 onSaveFrozenHtmlClicked = { viewModel.saveSingleChapter() },
+                onRawCodeClicked = { viewModel.extractAndShowRawHtml() },
                 onNextChapterClicked = { viewModel.clickNextChapter() },
                 onUrlChanged = { viewModel.setInputUrl(it) },
                 onUrlSubmitted = {
@@ -377,6 +380,15 @@ fun BrowserScreen(
             )
         }
 
+        if (uiState.showRawEditor && uiState.rawHtmlContent != null) {
+            MonacoCodeEditorDialog(
+                title = "HTML Source: ${uiState.detectedTitle ?: uiState.currentUrl}",
+                initialContent = uiState.rawHtmlContent ?: "",
+                language = "html",
+                onDismiss = { viewModel.dismissRawEditor() }
+            )
+        }
+
         if (showAudioSettingsDialog) {
             UnifiedAudioSettingsDialog(
                 speechRate = uiState.settings.ttsRate,
@@ -389,6 +401,7 @@ fun BrowserScreen(
                 pronunciationRules = uiState.settings.pronunciationRules,
                 skipWordsEnabled = uiState.settings.skipWordsEnabled,
                 skipWords = uiState.settings.skipWords,
+                contentSelector = uiState.settings.contentSelector,
                 onSpeechRateChange = { viewModel.updateRate(it) },
                 onSpeechPitchChange = { viewModel.updatePitch(it) },
                 onVoiceChange = { viewModel.updateVoice(it) },
@@ -399,20 +412,15 @@ fun BrowserScreen(
                 onSkipWordsEnabledChange = { viewModel.toggleSkipWordsEnabled(it) },
                 onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
                 onRemoveSkipWord = { viewModel.removeSkipWord(it) },
+                onContentSelectorChange = { viewModel.updateContentSelector(it) },
                 onDismiss = { showAudioSettingsDialog = false }
             )
         }
 
-        // Complete Userscript Settings Modal
+        // Userscript Automation & Reading Settings Modal (TTS voice/speed/pitch/rules moved to Control Panel)
         if (uiState.showSettingsDialog) {
             BrowserSettingsDialog(
                 settings = uiState.settings,
-                availableVoices = uiState.availableVoices,
-                isVoiceTesting = uiState.isVoiceTesting,
-                onTestVoice = { viewModel.testVoicePreview() },
-                onUpdateVoice = { viewModel.updateVoice(it) },
-                onUpdateRate = { viewModel.updateRate(it) },
-                onUpdatePitch = { viewModel.updatePitch(it) },
                 onToggleAutoReadNextChapter = { viewModel.toggleAutoReadNextChapter(it) },
                 onToggleTtsAutoScroll = { viewModel.toggleTtsAutoScroll(it) },
                 onToggleTtsAutoStart = { viewModel.toggleTtsAutoStart(it) },
@@ -425,10 +433,6 @@ fun BrowserScreen(
                 onAddIgnoredSelector = { viewModel.addIgnoredSelector(it) },
                 onRemoveIgnoredSelector = { viewModel.removeIgnoredSelector(it) },
                 onResetIgnoredSelectors = { viewModel.resetIgnoredSelectors() },
-                onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
-                onRemoveSkipWord = { viewModel.removeSkipWord(it) },
-                onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
-                onRemovePronunciationRule = { viewModel.removePronunciationRule(it) },
                 onResetDefaults = { viewModel.resetSettingsToDefaults() },
                 onDismiss = { viewModel.dismissSettingsDialog() }
             )
@@ -458,6 +462,7 @@ private fun BrowserTopBar(
     onTabsBadgeClicked: () -> Unit,
     onLoopClicked: () -> Unit,
     onSaveFrozenHtmlClicked: () -> Unit,
+    onRawCodeClicked: () -> Unit,
     onNextChapterClicked: () -> Unit,
     onUrlChanged: (String) -> Unit,
     onUrlSubmitted: (String) -> Unit,
@@ -687,6 +692,18 @@ private fun BrowserTopBar(
                     modifier = Modifier.size(34.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = "Save Chapter HTML", modifier = Modifier.size(18.dp))
+                }
+
+                // Raw HTML Code Viewer (Monaco Editor)
+                IconButton(
+                    onClick = onRawCodeClicked,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Code,
+                        contentDescription = "View Raw HTML (Monaco Editor)",
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
 
                 // Next Chapter
@@ -1111,12 +1128,6 @@ private fun DownloadSetupDialog(
 @Composable
 private fun BrowserSettingsDialog(
     settings: WebBrowserSettings,
-    availableVoices: List<android.speech.tts.Voice>,
-    isVoiceTesting: Boolean,
-    onTestVoice: () -> Unit,
-    onUpdateVoice: (String?) -> Unit,
-    onUpdateRate: (Float) -> Unit,
-    onUpdatePitch: (Float) -> Unit,
     onToggleAutoReadNextChapter: (Boolean) -> Unit = {},
     onToggleTtsAutoScroll: (Boolean) -> Unit,
     onToggleTtsAutoStart: (Boolean) -> Unit,
@@ -1129,10 +1140,6 @@ private fun BrowserSettingsDialog(
     onAddIgnoredSelector: (String) -> Unit,
     onRemoveIgnoredSelector: (String) -> Unit,
     onResetIgnoredSelectors: () -> Unit,
-    onAddSkipWord: (String, Boolean) -> Unit,
-    onRemoveSkipWord: (Int) -> Unit,
-    onAddPronunciationRule: (String, String, Boolean) -> Unit,
-    onRemovePronunciationRule: (Int) -> Unit,
     onResetDefaults: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1143,18 +1150,6 @@ private fun BrowserSettingsDialog(
     // Ignored selector input
     var newIgnoredSelector by remember { mutableStateOf("") }
 
-    // Skip word input
-    var newSkipWord by remember { mutableStateOf("") }
-    var skipExactMatch by remember { mutableStateOf(false) }
-
-    // Pronunciation rule input
-    var ruleFrom by remember { mutableStateOf("") }
-    var ruleTo by remember { mutableStateOf("") }
-    var ruleExactMatch by remember { mutableStateOf(false) }
-
-    // Voice dropdown expanded
-    var voiceDropdownExpanded by remember { mutableStateOf(false) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1163,7 +1158,7 @@ private fun BrowserSettingsDialog(
             .padding(vertical = 16.dp),
         title = {
             Text(
-                "Browser & Reader Settings",
+                "Browser Settings",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
         },
@@ -1173,7 +1168,7 @@ private fun BrowserSettingsDialog(
                     .fillMaxWidth()
                     .heightIn(max = 520.dp)
             ) {
-                // Scrollable Tab Row with ample width
+                // Scrollable Tab Row
                 ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     edgePadding = 8.dp,
@@ -1187,17 +1182,12 @@ private fun BrowserSettingsDialog(
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("TTS Reader", fontSize = 13.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) }
+                        text = { Text("Reading", fontSize = 13.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
                         text = { Text("Filter (Ignored)", fontSize = 13.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) }
-                    )
-                    Tab(
-                        selected = selectedTab == 3,
-                        onClick = { selectedTab = 3 },
-                        text = { Text("Rules & Skips", fontSize = 13.sp, fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal) }
                     )
                 }
 
@@ -1299,114 +1289,7 @@ private fun BrowserSettingsDialog(
                         }
 
                         1 -> {
-                            // --- TTS READER TAB ---
-                            // Voice selection dropdown
-                            val currentVoiceName = settings.ttsVoice ?: "System Default"
-                            ExposedDropdownMenuBox(
-                                expanded = voiceDropdownExpanded,
-                                onExpandedChange = { voiceDropdownExpanded = !voiceDropdownExpanded }
-                            ) {
-                                OutlinedTextField(
-                                    value = currentVoiceName,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    label = { Text("TTS Voice") },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceDropdownExpanded) },
-                                    modifier = Modifier
-                                        .menuAnchor()
-                                        .fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = voiceDropdownExpanded,
-                                    onDismissRequest = { voiceDropdownExpanded = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("System Default") },
-                                        onClick = {
-                                            onUpdateVoice(null)
-                                            voiceDropdownExpanded = false
-                                        }
-                                    )
-                                    availableVoices.forEach { voice ->
-                                        DropdownMenuItem(
-                                            text = { Text("${voice.name} (${voice.locale})") },
-                                            onClick = {
-                                                onUpdateVoice(voice.name)
-                                                voiceDropdownExpanded = false
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Voice test button
-                            Button(
-                                onClick = onTestVoice,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isVoiceTesting) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = if (isVoiceTesting) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            ) {
-                                Icon(
-                                    if (isVoiceTesting) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (isVoiceTesting) "Stop Preview" else "Test Voice Preview")
-                            }
-
-                            HorizontalDivider()
-
-                            // Speech Rate
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Speech Rate", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("${String.format("%.2f", settings.ttsRate)}x", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                }
-                                Slider(
-                                    value = settings.ttsRate,
-                                    onValueChange = { onUpdateRate(it) },
-                                    valueRange = 0.5f..2.5f
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { r ->
-                                        FilterChip(
-                                            selected = (settings.ttsRate * 100).toInt() == (r * 100).toInt(),
-                                            onClick = { onUpdateRate(r) },
-                                            label = { Text("${r}x", fontSize = 11.sp) }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Speech Pitch
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Pitch", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("${String.format("%.2f", settings.ttsPitch)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                }
-                                Slider(
-                                    value = settings.ttsPitch,
-                                    onValueChange = { onUpdatePitch(it) },
-                                    valueRange = 0.5f..2.0f
-                                )
-                            }
-
-                            HorizontalDivider()
-
+                            // --- READING AUTOMATION TAB ---
                             // Auto-scroll switch
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1530,137 +1413,6 @@ private fun BrowserSettingsDialog(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("Reset to Default Ignored Elements")
-                            }
-                        }
-
-                        3 -> {
-                            // --- RULES & SKIPS TAB ---
-                            Text(
-                                text = "TTS Skip List",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "Words or sentences to completely skip during voice playback.",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedTextField(
-                                    value = newSkipWord,
-                                    onValueChange = { newSkipWord = it },
-                                    label = { Text("Skip word / phrase") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Button(
-                                    onClick = {
-                                        if (newSkipWord.isNotBlank()) {
-                                            onAddSkipWord(newSkipWord.trim(), skipExactMatch)
-                                            newSkipWord = ""
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("Add")
-                                }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = skipExactMatch, onCheckedChange = { skipExactMatch = it })
-                                Text("Exact word boundary match", fontSize = 12.sp)
-                            }
-
-                            // List of skip words
-                            settings.skipWords.forEachIndexed { index, skip ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("\"${skip.text}\" ${if (skip.exactMatch) "(exact)" else ""}", fontSize = 12.sp)
-                                    IconButton(
-                                        onClick = { onRemoveSkipWord(index) },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-
-                            HorizontalDivider()
-
-                            Text(
-                                text = "Pronunciation Replacements",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedTextField(
-                                    value = ruleFrom,
-                                    onValueChange = { ruleFrom = it },
-                                    label = { Text("From") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                OutlinedTextField(
-                                    value = ruleTo,
-                                    onValueChange = { ruleTo = it },
-                                    label = { Text("To") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Button(
-                                    onClick = {
-                                        if (ruleFrom.isNotBlank() && ruleTo.isNotBlank()) {
-                                            onAddPronunciationRule(ruleFrom.trim(), ruleTo.trim(), ruleExactMatch)
-                                            ruleFrom = ""
-                                            ruleTo = ""
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("Add")
-                                }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(checked = ruleExactMatch, onCheckedChange = { ruleExactMatch = it })
-                                Text("Exact word match", fontSize = 12.sp)
-                            }
-
-                            // List of pronunciation rules
-                            settings.pronunciationRules.forEachIndexed { index, rule ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("\"${rule.from}\" ➔ \"${rule.to}\" ${if (rule.exactMatch) "(exact)" else ""}", fontSize = 12.sp)
-                                    IconButton(
-                                        onClick = { onRemovePronunciationRule(index) },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                    }
-                                }
                             }
                         }
                     }

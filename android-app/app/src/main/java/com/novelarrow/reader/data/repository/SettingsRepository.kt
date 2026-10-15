@@ -4,6 +4,7 @@ import android.content.Context
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.SkipWord
+import com.novelarrow.reader.data.model.SkipRule
 import com.novelarrow.reader.data.model.ThemeMode
 import com.novelarrow.reader.data.model.WebBrowserSettings
 import android.os.Environment
@@ -27,7 +28,9 @@ data class SharedTtsSettings(
     val skipWords: List<SkipWord> = emptyList(),
     val skipWordsEnabled: Boolean = true,
     val pronunciationRules: List<PronunciationRule> = emptyList(),
-    val pronunciationRulesEnabled: Boolean = true
+    val pronunciationRulesEnabled: Boolean = true,
+    val headerSkipRules: List<SkipRule> = emptyList(),
+    val footerSkipRules: List<SkipRule> = emptyList()
 )
 
 @Serializable
@@ -90,7 +93,9 @@ class SettingsRepository(private val context: Context) {
             skipWords = shared.skipWords,
             skipWordsEnabled = shared.skipWordsEnabled,
             pronunciationRules = shared.pronunciationRules,
-            pronunciationRulesEnabled = shared.pronunciationRulesEnabled
+            pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
+            headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
+            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules
         )
         val mergedBrowser = loadedBrowser.copy(
             ttsRate = shared.speechRate,
@@ -332,6 +337,32 @@ class SettingsRepository(private val context: Context) {
         removeSkipWord(index)
     }
 
+    suspend fun addHeaderSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val filtered = it.headerSkipRules.filterNot { r -> r.text.equals(rule.text, ignoreCase = true) }
+            it.copy(headerSkipRules = filtered + rule)
+        }
+    }
+
+    suspend fun removeHeaderSkipRule(index: Int) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            it.copy(headerSkipRules = it.headerSkipRules.filterIndexed { i, _ -> i != index })
+        }
+    }
+
+    suspend fun addFooterSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val filtered = it.footerSkipRules.filterNot { r -> r.text.equals(rule.text, ignoreCase = true) }
+            it.copy(footerSkipRules = filtered + rule)
+        }
+    }
+
+    suspend fun removeFooterSkipRule(index: Int) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            it.copy(footerSkipRules = it.footerSkipRules.filterIndexed { i, _ -> i != index })
+        }
+    }
+
     // =========================================================================
     // Persistence
     // =========================================================================
@@ -400,7 +431,9 @@ class SettingsRepository(private val context: Context) {
             skipWords = mergedSkips,
             skipWordsEnabled = reader.skipWordsEnabled,
             pronunciationRules = mergedRules,
-            pronunciationRulesEnabled = reader.pronunciationRulesEnabled
+            pronunciationRulesEnabled = reader.pronunciationRulesEnabled,
+            headerSkipRules = reader.headerSkipRules,
+            footerSkipRules = reader.footerSkipRules
         )
         saveSharedTts(initial)
         return initial

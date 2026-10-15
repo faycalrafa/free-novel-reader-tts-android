@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.novelarrow.reader.data.model.isTextBased
+import com.novelarrow.reader.data.model.detectEditorLanguage
 
 class ChapterParserTest {
 
@@ -281,5 +283,95 @@ class ChapterParserTest {
         val skip = com.novelarrow.reader.data.model.SkipWord(text = "banana")
         assertTrue("PronunciationRule exactMatch must default to true", rule.exactMatch)
         assertTrue("SkipWord exactMatch must default to true", skip.exactMatch)
+    }
+
+    @Test
+    fun testHeaderSkipRules_exactMatchVsSubstring() {
+        val text = """
+            Unwanted site announcements
+            This has chapter preamble
+            Chapter 1 Starts Here
+            The sun rose over the hills.
+            A new day begins.
+        """.trimIndent()
+
+        val rulesExact = listOf(
+            com.novelarrow.reader.data.model.SkipRule(text = "Chapter", exactMatch = true)
+        )
+        val paragraphsExact = ChapterParser.parse(
+            content = text,
+            fileName = "chap.txt",
+            headerSkipRules = rulesExact
+        )
+        val textsExact = paragraphsExact.map { it.rawText }
+        assertTrue(textsExact[0].contains("chapter preamble"))
+
+        val rulesPhrase = listOf(
+            com.novelarrow.reader.data.model.SkipRule(text = "Chapter 1 Starts Here", exactMatch = false)
+        )
+        val paragraphsPhrase = ChapterParser.parse(
+            content = text,
+            fileName = "chap.txt",
+            headerSkipRules = rulesPhrase
+        )
+        val textsPhrase = paragraphsPhrase.map { it.rawText }
+        assertEquals(3, textsPhrase.size)
+        assertTrue(textsPhrase[0].contains("Chapter 1 Starts Here"))
+        assertTrue(textsPhrase[1].contains("The sun rose over the hills."))
+    }
+
+    @Test
+    fun testFooterSkipRules_cutsOffContent() {
+        val text = """
+            Chapter 10: The Finale.
+            They succeeded against all odds.
+            END OF CHAPTER
+            Please vote on WebNovel!
+            Comments section follows.
+        """.trimIndent()
+
+        val footerRules = listOf(
+            com.novelarrow.reader.data.model.SkipRule(text = "END OF CHAPTER", exactMatch = false)
+        )
+        val paragraphs = ChapterParser.parse(
+            content = text,
+            fileName = "chap10.txt",
+            footerSkipRules = footerRules
+        )
+        val texts = paragraphs.map { it.rawText }
+        assertEquals(2, texts.size)
+        assertTrue(texts[0].contains("Chapter 10: The Finale."))
+        assertTrue(texts[1].contains("They succeeded against all odds."))
+        assertFalse(texts.any { it.contains("END OF CHAPTER") })
+        assertFalse(texts.any { it.contains("vote on WebNovel") })
+    }
+
+    @Test
+    fun testChapterIsTextBased_distinguishesTextFromBinary() {
+        val htmlChapter = com.novelarrow.reader.data.model.Chapter(
+            id = "1", novelId = "n1", title = "Chapter 1", fileUri = "file:///storage/novel/chap1.html", orderIndex = 0
+        )
+        val txtChapter = com.novelarrow.reader.data.model.Chapter(
+            id = "2", novelId = "n1", title = "Chapter 2", fileUri = "file:///storage/novel/chap2.txt", orderIndex = 1
+        )
+        val mdChapter = com.novelarrow.reader.data.model.Chapter(
+            id = "3", novelId = "n1", title = "Chapter 3", fileUri = "file:///storage/novel/chap3.md", orderIndex = 2
+        )
+        val pdfChapter = com.novelarrow.reader.data.model.Chapter(
+            id = "4", novelId = "n1", title = "Book.pdf", fileUri = "file:///storage/novel/Book.pdf", orderIndex = 3
+        )
+        val epubChapter = com.novelarrow.reader.data.model.Chapter(
+            id = "5", novelId = "n1", title = "Novel.epub", fileUri = "file:///storage/novel/Novel.epub", orderIndex = 4
+        )
+
+        assertTrue(htmlChapter.isTextBased())
+        assertTrue(txtChapter.isTextBased())
+        assertTrue(mdChapter.isTextBased())
+        assertFalse(pdfChapter.isTextBased())
+        assertFalse(epubChapter.isTextBased())
+
+        assertEquals("html", htmlChapter.detectEditorLanguage())
+        assertEquals("plaintext", txtChapter.detectEditorLanguage())
+        assertEquals("markdown", mdChapter.detectEditorLanguage())
     }
 }

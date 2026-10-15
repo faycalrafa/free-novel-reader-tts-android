@@ -107,6 +107,10 @@ data class BrowserUiState(
     // Sleep Timer Dialog
     val showSleepTimerDialog: Boolean = false,
 
+    // Raw Code Editor Dialog
+    val showRawEditor: Boolean = false,
+    val rawHtmlContent: String? = null,
+
     // Last downloaded novel reference
     val lastDownloadedNovel: Novel? = null
 )
@@ -1299,6 +1303,58 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             settingsRepository.resetBrowserSettingsToDefaults()
         }
+    }
+
+    fun extractAndShowRawHtml() {
+        val settings = _uiState.value.settings
+        val selector = settings.contentSelector.trim()
+        val safeSelector = org.json.JSONObject.quote(selector)
+        val script = """
+            (function() {
+                try {
+                    var sel = $safeSelector;
+                    var el = sel ? document.querySelector(sel) : null;
+                    if (!el) {
+                        var candidates = ['article', '.chapter-content', '.entry-content', '#chapter-content', '#content', '.content', 'main', '.text-left', '#chapter-c'];
+                        for (var i = 0; i < candidates.length; i++) {
+                            var found = document.querySelector(candidates[i]);
+                            if (found && (found.innerText || '').length > 200) {
+                                el = found;
+                                break;
+                            }
+                        }
+                    }
+                    if (el) {
+                        return el.outerHTML;
+                    }
+                    return document.documentElement.outerHTML;
+                } catch(e) {
+                    return document.documentElement.outerHTML;
+                }
+            })()
+        """.trimIndent()
+
+        dispatchEvaluateJs(script) { result ->
+            val rawHtml = if (!result.isNullOrBlank() && result != "null") {
+                try {
+                    org.json.JSONTokener(result).nextValue().toString()
+                } catch (_: Exception) {
+                    result
+                }
+            } else {
+                "<html><body><p>No content detected</p></body></html>"
+            }
+            _uiState.update {
+                it.copy(
+                    rawHtmlContent = rawHtml,
+                    showRawEditor = true
+                )
+            }
+        }
+    }
+
+    fun dismissRawEditor() {
+        _uiState.update { it.copy(showRawEditor = false, rawHtmlContent = null) }
     }
 
     fun clearToast() {

@@ -69,6 +69,10 @@ import androidx.compose.ui.zIndex
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
 import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
+import com.novelarrow.reader.ui.common.MonacoCodeEditorDialog
+import com.novelarrow.reader.data.model.isTextBased
+import com.novelarrow.reader.data.model.detectEditorLanguage
+import androidx.compose.material.icons.filled.Code
 import com.novelarrow.reader.data.repository.ChapterSortPreset
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInNew
@@ -165,7 +169,6 @@ fun ReaderScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showSettingsDialog by remember { mutableStateOf(false) }
-    var showFilterDialog by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showUnifiedAudioSettings by remember { mutableStateOf(false) }
 
@@ -179,6 +182,7 @@ fun ReaderScreen(
                     "${novel.title} • $chapIdx/${uiState.chapters.size}"
                 } ?: "Ready to read",
                 isTtsDockVisible = uiState.isTtsDockVisible,
+                isTextChapter = uiState.currentChapter?.isTextBased() == true,
                 onMenuClick = onOpenDrawer,
                 onTtsToggleClick = {
                     val playbackProgress = AudioPlaybackCoordinator.playbackProgressState.value
@@ -187,7 +191,7 @@ fun ReaderScreen(
                     }
                     viewModel.toggleTtsDock()
                 },
-                onFilterClick = { showFilterDialog = true },
+                onRawCodeClick = { viewModel.openRawChapterEditor() },
                 onSettingsClick = { showSettingsDialog = true }
             )
         },
@@ -307,41 +311,29 @@ fun ReaderScreen(
         )
     }
 
+    if (uiState.showRawEditor && uiState.rawChapterContent != null) {
+        val chapter = uiState.currentChapter
+        MonacoCodeEditorDialog(
+            title = chapter?.title ?: "Raw Chapter Code",
+            initialContent = uiState.rawChapterContent ?: "",
+            language = chapter?.detectEditorLanguage() ?: "html",
+            onDismiss = { viewModel.dismissRawEditor() },
+            onSave = { newContent -> viewModel.saveRawChapterContent(newContent) }
+        )
+    }
+
     if (showSettingsDialog) {
         SettingsDialog(
             settings = uiState.settings,
-            voices = uiState.availableVoices,
             onDismiss = { showSettingsDialog = false },
             onThemeChange = { viewModel.updateTheme(it) },
             onFontSizeChange = { viewModel.updateFontSize(it) },
-            onSpeechRateChange = { viewModel.updateSpeechRate(it) },
-            onSpeechPitchChange = { viewModel.updateSpeechPitch(it) },
-            onVoiceChange = { viewModel.updateVoice(it) },
             onAutoScrollChange = { viewModel.updateAutoScroll(it) },
             onAutoNextChange = { viewModel.updateAutoNext(it) },
             onClearAllData = {
                 viewModel.clearAllData()
                 showSettingsDialog = false
             }
-        )
-    }
-
-    if (showFilterDialog) {
-        ContentFilterDialog(
-            settings = uiState.settings,
-            onDismiss = { showFilterDialog = false },
-            onHeaderSkipEnabledChange = { viewModel.updateHeaderSkipEnabled(it) },
-            onHeaderSkipStringChange = { viewModel.updateHeaderSkipString(it) },
-            onFooterSkipEnabledChange = { viewModel.updateFooterSkipEnabled(it) },
-            onFooterSkipStringChange = { viewModel.updateFooterSkipString(it) },
-            onContentSelectorEnabledChange = { viewModel.updateContentSelectorEnabled(it) },
-            onContentSelectorChange = { viewModel.updateContentSelector(it) },
-            onSkipWordsEnabledChange = { viewModel.updateSkipWordsEnabled(it) },
-            onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
-            onRemoveSkipWord = { viewModel.removeSkipWord(it) },
-            onPronunciationRulesEnabledChange = { viewModel.updatePronunciationRulesEnabled(it) },
-            onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
-            onRemovePronunciationRule = { viewModel.removePronunciationRule(it) }
         )
     }
 
@@ -367,10 +359,12 @@ fun ReaderScreen(
             pronunciationRules = uiState.settings.pronunciationRules,
             skipWordsEnabled = uiState.settings.skipWordsEnabled,
             skipWords = uiState.settings.skipWords,
-            headerSkipEnabled = uiState.settings.headerSkipEnabled,
-            headerSkipString = uiState.settings.headerSkipString,
-            footerSkipEnabled = uiState.settings.footerSkipEnabled,
-            footerSkipString = uiState.settings.footerSkipString,
+            headerSkipRulesEnabled = uiState.settings.headerSkipEnabled,
+            headerSkipRules = uiState.settings.headerSkipRules,
+            footerSkipRulesEnabled = uiState.settings.footerSkipEnabled,
+            footerSkipRules = uiState.settings.footerSkipRules,
+            contentSelectorEnabled = uiState.settings.contentSelectorEnabled,
+            contentSelector = uiState.settings.contentSelector,
             onSpeechRateChange = { viewModel.updateSpeechRate(it) },
             onSpeechPitchChange = { viewModel.updateSpeechPitch(it) },
             onVoiceChange = { viewModel.updateVoice(it) },
@@ -381,10 +375,14 @@ fun ReaderScreen(
             onSkipWordsEnabledChange = { viewModel.updateSkipWordsEnabled(it) },
             onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
             onRemoveSkipWord = { viewModel.removeSkipWord(it) },
-            onHeaderSkipEnabledChange = { viewModel.updateHeaderSkipEnabled(it) },
-            onHeaderSkipStringChange = { viewModel.updateHeaderSkipString(it) },
-            onFooterSkipEnabledChange = { viewModel.updateFooterSkipEnabled(it) },
-            onFooterSkipStringChange = { viewModel.updateFooterSkipString(it) },
+            onHeaderSkipRulesEnabledChange = { viewModel.updateHeaderSkipEnabled(it) },
+            onAddHeaderSkipRule = { text, exact -> viewModel.addHeaderSkipRule(text, exact) },
+            onRemoveHeaderSkipRule = { viewModel.removeHeaderSkipRule(it) },
+            onFooterSkipRulesEnabledChange = { viewModel.updateFooterSkipEnabled(it) },
+            onAddFooterSkipRule = { text, exact -> viewModel.addFooterSkipRule(text, exact) },
+            onRemoveFooterSkipRule = { viewModel.removeFooterSkipRule(it) },
+            onContentSelectorEnabledChange = { viewModel.updateContentSelectorEnabled(it) },
+            onContentSelectorChange = { viewModel.updateContentSelector(it) },
             onDismiss = { showUnifiedAudioSettings = false }
         )
     }
@@ -395,9 +393,10 @@ fun ReaderTopBar(
     title: String,
     subtitle: String,
     isTtsDockVisible: Boolean,
+    isTextChapter: Boolean,
     onMenuClick: () -> Unit,
     onTtsToggleClick: () -> Unit,
-    onFilterClick: () -> Unit,
+    onRawCodeClick: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
     Surface(
@@ -451,16 +450,18 @@ fun ReaderTopBar(
                     )
                 }
 
-                IconButton(
-                    onClick = onFilterClick,
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Tune,
-                        contentDescription = "Content Filters & Rules",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
+                if (isTextChapter) {
+                    IconButton(
+                        onClick = onRawCodeClick,
+                        modifier = Modifier.size(38.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Code,
+                            contentDescription = "Raw Code Editor (Monaco)",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
 
                 IconButton(
@@ -1591,19 +1592,13 @@ fun LibraryDrawerContent(
 @Composable
 fun SettingsDialog(
     settings: com.novelarrow.reader.data.model.ReaderSettings,
-    voices: List<android.speech.tts.Voice>,
     onDismiss: () -> Unit,
     onThemeChange: (ThemeMode) -> Unit,
     onFontSizeChange: (Float) -> Unit,
-    onSpeechRateChange: (Float) -> Unit,
-    onSpeechPitchChange: (Float) -> Unit,
-    onVoiceChange: (String?) -> Unit,
     onAutoScrollChange: (Boolean) -> Unit,
     onAutoNextChange: (Boolean) -> Unit,
     onClearAllData: () -> Unit
 ) {
-    var voiceExpanded by remember { mutableStateOf(false) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1654,112 +1649,6 @@ fun SettingsDialog(
                         steps = 15
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Speech Rate Slider (accounts for 0.5x, 0.75x, 1.0x, etc.)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Speech Speed: ${"%.2f".format(settings.speechRate)}x", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            text = if (settings.speechRate <= 0.52f) "0.5x (Half speed)" else if (settings.speechRate >= 1.98f) "2.0x (Double)" else "",
-                            style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    Slider(
-                        value = settings.speechRate,
-                        onValueChange = { newVal ->
-                            val stepped = (kotlin.math.round(newVal * 20f) / 20f).coerceIn(0.5f, 2.5f)
-                            onSpeechRateChange(stepped)
-                        },
-                        valueRange = 0.5f..2.5f,
-                        steps = 39
-                    )
-
-                    // Quick Speed Preset Chips (accounts for 0.5x directly)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { rate ->
-                            val isSelected = kotlin.math.abs(settings.speechRate - rate) < 0.03f
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { onSpeechRateChange(rate) }
-                            ) {
-                                Text(
-                                    text = "${rate}x",
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(vertical = 6.dp),
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Speech Pitch
-                    Text("Speech Pitch: ${"%.2f".format(settings.speechPitch)}x", style = MaterialTheme.typography.titleSmall)
-                    Slider(
-                        value = settings.speechPitch,
-                        onValueChange = onSpeechPitchChange,
-                        valueRange = 0.5f..1.5f,
-                        steps = 9
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Voice Picker Dropdown
-                    Text("Voice", style = MaterialTheme.typography.titleSmall)
-                    ExposedDropdownMenuBox(
-                        expanded = voiceExpanded,
-                        onExpandedChange = { voiceExpanded = !voiceExpanded }
-                    ) {
-                        OutlinedTextField(
-                            value = settings.selectedVoiceName ?: "Default Device Voice",
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = voiceExpanded,
-                            onDismissRequest = { voiceExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Default Device Voice") },
-                                onClick = {
-                                    onVoiceChange(null)
-                                    voiceExpanded = false
-                                }
-                            )
-                            voices.forEach { voice ->
-                                DropdownMenuItem(
-                                    text = { Text("${voice.name} (${voice.locale.displayName})") },
-                                    onClick = {
-                                        onVoiceChange(voice.name)
-                                        voiceExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Auto-scroll toggle
@@ -1799,426 +1688,6 @@ fun SettingsDialog(
                         Icon(Icons.Default.Delete, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Clear All Library & Progress")
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
-            }
-        }
-    )
-}
-
-@Composable
-fun ContentFilterDialog(
-    settings: com.novelarrow.reader.data.model.ReaderSettings,
-    onDismiss: () -> Unit,
-    onHeaderSkipEnabledChange: (Boolean) -> Unit,
-    onHeaderSkipStringChange: (String) -> Unit,
-    onFooterSkipEnabledChange: (Boolean) -> Unit,
-    onFooterSkipStringChange: (String) -> Unit,
-    onContentSelectorEnabledChange: (Boolean) -> Unit,
-    onContentSelectorChange: (String) -> Unit,
-    onSkipWordsEnabledChange: (Boolean) -> Unit,
-    onAddSkipWord: (String, Boolean) -> Unit,
-    onRemoveSkipWord: (Int) -> Unit,
-    onPronunciationRulesEnabledChange: (Boolean) -> Unit,
-    onAddPronunciationRule: (String, String, Boolean) -> Unit,
-    onRemovePronunciationRule: (Int) -> Unit
-) {
-    var newSkipWordText by remember { mutableStateOf("") }
-    var skipWordExactMatch by remember { mutableStateOf(true) }
-
-    var newRuleFrom by remember { mutableStateOf("") }
-    var newRuleTo by remember { mutableStateOf("") }
-    var ruleExactMatch by remember { mutableStateOf(true) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 24.dp),
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Content & Parsing Filters")
-            }
-        },
-        text = {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // 1. Auto Skip Header
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Auto Skip Header", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                    Text("Starts reading at first matching keyword", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                                }
-                                Switch(
-                                    checked = settings.headerSkipEnabled,
-                                    onCheckedChange = onHeaderSkipEnabledChange
-                                )
-                            }
-                            if (settings.headerSkipEnabled) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = settings.headerSkipString,
-                                    onValueChange = onHeaderSkipStringChange,
-                                    label = { Text("Header Keywords (comma or newline)") },
-                                    placeholder = { Text("e.g. Chapter 1, Prologue, START") },
-                                    supportingText = { Text("Multiple keywords supported. Skips text before any match.", fontSize = 10.sp) },
-                                    minLines = 2,
-                                    maxLines = 4,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 2. Auto Skip Footer
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Auto Skip Footer", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                    Text("Stops reading before first matching keyword", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                                }
-                                Switch(
-                                    checked = settings.footerSkipEnabled,
-                                    onCheckedChange = onFooterSkipEnabledChange
-                                )
-                            }
-                            if (settings.footerSkipEnabled) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = settings.footerSkipString,
-                                    onValueChange = onFooterSkipStringChange,
-                                    label = { Text("Footer Keywords (comma or newline)") },
-                                    placeholder = { Text("e.g. Next Chapter, Comments, Patreon") },
-                                    supportingText = { Text("Multiple keywords supported. Cuts off text at any match.", fontSize = 10.sp) },
-                                    minLines = 2,
-                                    maxLines = 4,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 3. HTML Content Selector
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("HTML Content Selector", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                    Text("Target specific main story element", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                                }
-                                Switch(
-                                    checked = settings.contentSelectorEnabled,
-                                    onCheckedChange = onContentSelectorEnabledChange
-                                )
-                            }
-                            if (settings.contentSelectorEnabled) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = settings.contentSelector,
-                                    onValueChange = onContentSelectorChange,
-                                    label = { Text("CSS Selector") },
-                                    placeholder = { Text("e.g. #content, .chapter-text, article") },
-                                    supportingText = { Text("Leave empty for automatic body detection.", fontSize = 10.sp) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 4. Auto Skip Words
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Auto Skip Words", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                    Text("Silences specific words or profanities", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                                }
-                                Switch(
-                                    checked = settings.skipWordsEnabled,
-                                    onCheckedChange = onSkipWordsEnabledChange
-                                )
-                            }
-
-                            if (settings.skipWordsEnabled) {
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Existing skip words list
-                                if (settings.skipWords.isNotEmpty()) {
-                                    Text("Active Skip Words:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        settings.skipWords.forEachIndexed { idx, skip ->
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.surface,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(skip.text, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Surface(
-                                                            shape = RoundedCornerShape(4.dp),
-                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                                        ) {
-                                                            Text(
-                                                                if (skip.exactMatch) "Whole word" else "Any substring",
-                                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                    IconButton(
-                                                        onClick = { onRemoveSkipWord(idx) },
-                                                        modifier = Modifier.size(28.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Close, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                }
-
-                                // Add new skip word
-                                OutlinedTextField(
-                                    value = newSkipWordText,
-                                    onValueChange = { newSkipWordText = it },
-                                    label = { Text("Word to skip") },
-                                    placeholder = { Text("e.g. watermark, badword") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Switch(
-                                            checked = skipWordExactMatch,
-                                            onCheckedChange = { skipWordExactMatch = it },
-                                            modifier = Modifier.scale(0.8f)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = if (skipWordExactMatch) "Whole word" else "Substring",
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            if (newSkipWordText.isNotBlank()) {
-                                                onAddSkipWord(newSkipWordText.trim(), skipWordExactMatch)
-                                                newSkipWordText = ""
-                                            }
-                                        },
-                                        enabled = newSkipWordText.isNotBlank(),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Add")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 5. Pronunciation Correction
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Pronunciation Correction", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
-                                    Text("Replace words with phonetic spelling", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                                }
-                                Switch(
-                                    checked = settings.pronunciationRulesEnabled,
-                                    onCheckedChange = onPronunciationRulesEnabledChange
-                                )
-                            }
-
-                            if (settings.pronunciationRulesEnabled) {
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Existing pronunciation rules list
-                                if (settings.pronunciationRules.isNotEmpty()) {
-                                    Text("Active Rules:", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        settings.pronunciationRules.forEachIndexed { idx, rule ->
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.surface,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text("${rule.from} ➔ ${rule.to}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Surface(
-                                                            shape = RoundedCornerShape(4.dp),
-                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                                        ) {
-                                                            Text(
-                                                                if (rule.exactMatch) "Whole word" else "Any substring",
-                                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                    IconButton(
-                                                        onClick = { onRemovePronunciationRule(idx) },
-                                                        modifier = Modifier.size(28.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Close, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                }
-
-                                // Add new rule form
-                                OutlinedTextField(
-                                    value = newRuleFrom,
-                                    onValueChange = { newRuleFrom = it },
-                                    label = { Text("Word to replace") },
-                                    placeholder = { Text("e.g. read, Xiao, Qi") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                OutlinedTextField(
-                                    value = newRuleTo,
-                                    onValueChange = { newRuleTo = it },
-                                    label = { Text("Pronounce as / replace with") },
-                                    placeholder = { Text("e.g. reed, Shao, Chee") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Switch(
-                                            checked = ruleExactMatch,
-                                            onCheckedChange = { ruleExactMatch = it },
-                                            modifier = Modifier.scale(0.8f)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = if (ruleExactMatch) "Whole word" else "Substring",
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            if (newRuleFrom.isNotBlank() && newRuleTo.isNotBlank()) {
-                                                onAddPronunciationRule(newRuleFrom.trim(), newRuleTo.trim(), ruleExactMatch)
-                                                newRuleFrom = ""
-                                                newRuleTo = ""
-                                            }
-                                        },
-                                        enabled = newRuleFrom.isNotBlank() && newRuleTo.isNotBlank(),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Add Rule")
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }

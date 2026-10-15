@@ -61,7 +61,9 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.1.1"
+    val installedVersionName: String = "2.1.2",
+    val showRawEditor: Boolean = false,
+    val rawChapterContent: String? = null
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -79,6 +81,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         AudioPlaybackCoordinator.initialize(application)
         observeSettings()
         observePlaybackService()
+        checkAndImportDefaultDownloadFolderOnFirstLaunch()
         loadInitialLibrary()
         val installedVer = AppUpdateManager.getInstalledVersionName(application)
         _uiState.update { it.copy(installedVersionName = installedVer) }
@@ -241,6 +244,92 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update { it.copy(novels = novels) }
             if (target != null) {
                 selectNovel(target)
+            }
+        }
+    }
+
+    private fun checkAndImportDefaultDownloadFolderOnFirstLaunch() {
+        val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
+        val alreadyChecked = prefs.getBoolean("has_checked_default_novelreader_folder", false)
+        if (alreadyChecked) return
+
+        prefs.edit().putBoolean("has_checked_default_novelreader_folder", true).apply()
+
+        val candidateDirs = listOfNotNull(
+            File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "NovelReader"),
+            File("/storage/emulated/0/Download/NovelReader"),
+            File("/storage/emulated/0/Downloads/NovelReader"),
+            File("/sdcard/Download/NovelReader"),
+            File(android.os.Environment.getExternalStorageDirectory(), "NovelReader"),
+            File("/storage/emulated/0/NovelReader"),
+            File("/sdcard/NovelReader"),
+            getApplication<Application>().getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)?.let { File(it, "NovelReader") },
+            File(getApplication<Application>().filesDir, "NovelReader")
+        )
+
+        for (dir in candidateDirs) {
+            if (dir.exists() && dir.isDirectory) {
+                val hasChapters = hasAnySupportedChapters(dir)
+                if (hasChapters) {
+                    scanRootFolder(Uri.fromFile(dir))
+                    return
+                }
+            }
+        }
+    }
+
+    private fun hasAnySupportedChapters(dir: File): Boolean {
+        return try {
+            val files = dir.listFiles() ?: return false
+            files.any { file ->
+                if (file.isDirectory) {
+                    val subFiles = file.listFiles() ?: emptyArray()
+                    subFiles.any { it.isFile && libraryRepository.isSupported(it.name) }
+                } else {
+                    file.isFile && libraryRepository.isSupported(file.name)
+                }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun openRawChapterEditor() {
+        val chapter = _uiState.value.currentChapter ?: return
+        viewModelScope.launch {
+            try {
+                val content = libraryRepository.readChapterContent(chapter)
+                _uiState.update {
+                    it.copy(
+                        rawChapterContent = content,
+                        showRawEditor = true
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(toastMessage = "Error loading raw chapter: ${e.message}") }
+            }
+        }
+    }
+
+    fun dismissRawEditor() {
+        _uiState.update { it.copy(showRawEditor = false, rawChapterContent = null) }
+    }
+
+    fun saveRawChapterContent(newContent: String) {
+        val chapter = _uiState.value.currentChapter ?: return
+        viewModelScope.launch {
+            val success = libraryRepository.saveChapterContent(chapter, newContent)
+            if (success) {
+                _uiState.update {
+                    it.copy(
+                        toastMessage = "Saved chapter changes successfully",
+                        showRawEditor = false,
+                        rawChapterContent = null
+                    )
+                }
+                loadChapterContent(chapter, restoreProgress = true)
+            } else {
+                _uiState.update { it.copy(toastMessage = "Failed to save chapter content") }
             }
         }
     }
@@ -424,7 +513,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     headerSkipString = settings.headerSkipString,
                     headerSkipEnabled = settings.headerSkipEnabled,
                     footerSkipString = settings.footerSkipString,
-                    footerSkipEnabled = settings.footerSkipEnabled
+                    footerSkipEnabled = settings.footerSkipEnabled,
+                    headerSkipRules = settings.headerSkipRules,
+                    footerSkipRules = settings.footerSkipRules
                 )
             }
 
@@ -974,6 +1065,34 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun removePronunciationRule(index: Int) {
         viewModelScope.launch {
             settingsRepository.removePronunciationRule(index)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addHeaderSkipRule(text: String, exact: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.addHeaderSkipRule(com.novelarrow.reader.data.model.SkipRule(text = text, exactMatch = exact))
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun removeHeaderSkipRule(index: Int) {
+        viewModelScope.launch {
+            settingsRepository.removeHeaderSkipRule(index)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addFooterSkipRule(text: String, exact: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.addFooterSkipRule(com.novelarrow.reader.data.model.SkipRule(text = text, exactMatch = exact))
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun removeFooterSkipRule(index: Int) {
+        viewModelScope.launch {
+            settingsRepository.removeFooterSkipRule(index)
             _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
         }
     }

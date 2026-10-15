@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.1.1"
+          DATE_TAG="v2.1.2"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.1.1"
-        run: ./gradlew assembleRelease -PappVersionName=2.1.1 --no-daemon
+          APP_VERSION_NAME: "2.1.2"
+        run: ./gradlew assembleRelease -PappVersionName=2.1.2 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,22 +53,23 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.1.1 (Unstable)
+          name: NovelArrow Reader v2.1.2 (Unstable)
           prerelease: true
           body: |
-            ### NovelArrow Reader v2.1.1 (Unstable) 📖⚡
+            ### NovelArrow Reader v2.1.2 (Unstable) 📖⚡
 
-            **NovelArrow Reader v2.1.1 (Unstable)** brings persistent notification toolbar media controls, zero-latency instantaneous progress synchronization, chapter list navigation on folder tap, automatic library loading from the default Download `novelreader` folder, full user preference backup and restoration across reinstalls, and custom path selection for saving `update-latest.apk`.
+            **NovelArrow Reader v2.1.2 (Unstable)** integrates a powerful Monaco Code Editor for text chapters and browser inspection with search, match-replace, and beautifying; restricts raw viewing exclusively to text formats; auto-scans `/NovelReader` on first launch; deduplicates TTS settings into the unified control panel; adds on-the-fly notification CSS selector controls; and turns auto-skip header/footer into customizable rule lists.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Features in this release:
-            - **Persistent Notification Media Toolbar**: Ongoing playback notification bar with Previous, Play/Pause, and Forward controls that resumes exactly where your listening session was paused.
-            - **Instant Progress Synchronization**: Completely eliminates sidebar/reader lag when scrubbing or jumping between chapters (e.g. jumping to chapter 60 immediately updates the library sidebar without delay).
-            - **Folder Tap Chapter Browsing**: Clicking a folder/novel in the library drawer switches directly to the Chapters tab to view the chapter list first instead of jumping straight into reading.
-            - **Auto-Load Default Download Folder**: Automatically scans and loads novels from `novelreader` (or `NovelReader`) inside the default download directories on app launch (even on first install).
-            - **Reinstall Preference Backup & Restore**: Automatically saves user parameters (dark mode, TTS speed, pitch, voice, font size, skip words, pronunciation rules, browser settings) into hidden `.novelreader_preferences.json` in the root of the `novelreader` folder to restore all settings on reinstallation.
-            - **Save `update-latest.apk` to Custom Path**: Option in update dialogs and About screen to choose any destination folder or storage location to save `update-latest.apk` using the Android system file picker.
+            - **Monaco Code Editor for Raw Format**: Built-in WebView Monaco Editor with syntax color coding, HTML formatting/beautifying, Find Search, and Match & Replace for reading or editing chapter source code directly.
+            - **Text-Only Raw Format Scope**: Raw editor access is strictly limited to text-based chapters (HTML, TXT, MD, JSON, XML) and hidden for binary formats (PDF, EPUB).
+            - **Browser Raw HTML Inspection**: Dedicated Code button in the browser top bar allows instant inspection and beautification of the current webpage's DOM.
+            - **First-Launch Default Folder Auto-Scan**: Automatically detects `/NovelReader` (or `novelreader`) download directories on first launch and sets the root library folder without requiring manual configuration.
+            - **Consolidated Unified TTS Controls**: Stripped redundant speed, pitch, voice picker, and filter controls from reader and browser dialogs, keeping all audio preferences exclusively in the bottom dock control panel.
+            - **Notification CSS Content Selector**: Foreground notification action allows editing the HTML content selector on the fly without leaving audio playback.
+            - **Configurable Header & Footer Skip Lists**: Auto-skip headers and footers are now configured as editable rule lists with exact-match word boundary toggles.
             - Automated Unstable Release APK build from branch `${{ github.ref_name }}` (`${{ github.sha }}`).
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**

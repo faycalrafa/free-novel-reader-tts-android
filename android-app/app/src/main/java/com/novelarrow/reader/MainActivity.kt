@@ -1,11 +1,27 @@
 package com.novelarrow.reader
 
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -19,6 +35,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,6 +66,8 @@ enum class AppScreen {
 }
 
 class MainActivity : ComponentActivity() {
+    private val openCssSelectorEvent = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -59,6 +78,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        checkCssSelectorIntent(intent)
+
         setContent {
             val viewModel: ReaderViewModel = viewModel()
             val browserViewModel: BrowserViewModel = viewModel()
@@ -68,6 +89,16 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
             val scope = rememberCoroutineScope()
+
+            val shouldOpenCssSelector by openCssSelectorEvent
+            var showCssSelectorDialog by remember { mutableStateOf(false) }
+
+            LaunchedEffect(shouldOpenCssSelector) {
+                if (shouldOpenCssSelector) {
+                    showCssSelectorDialog = true
+                    openCssSelectorEvent.value = false
+                }
+            }
 
             BackHandler(enabled = drawerState.isOpen) {
                 scope.launch { drawerState.close() }
@@ -236,9 +267,114 @@ class MainActivity : ComponentActivity() {
                                 onCancel = { viewModel.cancelUpdateDownload() }
                             )
                         }
+
+                        if (showCssSelectorDialog) {
+                            NotificationCssSelectorDialog(
+                                initialSelector = uiState.settings.contentSelector,
+                                isEnabled = uiState.settings.contentSelectorEnabled,
+                                onSave = { selector, enabled ->
+                                    viewModel.updateContentSelector(selector)
+                                    viewModel.updateContentSelectorEnabled(enabled)
+                                    browserViewModel.updateContentSelector(selector)
+                                    Toast.makeText(context, "CSS content selector updated", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = { showCssSelectorDialog = false }
+                            )
+                        }
                     }
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        checkCssSelectorIntent(intent)
+    }
+
+    private fun checkCssSelectorIntent(intent: Intent?) {
+        if (intent?.action == NovelAudioPlaybackService.ACTION_EDIT_CSS_SELECTOR ||
+            intent?.getBooleanExtra(NovelAudioPlaybackService.EXTRA_OPEN_CSS_SELECTOR, false) == true) {
+            openCssSelectorEvent.value = true
+        }
+    }
+}
+
+@Composable
+private fun NotificationCssSelectorDialog(
+    initialSelector: String,
+    isEnabled: Boolean,
+    onSave: (selector: String, enabled: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectorText by remember { mutableStateOf(initialSelector) }
+    var enabled by remember { mutableStateOf(isEnabled) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
+        title = {
+            Text("HTML Content Selector", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Target specific main content container on web pages (e.g., article, #chapter-content, .entry-content). Leave empty for auto-detection.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Enable Content Selector", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                    Switch(checked = enabled, onCheckedChange = { enabled = it })
+                }
+
+                OutlinedTextField(
+                    value = selectorText,
+                    onValueChange = { selectorText = it },
+                    label = { Text("CSS Selector") },
+                    placeholder = { Text("e.g. #chapter-content, article") },
+                    singleLine = true,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Text("Common Presets:", style = MaterialTheme.typography.labelSmall)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf("#chapter-content", ".chapter-content", "article", ".entry-content").forEach { preset ->
+                        FilterChip(
+                            selected = selectorText == preset,
+                            onClick = { selectorText = preset },
+                            label = { Text(preset, fontSize = 11.sp) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(selectorText.trim(), enabled)
+                    onDismiss()
+                },
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

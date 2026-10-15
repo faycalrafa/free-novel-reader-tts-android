@@ -3,6 +3,7 @@ package com.novelarrow.reader.data.parser
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.SkipWord
+import com.novelarrow.reader.data.model.SkipRule
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.util.regex.Pattern
@@ -65,13 +66,17 @@ object ChapterParser {
         headerSkipString: String = "",
         headerSkipEnabled: Boolean = true,
         footerSkipString: String = "",
-        footerSkipEnabled: Boolean = true
+        footerSkipEnabled: Boolean = true,
+        headerSkipRules: List<SkipRule> = emptyList(),
+        footerSkipRules: List<SkipRule> = emptyList()
     ): List<Paragraph> {
         val effectiveSelector = if (contentSelectorEnabled) contentSelector else ""
         val effectiveRules = if (pronunciationRulesEnabled) pronunciationRules else emptyList()
         val effectiveSkips = if (skipWordsEnabled) skipWords else emptyList()
         val effectiveHeader = if (headerSkipEnabled) headerSkipString else ""
         val effectiveFooter = if (footerSkipEnabled) footerSkipString else ""
+        val effectiveHeaderRules = if (headerSkipEnabled) headerSkipRules else emptyList()
+        val effectiveFooterRules = if (footerSkipEnabled) footerSkipRules else emptyList()
 
         val isHtml = fileName.endsWith(".html", ignoreCase = true) ||
                 fileName.endsWith(".htm", ignoreCase = true) ||
@@ -86,7 +91,13 @@ object ChapterParser {
         }
 
         val filteredParagraphs = rawParagraphs.filterNot { (text, _) -> isNonContentText(text) }
-        val scopedParagraphs = applyHeaderAndFooterSkip(filteredParagraphs, effectiveHeader, effectiveFooter)
+        val scopedParagraphs = applyHeaderAndFooterSkip(
+            filteredParagraphs,
+            effectiveHeader,
+            effectiveFooter,
+            effectiveHeaderRules,
+            effectiveFooterRules
+        )
 
         val result = mutableListOf<Paragraph>()
         var counter = 0
@@ -129,91 +140,115 @@ object ChapterParser {
 
     fun applyHeaderAndFooterSkip(
         rawParagraphs: List<Pair<String, Boolean>>,
-        headerSkipString: String,
-        footerSkipString: String
+        headerSkipString: String = "",
+        footerSkipString: String = "",
+        headerSkipRules: List<SkipRule> = emptyList(),
+        footerSkipRules: List<SkipRule> = emptyList()
     ): List<Pair<String, Boolean>> {
         var workingList = rawParagraphs
 
-        // Apply header skip: look for any headerSkip keyword and start from the earliest match
-        if (headerSkipString.isNotBlank()) {
-            val keywords = headerSkipString.split('\n', ',')
+        val activeHeaderRules: List<SkipRule> = if (headerSkipRules.isNotEmpty()) {
+            headerSkipRules
+        } else if (headerSkipString.isNotBlank()) {
+            headerSkipString.split('\n', ',')
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
+                .map { SkipRule(it, exactMatch = false) }
+        } else {
+            emptyList()
+        }
 
-            if (keywords.isNotEmpty()) {
-                var matchIndex = -1
-                var bestSubIndex = -1
-                for ((idx, pair) in workingList.withIndex()) {
-                    val (text, _) = pair
-                    var minSub = -1
-                    for (kw in keywords) {
-                        val sub = text.indexOf(kw, ignoreCase = true)
-                        if (sub != -1 && (minSub == -1 || sub < minSub)) {
-                            minSub = sub
-                        }
+        // Apply header skip: look for any headerSkip rule and start from the earliest match
+        if (activeHeaderRules.isNotEmpty()) {
+            var matchIndex = -1
+            var bestSubIndex = -1
+            for ((idx, pair) in workingList.withIndex()) {
+                val (text, _) = pair
+                var minSub = -1
+                for (rule in activeHeaderRules) {
+                    val sub = if (rule.exactMatch) {
+                        val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
+                        val matcher = pattern.matcher(text)
+                        if (matcher.find()) matcher.start() else -1
+                    } else {
+                        text.indexOf(rule.text, ignoreCase = true)
                     }
-                    if (minSub != -1) {
-                        matchIndex = idx
-                        bestSubIndex = minSub
-                        break
+                    if (sub != -1 && (minSub == -1 || sub < minSub)) {
+                        minSub = sub
                     }
                 }
+                if (minSub != -1) {
+                    matchIndex = idx
+                    bestSubIndex = minSub
+                    break
+                }
+            }
 
-                if (matchIndex != -1) {
-                    val (matchText, isHeading) = workingList[matchIndex]
-                    val trimmedFirst = if (bestSubIndex > 0) {
-                        matchText.substring(bestSubIndex).trim()
-                    } else {
-                        matchText
-                    }
-                    val remainder = workingList.subList(matchIndex + 1, workingList.size)
-                    workingList = if (trimmedFirst.length >= 2) {
-                        listOf(trimmedFirst to isHeading) + remainder
-                    } else {
-                        remainder
-                    }
+            if (matchIndex != -1) {
+                val (matchText, isHeading) = workingList[matchIndex]
+                val trimmedFirst = if (bestSubIndex > 0) {
+                    matchText.substring(bestSubIndex).trim()
+                } else {
+                    matchText
+                }
+                val remainder = workingList.subList(matchIndex + 1, workingList.size)
+                workingList = if (trimmedFirst.length >= 2) {
+                    listOf(trimmedFirst to isHeading) + remainder
+                } else {
+                    remainder
                 }
             }
         }
 
-        // Apply footer skip: look for any footerSkip keyword and end where it is found
-        if (footerSkipString.isNotBlank()) {
-            val keywords = footerSkipString.split('\n', ',')
+        val activeFooterRules: List<SkipRule> = if (footerSkipRules.isNotEmpty()) {
+            footerSkipRules
+        } else if (footerSkipString.isNotBlank()) {
+            footerSkipString.split('\n', ',')
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
+                .map { SkipRule(it, exactMatch = false) }
+        } else {
+            emptyList()
+        }
 
-            if (keywords.isNotEmpty()) {
-                var matchIndex = -1
-                var bestSubIndex = -1
-                for ((idx, pair) in workingList.withIndex()) {
-                    val (text, _) = pair
-                    var minSub = -1
-                    for (kw in keywords) {
-                        val sub = text.indexOf(kw, ignoreCase = true)
-                        if (sub != -1 && (minSub == -1 || sub < minSub)) {
-                            minSub = sub
-                        }
+        // Apply footer skip: look for any footerSkip rule and end where it is found
+        if (activeFooterRules.isNotEmpty()) {
+            var matchIndex = -1
+            var bestSubIndex = -1
+            for ((idx, pair) in workingList.withIndex()) {
+                val (text, _) = pair
+                var minSub = -1
+                for (rule in activeFooterRules) {
+                    val sub = if (rule.exactMatch) {
+                        val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
+                        val matcher = pattern.matcher(text)
+                        if (matcher.find()) matcher.start() else -1
+                    } else {
+                        text.indexOf(rule.text, ignoreCase = true)
                     }
-                    if (minSub != -1) {
-                        matchIndex = idx
-                        bestSubIndex = minSub
-                        break
+                    if (sub != -1 && (minSub == -1 || sub < minSub)) {
+                        minSub = sub
                     }
                 }
+                if (minSub != -1) {
+                    matchIndex = idx
+                    bestSubIndex = minSub
+                    break
+                }
+            }
 
-                if (matchIndex != -1) {
-                    val (matchText, isHeading) = workingList[matchIndex]
-                    val trimmedLast = if (bestSubIndex >= 0) {
-                        matchText.substring(0, bestSubIndex).trim()
-                    } else {
-                        matchText
-                    }
-                    val prefix = workingList.subList(0, matchIndex)
-                    workingList = if (trimmedLast.length >= 2) {
-                        prefix + listOf(trimmedLast to isHeading)
-                    } else {
-                        prefix
-                    }
+            if (matchIndex != -1) {
+                val (matchText, isHeading) = workingList[matchIndex]
+                val trimmedLast = if (bestSubIndex >= 0) {
+                    matchText.substring(0, bestSubIndex).trim()
+                } else {
+                    matchText
+                }
+                val prefix = workingList.subList(0, matchIndex)
+                workingList = if (trimmedLast.length >= 2) {
+                    prefix + listOf(trimmedLast to isHeading)
+                } else {
+                    prefix
                 }
             }
         }

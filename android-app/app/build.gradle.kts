@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("2.1.1")
+        .getOrElse("2.1.2")
 
     defaultConfig {
         applicationId = "com.novelarrow.reader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
+        versionCode = 6
         versionName = appVersionName
     }
 

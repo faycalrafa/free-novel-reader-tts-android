@@ -376,7 +376,9 @@ object AudioPlaybackCoordinator {
                 headerSkipString = settings.headerSkipString,
                 headerSkipEnabled = settings.headerSkipEnabled,
                 footerSkipString = settings.footerSkipString,
-                footerSkipEnabled = settings.footerSkipEnabled
+                footerSkipEnabled = settings.footerSkipEnabled,
+                headerSkipRules = settings.headerSkipRules,
+                footerSkipRules = settings.footerSkipRules
             )
 
             val paraIdx = chap.lastReadParagraphIndex.coerceIn(0, (parsed.size - 1).coerceAtLeast(0))
@@ -459,7 +461,9 @@ object AudioPlaybackCoordinator {
                             headerSkipString = settings.headerSkipString,
                             headerSkipEnabled = settings.headerSkipEnabled,
                             footerSkipString = settings.footerSkipString,
-                            footerSkipEnabled = settings.footerSkipEnabled
+                            footerSkipEnabled = settings.footerSkipEnabled,
+                            headerSkipRules = settings.headerSkipRules,
+                            footerSkipRules = settings.footerSkipRules
                         )
                         withContext(Dispatchers.Main) {
                             currentParagraphs = parsed
@@ -741,7 +745,9 @@ object AudioPlaybackCoordinator {
                     headerSkipString = settings.headerSkipString,
                     headerSkipEnabled = settings.headerSkipEnabled,
                     footerSkipString = settings.footerSkipString,
-                    footerSkipEnabled = settings.footerSkipEnabled
+                    footerSkipEnabled = settings.footerSkipEnabled,
+                    headerSkipRules = settings.headerSkipRules,
+                    footerSkipRules = settings.footerSkipRules
                 )
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->
@@ -790,7 +796,9 @@ object AudioPlaybackCoordinator {
                     headerSkipString = settings.headerSkipString,
                     headerSkipEnabled = settings.headerSkipEnabled,
                     footerSkipString = settings.footerSkipString,
-                    footerSkipEnabled = settings.footerSkipEnabled
+                    footerSkipEnabled = settings.footerSkipEnabled,
+                    headerSkipRules = settings.headerSkipRules,
+                    footerSkipRules = settings.footerSkipRules
                 )
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->

@@ -1342,6 +1342,32 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
+    suspend fun saveChapterContent(chapter: Chapter, newContent: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val fileUriStr = chapter.fileUri
+            val localFile = File(fileUriStr)
+            if (localFile.exists() && localFile.isFile) {
+                localFile.writeText(newContent, Charsets.UTF_8)
+                return@withContext true
+            }
+            val uri = Uri.parse(fileUriStr)
+            if (uri.scheme == "file") {
+                File(uri.path ?: "").writeText(newContent, Charsets.UTF_8)
+                return@withContext true
+            }
+            context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
+                stream.bufferedWriter(Charsets.UTF_8).use { writer ->
+                    writer.write(newContent)
+                }
+                return@withContext true
+            }
+            false
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     suspend fun updateChapterProgress(
         novelId: String,
         chapterIndex: Int,
@@ -1524,7 +1550,7 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
-    private fun isSupported(fileName: String?): Boolean {
+    fun isSupported(fileName: String?): Boolean {
         if (fileName == null || fileName.startsWith(".")) return false
         val ext = fileName.substringAfterLast('.', "").lowercase()
         return ext in supportedExtensions

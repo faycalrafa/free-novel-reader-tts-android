@@ -29,6 +29,27 @@ data class Chapter(
     val webSourceUrl: String? = null
 )
 
+fun Chapter.isTextBased(): Boolean {
+    val uri = fileUri.lowercase()
+    val t = title.lowercase()
+    val nonText = listOf(".pdf", ".epub", ".mobi", ".azw", ".cbz", ".cbr", ".zip", ".rar")
+    if (nonText.any { uri.endsWith(it) || t.endsWith(it) }) return false
+    val textExts = listOf(".html", ".htm", ".xhtml", ".mhtml", ".txt", ".text", ".md", ".markdown", ".xml", ".json", ".csv", ".log", ".rtf")
+    return textExts.any { uri.endsWith(it) || t.endsWith(it) } || (!uri.contains(".") && !t.contains("."))
+}
+
+fun Chapter.detectEditorLanguage(): String {
+    val uri = fileUri.lowercase()
+    val t = title.lowercase()
+    return when {
+        uri.endsWith(".html") || uri.endsWith(".htm") || uri.endsWith(".xhtml") || uri.endsWith(".mhtml") || t.endsWith(".html") || t.endsWith(".htm") -> "html"
+        uri.endsWith(".md") || uri.endsWith(".markdown") || t.endsWith(".md") -> "markdown"
+        uri.endsWith(".json") || t.endsWith(".json") -> "json"
+        uri.endsWith(".xml") || t.endsWith(".xml") -> "xml"
+        else -> "plaintext"
+    }
+}
+
 data class Paragraph(
     val index: Int,
     val rawText: String,
@@ -56,6 +77,12 @@ data class SkipWord(
 )
 
 @Serializable
+data class SkipRule(
+    val text: String,
+    val exactMatch: Boolean = false
+)
+
+@Serializable
 data class ReaderSettings(
     val theme: ThemeMode = ThemeMode.SEPIA,
     val fontSizeSp: Float = 16f,
@@ -74,6 +101,8 @@ data class ReaderSettings(
     val headerSkipEnabled: Boolean = true,
     val footerSkipString: String = "",
     val footerSkipEnabled: Boolean = true,
+    val headerSkipRules: List<SkipRule> = emptyList(),
+    val footerSkipRules: List<SkipRule> = emptyList(),
     val skipWords: List<SkipWord> = emptyList(),
     val skipWordsEnabled: Boolean = true,
     val pronunciationRules: List<PronunciationRule> = emptyList(),
