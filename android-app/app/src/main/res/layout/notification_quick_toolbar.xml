@@ -2,14 +2,15 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/layout_quick_toolbar_root"
     android:layout_width="match_parent"
-    android:layout_height="64dp"
+    android:layout_height="wrap_content"
+    android:minHeight="48dp"
     android:background="@drawable/bg_notification_toolbar"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="10dp"
-    android:paddingTop="6dp"
+    android:paddingTop="2dp"
     android:paddingEnd="10dp"
-    android:paddingBottom="6dp">
+    android:paddingBottom="2dp">
 
     <!-- App Icon -->
     <ImageView

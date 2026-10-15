@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import com.novelarrow.reader.MainActivity
 import com.novelarrow.reader.R
@@ -86,7 +87,25 @@ class QuickToolbarForegroundService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, notification)
             }
-            AppLogger.d(TAG, "startForeground called successfully with NOTIFICATION_ID=$NOTIFICATION_ID")
+
+            // Force immediate layout pass in SystemUI
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager?.notify(NOTIFICATION_ID, notification)
+
+            val channel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                notificationManager?.getNotificationChannel(CHANNEL_ID)
+            } else null
+            val areNotifsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+            val activeNotifList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                notificationManager?.activeNotifications?.map { "${it.id}:${it.notification.channelId}" } ?: emptyList()
+            } else emptyList()
+
+            AppLogger.i(
+                TAG,
+                "startForeground success for ID=$NOTIFICATION_ID on channel=$CHANNEL_ID | " +
+                        "enabled=$areNotifsEnabled, importance=${channel?.importance}, " +
+                        "activeNotifs=$activeNotifList"
+            )
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to start or update foreground toolbar: ${e.message}", e)
             AppErrorBus.postError(
@@ -232,10 +251,13 @@ class QuickToolbarForegroundService : Service() {
         // 4. Notification Builder
         val builder = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_toolbar)
+            .setContentTitle(novelTitle)
+            .setContentText(chapterStatus)
             .setContentIntent(openAppPendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setDeleteIntent(deletePendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -248,8 +270,6 @@ class QuickToolbarForegroundService : Service() {
                 .build()
         } else {
             builder
-                .setContentTitle(novelTitle)
-                .setContentText(chapterStatus)
                 .addAction(
                     if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
                     if (isPlaying) "Pause" else "Play",
@@ -282,12 +302,20 @@ class QuickToolbarForegroundService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java) ?: return
+
+            // Delete obsolete low-importance channels if they exist
+            try {
+                manager.deleteNotificationChannel("novel_quick_toolbar_channel")
+                manager.deleteNotificationChannel("novel_quick_toolbar_channel_v2")
+                manager.deleteNotificationChannel("novel_quick_toolbar_channel_v3")
+            } catch (ignored: Exception) {}
+
             val name = "Quick Reading Toolbar"
             val desc = "Persistent reading controls toolbar in notification drawer"
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 name,
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = desc
                 setShowBadge(false)
@@ -303,7 +331,7 @@ class QuickToolbarForegroundService : Service() {
 
     companion object {
         private const val TAG = "QuickToolbarFGS"
-        const val CHANNEL_ID = "novel_quick_toolbar_channel"
+        const val CHANNEL_ID = "novel_quick_toolbar_channel_v4"
         const val NOTIFICATION_ID = 2001
 
         const val ACTION_START_OR_UPDATE = "com.novelarrow.reader.ACTION_START_OR_UPDATE_TOOLBAR"

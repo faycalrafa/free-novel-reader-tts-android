@@ -2,13 +2,14 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/layout_quick_toolbar_expanded_root"
     android:layout_width="match_parent"
-    android:layout_height="108dp"
+    android:layout_height="wrap_content"
+    android:minHeight="96dp"
     android:background="@drawable/bg_notification_toolbar"
     android:orientation="vertical"
     android:paddingStart="12dp"
-    android:paddingTop="8dp"
+    android:paddingTop="6dp"
     android:paddingEnd="12dp"
-    android:paddingBottom="8dp">
+    android:paddingBottom="6dp">
 
     <!-- Top Row: Icon, Title, Status, Close Button -->
     <LinearLayout
