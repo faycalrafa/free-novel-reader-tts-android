@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.4.1"
+          DATE_TAG="v2.4.2"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.4.1"
-        run: ./gradlew assembleRelease -PappVersionName=2.4.1 --no-daemon
+          APP_VERSION_NAME: "2.4.2"
+        run: ./gradlew assembleRelease -PappVersionName=2.4.2 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,22 +53,22 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.4.1 (Stable)
+          name: NovelArrow Reader v2.4.2 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.4.1 (Stable) 📖✨
+            ### NovelArrow Reader v2.4.2 (Stable) 📖✨
 
-            **NovelArrow Reader v2.4.1** brings critical fixes for notification quick toolbar visibility, adds the sleep timer quick-control button, resolves the recurring restore data boot popup, and redesigns system dialogs for compact mobile screens.
+            **NovelArrow Reader v2.4.2** fixes persistent notification toolbar visibility across modern Android OS versions (Android 12–15+), introduces Foreground Service persistence, adds system-wide error catching with copyable diagnostics, and includes a real-time Developer Log viewer.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Changes in this release:
-            - **Quick Reading Toolbar Fix**: Resolved notification drawer & lockscreen invisibility caused by adaptive launcher icons and theme attributes. Now uses a dedicated monochrome status bar vector icon and default alert channel.
-            - **Notification Sleep Timer**: Added a quick Sleep Timer pill (`btn_sleep_timer`) to the notification toolbar directly next to the reading speed changer, cycling through 0, 15, 30, 45, and 60 minutes on tap.
-            - **Toolbar Customization Options**: Integrated sleep timer toggle and live mockup preview into Toolbar Settings.
-            - **Restore Data Startup Fix**: Fixed the persistent "Restore Previous Data" dialog popping up on every boot; now persists user handling and only surfaces when unhandled backup data is detected.
-            - **Small Screen Dialog Redesign**: Redesigned both the "Restore Previous Data" and "Update Available" dialogs with full-width vertically stacked action buttons to eliminate button clipping and horizontal overflow on narrow displays.
-            - **Boot Toolbar Synchronization**: Automatically initializes and posts the pinned reading toolbar on application launch if enabled.
+            - **Persistent Foreground Service for Toolbar**: Migrated the Quick Reading Toolbar to `QuickToolbarForegroundService` (`specialUse` type) with `FOREGROUND_SERVICE_IMMEDIATE` display, ensuring the toolbar stays alive and visible even when the app is backgrounded.
+            - **Android 14+ Dismiss Rebound**: Added `deleteIntent` rebound mechanism that automatically restores the pinned reading toolbar if swiped away while enabled.
+            - **SystemUI RemoteViews Fix**: Eliminated illegal `<Space>` tags and adaptive launcher icon references that triggered hidden `InflateException` crashes in the Android SystemUI shade.
+            - **Global Error Dialog & Diagnostics**: Catches crashes and service failures globally and presents a clean alert modal with a one-tap "Copy Error Log" button and direct link to developer logs.
+            - **In-App Developer Logs Viewer**: Added a dedicated Developer & Diagnostic Logs page under About (`About -> Developer & Diagnostic Logs`) showing rolling logs from the last 60 minutes with level filters (Error, Warn, Info, Debug), search bar, copy all, share, and system logcat dumping.
+            - **System Permissions & Battery Diagnostic Card**: Added a dedicated card to Toolbar Settings with one-tap shortcuts to grant notification permissions and exempt the app from battery optimization sleep.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

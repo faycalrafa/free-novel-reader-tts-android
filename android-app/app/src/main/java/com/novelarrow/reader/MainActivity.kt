@@ -1,5 +1,8 @@
 package com.novelarrow.reader
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -11,37 +14,40 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import android.content.Context
-import com.novelarrow.reader.playback.QuickToolbarNotificationManager
-import androidx.compose.material.icons.filled.Folder
-import com.novelarrow.reader.ui.onboarding.OnboardingSlideshow
-import com.novelarrow.reader.util.PermissionUtils
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Icon
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.text.style.TextAlign
-import com.novelarrow.reader.data.updater.SignatureCompatibility
 import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.saveable.rememberSaveable
+import com.novelarrow.reader.data.updater.SignatureCompatibility
+import com.novelarrow.reader.playback.QuickToolbarNotificationManager
+import com.novelarrow.reader.ui.about.DevLogsScreen
+import com.novelarrow.reader.ui.onboarding.OnboardingSlideshow
+import com.novelarrow.reader.util.AppErrorBus
+import com.novelarrow.reader.util.PermissionUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
@@ -56,10 +62,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.novelarrow.reader.playback.NovelAudioPlaybackService
 import com.novelarrow.reader.theme.NovelArrowReaderTheme
@@ -81,7 +90,8 @@ enum class AppScreen {
     ABOUT,
     BROWSER,
     SETTINGS,
-    TOOLBAR_SETTINGS
+    TOOLBAR_SETTINGS,
+    DEV_LOGS
 }
 
 class MainActivity : ComponentActivity() {
@@ -151,6 +161,10 @@ class MainActivity : ComponentActivity() {
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.TOOLBAR_SETTINGS) {
                 currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.DEV_LOGS) {
+                currentScreen = AppScreen.ABOUT
             }
 
             BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS)) {
@@ -298,7 +312,14 @@ class MainActivity : ComponentActivity() {
                                         isOnboardingCompleted = false
                                         currentScreen = AppScreen.READER
                                     },
+                                    onNavigateToDevLogs = { currentScreen = AppScreen.DEV_LOGS },
                                     onNavigateBack = { currentScreen = AppScreen.READER }
+                                )
+                            }
+                            AppScreen.DEV_LOGS -> {
+                                DevLogsScreen(
+                                    installedVersionName = uiState.installedVersionName,
+                                    onNavigateBack = { currentScreen = AppScreen.ABOUT }
                                 )
                             }
                             AppScreen.SETTINGS -> {
@@ -501,6 +522,109 @@ class MainActivity : ComponentActivity() {
                                             }
                                         ) {
                                             Text("Skip for Now")
+                                        }
+                                    }
+                                },
+                                dismissButton = null
+                            )
+                        }
+
+                        val currentAppError by AppErrorBus.currentError.collectAsState()
+                        if (currentAppError != null) {
+                            val err = currentAppError!!
+                            AlertDialog(
+                                onDismissRequest = { AppErrorBus.dismiss() },
+                                shape = RoundedCornerShape(16.dp),
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                },
+                                title = {
+                                    Text(
+                                        text = err.title,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                },
+                                text = {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = err.message,
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        if (!err.stackTrace.isNullOrBlank()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .heightIn(max = 140.dp)
+                                            ) {
+                                                SelectionContainer(modifier = Modifier.padding(8.dp)) {
+                                                    LazyColumn {
+                                                        item {
+                                                            Text(
+                                                                text = err.stackTrace,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                fontSize = 11.sp,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Button(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            onClick = {
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                val clip = ClipData.newPlainText(
+                                                    "NovelArrow Error Log",
+                                                    "ERROR: ${err.title}\nMessage: ${err.message}\n\nStackTrace:\n${err.stackTrace.ifBlank { "N/A" }}"
+                                                )
+                                                clipboard.setPrimaryClip(clip)
+                                                Toast.makeText(context, "Error log copied to clipboard", Toast.LENGTH_SHORT).show()
+                                            },
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                                            Text("Copy Error Log")
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                modifier = Modifier.weight(1f),
+                                                onClick = {
+                                                    AppErrorBus.dismiss()
+                                                    currentScreen = AppScreen.DEV_LOGS
+                                                },
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Text("Open Dev Logs")
+                                            }
+                                            TextButton(
+                                                modifier = Modifier.weight(1f),
+                                                onClick = { AppErrorBus.dismiss() }
+                                            ) {
+                                                Text("Dismiss")
+                                            }
                                         }
                                     }
                                 },

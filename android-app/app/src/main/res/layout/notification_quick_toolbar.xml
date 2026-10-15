@@ -14,10 +14,10 @@
     <!-- App Icon -->
     <ImageView
         android:id="@+id/iv_toolbar_icon"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
         android:contentDescription="NovelArrow Reader"
-        android:src="@mipmap/ic_launcher" />
+        android:src="@drawable/ic_notification_toolbar" />
 
     <!-- Info Column (Title & Chapter Progress) -->
     <LinearLayout
@@ -137,7 +137,7 @@
             android:background="@android:color/transparent"
             android:contentDescription="Close Toolbar"
             android:scaleType="fitCenter"
-            android:src="@android:drawable/ic_menu_close_clear_cancel" />
+            android:src="@drawable/ic_notification_toolbar_close" />
     </LinearLayout>
 
 </LinearLayout>
