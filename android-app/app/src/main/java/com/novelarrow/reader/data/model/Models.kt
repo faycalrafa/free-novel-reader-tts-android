@@ -86,6 +86,7 @@ data class SkipRule(
 data class QuickToolbarSettings(
     val enabled: Boolean = true,
     val showSpeedButton: Boolean = true,
+    val showSleepTimerButton: Boolean = true,
     val showPrevChapButton: Boolean = true,
     val showPlayPauseButton: Boolean = true,
     val showNextChapButton: Boolean = true,

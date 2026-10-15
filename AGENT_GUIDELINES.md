@@ -1,7 +1,8 @@
 # AI Agent & Contributor Engineering Guidelines
 
 > **Target Audience**: AI Coding Agents (LLMs) and human contributors modifying or extending the **NovelArrow Reader TTS** codebase.
-> **Primary Rule**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
+> **Primary Rule 1 (Git Synchronization)**: ALWAYS run `git pull origin main` BEFORE starting any research, planning, or code implementation to ensure your branch is never working behind `main`.
+> **Primary Rule 2 (Architectural Contracts)**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
 
 ---
 

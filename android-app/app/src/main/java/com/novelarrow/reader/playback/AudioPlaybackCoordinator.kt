@@ -325,6 +325,29 @@ object AudioPlaybackCoordinator {
         }
     }
 
+    fun cycleSleepTimer() {
+        val presets = listOf(0, 15, 30, 45, 60)
+        val current = _sleepTimerMinutesState.value
+        val currentIndex = presets.indexOf(current)
+        val nextMinutes = if (currentIndex == -1 || currentIndex == presets.lastIndex) {
+            presets[0]
+        } else {
+            presets[currentIndex + 1]
+        }
+        setSleepTimer(nextMinutes)
+    }
+
+    fun formatSleepTimerForNotification(): String {
+        val mins = _sleepTimerMinutesState.value
+        val remainingSecs = _sleepTimerRemainingSecondsState.value
+        return if (mins <= 0 || remainingSecs <= 0) {
+            "💤 Off"
+        } else {
+            val remainMins = (remainingSecs + 59) / 60
+            "💤 ${remainMins}m"
+        }
+    }
+
     private fun startSleepTimerCountdown() {
         sleepTimerJob?.cancel()
         val totalSecs = if (_sleepTimerRemainingSecondsState.value > 0) {

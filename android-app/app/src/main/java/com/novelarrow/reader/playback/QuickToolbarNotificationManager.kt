@@ -1,11 +1,13 @@
 package com.novelarrow.reader.playback
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
@@ -16,6 +18,7 @@ import java.util.Locale
 
 object QuickToolbarNotificationManager {
 
+    private const val TAG = "QuickToolbar"
     const val CHANNEL_ID = "novel_quick_toolbar_channel"
     const val NOTIFICATION_ID = 2001
 
@@ -27,6 +30,7 @@ object QuickToolbarNotificationManager {
         val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (!toolbarSettings.enabled) {
+            Log.d(TAG, "Quick toolbar disabled in settings, cancelling notification")
             notificationManager.cancel(NOTIFICATION_ID)
             return
         }
@@ -37,6 +41,7 @@ object QuickToolbarNotificationManager {
         val progress = AudioPlaybackCoordinator.playbackProgressState.value
         val currentSpeed = AudioPlaybackCoordinator.currentSpeechRateState.value
         val speedText = formatSpeed(currentSpeed)
+        val sleepTimerText = AudioPlaybackCoordinator.formatSleepTimerForNotification()
 
         val novelTitle = if (progress.novelTitle.isNotBlank() && progress.novelTitle != "NovelArrow Reader") {
             progress.novelTitle
@@ -69,12 +74,14 @@ object QuickToolbarNotificationManager {
         val prevChapPendingIntent = createActionPendingIntent(appContext, 14, QuickToolbarReceiver.ACTION_TOOLBAR_PREV_CHAP)
         val siteNextPendingIntent = createActionPendingIntent(appContext, 15, QuickToolbarReceiver.ACTION_TOOLBAR_SITE_NEXT)
         val closePendingIntent = createActionPendingIntent(appContext, 16, QuickToolbarReceiver.ACTION_TOOLBAR_CLOSE)
+        val sleepTimerPendingIntent = createActionPendingIntent(appContext, 17, QuickToolbarReceiver.ACTION_TOOLBAR_CYCLE_SLEEP_TIMER)
 
         // 2. Compact View RemoteViews
         val compactView = RemoteViews(appContext.packageName, R.layout.notification_quick_toolbar).apply {
             setTextViewText(R.id.tv_novel_title, novelTitle)
             setTextViewText(R.id.tv_chapter_status, chapterStatus)
             setTextViewText(R.id.btn_speed, speedText)
+            setTextViewText(R.id.btn_sleep_timer, sleepTimerText)
 
             setImageViewResource(
                 R.id.btn_play_pause,
@@ -83,6 +90,7 @@ object QuickToolbarNotificationManager {
 
             // Button visibility based on user preferences
             setViewVisibility(R.id.btn_speed, if (toolbarSettings.showSpeedButton) View.VISIBLE else View.GONE)
+            setViewVisibility(R.id.btn_sleep_timer, if (toolbarSettings.showSleepTimerButton) View.VISIBLE else View.GONE)
             setViewVisibility(R.id.btn_prev_chap, if (toolbarSettings.showPrevChapButton) View.VISIBLE else View.GONE)
             setViewVisibility(R.id.btn_play_pause, if (toolbarSettings.showPlayPauseButton) View.VISIBLE else View.GONE)
             setViewVisibility(R.id.btn_next_chap, if (toolbarSettings.showNextChapButton) View.VISIBLE else View.GONE)
@@ -92,6 +100,7 @@ object QuickToolbarNotificationManager {
             setOnClickPendingIntent(R.id.layout_toolbar_text, openAppPendingIntent)
             setOnClickPendingIntent(R.id.iv_toolbar_icon, openAppPendingIntent)
             setOnClickPendingIntent(R.id.btn_speed, speedPendingIntent)
+            setOnClickPendingIntent(R.id.btn_sleep_timer, sleepTimerPendingIntent)
             setOnClickPendingIntent(R.id.btn_play_pause, playPausePendingIntent)
             setOnClickPendingIntent(R.id.btn_prev_chap, prevChapPendingIntent)
             setOnClickPendingIntent(R.id.btn_next_chap, nextChapPendingIntent)
@@ -104,6 +113,7 @@ object QuickToolbarNotificationManager {
             setTextViewText(R.id.tv_novel_title_exp, novelTitle)
             setTextViewText(R.id.tv_chapter_status_exp, chapterStatus)
             setTextViewText(R.id.btn_speed_exp, speedText)
+            setTextViewText(R.id.btn_sleep_timer_exp, sleepTimerText)
 
             setImageViewResource(
                 R.id.btn_play_pause_exp,
@@ -111,6 +121,7 @@ object QuickToolbarNotificationManager {
             )
 
             setViewVisibility(R.id.btn_speed_exp, if (toolbarSettings.showSpeedButton) View.VISIBLE else View.GONE)
+            setViewVisibility(R.id.btn_sleep_timer_exp, if (toolbarSettings.showSleepTimerButton) View.VISIBLE else View.GONE)
             setViewVisibility(R.id.btn_prev_chap_exp, if (toolbarSettings.showPrevChapButton) View.VISIBLE else View.GONE)
             setViewVisibility(R.id.btn_play_pause_exp, if (toolbarSettings.showPlayPauseButton) View.VISIBLE else View.GONE)
             setViewVisibility(R.id.btn_next_chap_exp, if (toolbarSettings.showNextChapButton) View.VISIBLE else View.GONE)
@@ -121,6 +132,7 @@ object QuickToolbarNotificationManager {
             setOnClickPendingIntent(R.id.tv_chapter_status_exp, openAppPendingIntent)
             setOnClickPendingIntent(R.id.iv_toolbar_icon_exp, openAppPendingIntent)
             setOnClickPendingIntent(R.id.btn_speed_exp, speedPendingIntent)
+            setOnClickPendingIntent(R.id.btn_sleep_timer_exp, sleepTimerPendingIntent)
             setOnClickPendingIntent(R.id.btn_play_pause_exp, playPausePendingIntent)
             setOnClickPendingIntent(R.id.btn_prev_chap_exp, prevChapPendingIntent)
             setOnClickPendingIntent(R.id.btn_next_chap_exp, nextChapPendingIntent)
@@ -129,21 +141,24 @@ object QuickToolbarNotificationManager {
         }
 
         // 4. Construct Notification
+        // Use standard monochrome vector drawable to prevent Bad Notification / RemoteViews crash
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_toolbar)
             .setContentIntent(openAppPendingIntent)
             .setCustomContentView(compactView)
             .setCustomBigContentView(expandedView)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setOngoing(true) // Pinned toolbar
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
         try {
             notificationManager.notify(NOTIFICATION_ID, notification)
+            Log.d(TAG, "Quick toolbar notification posted successfully")
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Error posting quick toolbar notification", e)
         }
     }
 
@@ -176,10 +191,13 @@ object QuickToolbarNotificationManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Quick Reading Toolbar"
             val desc = "Persistent reading controls toolbar in notification drawer"
-            val importance = NotificationManager.IMPORTANCE_LOW
+            val importance = NotificationManager.IMPORTANCE_DEFAULT
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = desc
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             manager.createNotificationChannel(channel)
         }

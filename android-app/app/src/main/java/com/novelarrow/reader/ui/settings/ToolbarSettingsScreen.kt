@@ -178,6 +178,16 @@ fun ToolbarSettingsScreen(
                                 Text("1.25x", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
+                        if (toolbarSettings.showSleepTimerButton) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFFEA580C))
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            ) {
+                                Text("💤 15m", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                         if (toolbarSettings.showPrevChapButton) {
                             Icon(Icons.Default.SkipPrevious, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
                         }
@@ -220,6 +230,14 @@ fun ToolbarSettingsScreen(
                         checked = toolbarSettings.showSpeedButton,
                         enabled = toolbarSettings.enabled,
                         onCheckedChange = { onUpdateSettings(toolbarSettings.copy(showSpeedButton = it)) }
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    ButtonToggleItem(
+                        title = "Sleep Timer Button (Off, 15m, 30m...)",
+                        subtitle = "Cycle sleep timer duration directly on the notification",
+                        checked = toolbarSettings.showSleepTimerButton,
+                        enabled = toolbarSettings.enabled,
+                        onCheckedChange = { onUpdateSettings(toolbarSettings.copy(showSleepTimerButton = it)) }
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     ButtonToggleItem(

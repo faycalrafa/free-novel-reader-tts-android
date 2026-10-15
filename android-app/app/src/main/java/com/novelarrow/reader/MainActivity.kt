@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -22,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import android.content.Context
+import com.novelarrow.reader.playback.QuickToolbarNotificationManager
 import androidx.compose.material.icons.filled.Folder
 import com.novelarrow.reader.ui.onboarding.OnboardingSlideshow
 import com.novelarrow.reader.util.PermissionUtils
@@ -115,11 +117,19 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(prefs.getBoolean("has_completed_onboarding", false))
             }
 
+            LaunchedEffect(Unit) {
+                // Pinned quick toolbar initialization on boot
+                QuickToolbarNotificationManager.updateToolbar(context)
+            }
+
             LaunchedEffect(isOnboardingCompleted) {
                 if (isOnboardingCompleted) {
                     if (PermissionUtils.hasStoragePermission(context)) {
                         viewModel.checkAndImportDefaultDownloadFolderOnFirstLaunch()
-                        viewModel.checkForExistingConfigs()
+                        val hasHandledConfigs = prefs.getBoolean("has_handled_existing_configs", false)
+                        if (!hasHandledConfigs) {
+                            viewModel.checkForExistingConfigs()
+                        }
                     }
                 }
             }
@@ -175,7 +185,10 @@ class MainActivity : ComponentActivity() {
                             prefs.edit().putBoolean("has_completed_onboarding", true).apply()
                             isOnboardingCompleted = true
                             viewModel.checkAndImportDefaultDownloadFolderOnFirstLaunch()
-                            viewModel.checkForExistingConfigs()
+                            val hasHandledConfigs = prefs.getBoolean("has_handled_existing_configs", false)
+                            if (!hasHandledConfigs) {
+                                viewModel.checkForExistingConfigs()
+                            }
                         }
                     )
                 }
@@ -281,6 +294,7 @@ class MainActivity : ComponentActivity() {
                                         saveApkLauncher.launch(apkName)
                                     },
                                     onReplayOnboarding = {
+                                        prefs.edit().putBoolean("has_handled_existing_configs", false).apply()
                                         isOnboardingCompleted = false
                                         currentScreen = AppScreen.READER
                                     },
@@ -455,26 +469,42 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 confirmButton = {
-                                    Button(
-                                        onClick = { viewModel.restoreExistingConfigs(report) }
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Text("Restore Data")
-                                    }
-                                },
-                                dismissButton = {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        TextButton(
-                                            onClick = { viewModel.skipExistingConfigs() }
+                                        Button(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            onClick = {
+                                                prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
+                                                viewModel.restoreExistingConfigs(report)
+                                            },
+                                            shape = RoundedCornerShape(10.dp)
                                         ) {
-                                            Text("Skip for Now")
+                                            Text("Restore Data")
                                         }
-                                        TextButton(
-                                            onClick = { viewModel.refuseAndDeleteExistingConfigs(report) }
+                                        OutlinedButton(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            onClick = {
+                                                prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
+                                                viewModel.refuseAndDeleteExistingConfigs(report)
+                                            },
+                                            shape = RoundedCornerShape(10.dp)
                                         ) {
                                             Text("Delete & Start Fresh", color = MaterialTheme.colorScheme.error)
                                         }
+                                        TextButton(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            onClick = {
+                                                prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
+                                                viewModel.skipExistingConfigs()
+                                            }
+                                        ) {
+                                            Text("Skip for Now")
+                                        }
                                     }
-                                }
+                                },
+                                dismissButton = null
                             )
                         }
                     }

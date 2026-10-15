@@ -67,7 +67,7 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.2.0",
+    val installedVersionName: String = "2.4.1",
     val showRawEditor: Boolean = false,
     val rawChapterContent: String? = null,
     val showSignatureMismatchDialog: Boolean = false,
@@ -243,8 +243,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun checkForExistingConfigs(onComplete: (Boolean) -> Unit = {}) {
+    fun checkForExistingConfigs(force: Boolean = false, onComplete: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
+            val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
+            val alreadyHandled = prefs.getBoolean("has_handled_existing_configs", false)
+            if (!force && alreadyHandled) {
+                onComplete(false)
+                return@launch
+            }
             val report = BackupRestoreManager.detectExistingConfigs(getApplication())
             if (report.hasConfigs) {
                 _uiState.update {
@@ -262,6 +268,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun restoreExistingConfigs(report: ExistingConfigsReport) {
         viewModelScope.launch {
+            val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
             _uiState.update { it.copy(showExistingConfigsDialog = false, isLoading = true) }
             BackupRestoreManager.restoreAllData(
                 getApplication(),
@@ -286,6 +294,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refuseAndDeleteExistingConfigs(report: ExistingConfigsReport) {
         viewModelScope.launch {
+            val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
             _uiState.update { it.copy(showExistingConfigsDialog = false, isLoading = true) }
             BackupRestoreManager.deleteAllHiddenConfigs(getApplication(), report)
             // Reset to defaults
@@ -308,6 +318,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun skipExistingConfigs() {
+        val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
         _uiState.update { it.copy(showExistingConfigsDialog = false) }
         loadInitialLibrary()
     }

@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.4.0"
+          DATE_TAG="v2.4.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.4.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.4.0 --no-daemon
+          APP_VERSION_NAME: "2.4.1"
+        run: ./gradlew assembleRelease -PappVersionName=2.4.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,22 +53,22 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.4.0 (Stable)
+          name: NovelArrow Reader v2.4.1 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.4.0 (Stable) 📖✨
+            ### NovelArrow Reader v2.4.1 (Stable) 📖✨
 
-            **NovelArrow Reader v2.4.0 (Stable)** adds a dedicated Global Settings route, a persistent notification quick toolbar with customizable controls, an in-browser native reading mode, a live TTS pause fix, and unified signing keystore consistency.
+            **NovelArrow Reader v2.4.1** brings critical fixes for notification quick toolbar visibility, adds the sleep timer quick-control button, resolves the recurring restore data boot popup, and redesigns system dialogs for compact mobile screens.
 
             **100% Free and Open Source Software (FOSS)**
 
-            #### Features in this release:
-            - **Global Settings Hub**: Accessible from the library sidebar footer right above "About App", organizing app-wide preferences and feature routes.
-            - **Persistent Notification Quick Toolbar**: Independent ongoing notification themed with app colors that stays pinned even after closing the app. Supports on-the-fly TTS speed cycling, play/pause (instant pickup), chapter navigation, and web site next chapter injection.
-            - **Toolbar Customization Options**: Dedicated sub-route in Settings allowing granular toggling of each button on the notification toolbar with a live preview mockup.
-            - **In-Browser Native Reading Mode**: Replaces the tabs button with a Reading Mode toggle (`MenuBook` icon) that extracts clean story text (ignoring ads/hyperlinks/buttons), renders it with native reader typography, and auto-advances to the next chapter while keeping the background `WebView` alive in RAM.
-            - **Browser Live TTS Pause Fix**: Fixed browser mode pause so that pausing retains all extracted paragraphs, cursor position, and audio state instead of resetting.
-            - **Unified Release Keystore**: Configured both debug and release builds with permanent repository release signing and v1/v2 schemes, completely preventing signature mismatch errors between development, CI, and GitHub release installs.
+            #### Changes in this release:
+            - **Quick Reading Toolbar Fix**: Resolved notification drawer & lockscreen invisibility caused by adaptive launcher icons and theme attributes. Now uses a dedicated monochrome status bar vector icon and default alert channel.
+            - **Notification Sleep Timer**: Added a quick Sleep Timer pill (`btn_sleep_timer`) to the notification toolbar directly next to the reading speed changer, cycling through 0, 15, 30, 45, and 60 minutes on tap.
+            - **Toolbar Customization Options**: Integrated sleep timer toggle and live mockup preview into Toolbar Settings.
+            - **Restore Data Startup Fix**: Fixed the persistent "Restore Previous Data" dialog popping up on every boot; now persists user handling and only surfaces when unhandled backup data is detected.
+            - **Small Screen Dialog Redesign**: Redesigned both the "Restore Previous Data" and "Update Available" dialogs with full-width vertically stacked action buttons to eliminate button clipping and horizontal overflow on narrow displays.
+            - **Boot Toolbar Synchronization**: Automatically initializes and posts the pinned reading toolbar on application launch if enabled.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

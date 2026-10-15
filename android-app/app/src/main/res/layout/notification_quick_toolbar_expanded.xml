@@ -59,7 +59,7 @@
             android:id="@+id/btn_close_exp"
             android:layout_width="28dp"
             android:layout_height="28dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Close Toolbar"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_menu_close_clear_cancel" />
@@ -84,11 +84,26 @@
             android:id="@+id/btn_speed_exp"
             android:layout_width="wrap_content"
             android:layout_height="30dp"
+            android:layout_marginEnd="6dp"
             android:background="@drawable/bg_toolbar_pill"
             android:gravity="center"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
             android:text="1.0x"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <!-- Sleep Timer Pill Button -->
+        <TextView
+            android:id="@+id/btn_sleep_timer_exp"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:background="@drawable/bg_toolbar_pill"
+            android:gravity="center"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:text="💤 Off"
             android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -103,7 +118,7 @@
             android:id="@+id/btn_prev_chap_exp"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Previous Chapter"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_media_previous" />
@@ -117,7 +132,7 @@
             android:id="@+id/btn_play_pause_exp"
             android:layout_width="44dp"
             android:layout_height="44dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Play or Pause"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_media_play" />
@@ -131,7 +146,7 @@
             android:id="@+id/btn_next_chap_exp"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Next Chapter"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_media_next" />
@@ -145,10 +160,10 @@
             android:id="@+id/btn_site_next_exp"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Site Next Chapter"
             android:scaleType="fitCenter"
-            android:src="@drawable/ic_toolbar_site_next" />
+            android:src="@android:drawable/ic_media_ff" />
     </LinearLayout>
 
 </LinearLayout>

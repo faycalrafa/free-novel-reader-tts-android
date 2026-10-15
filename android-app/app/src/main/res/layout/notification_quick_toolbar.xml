@@ -67,9 +67,24 @@
             android:layout_marginEnd="4dp"
             android:background="@drawable/bg_toolbar_pill"
             android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
+            android:paddingStart="7dp"
+            android:paddingEnd="7dp"
             android:text="1.0x"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <!-- Sleep Timer Pill Button -->
+        <TextView
+            android:id="@+id/btn_sleep_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/bg_toolbar_pill"
+            android:gravity="center"
+            android:paddingStart="7dp"
+            android:paddingEnd="7dp"
+            android:text="💤 Off"
             android:textColor="#FFFFFF"
             android:textSize="11sp"
             android:textStyle="bold" />
@@ -79,7 +94,7 @@
             android:id="@+id/btn_prev_chap"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Previous Chapter"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_media_previous" />
@@ -89,7 +104,7 @@
             android:id="@+id/btn_play_pause"
             android:layout_width="36dp"
             android:layout_height="36dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Play or Pause"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_media_play" />
@@ -99,7 +114,7 @@
             android:id="@+id/btn_next_chap"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Next Chapter"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_media_next" />
@@ -109,17 +124,17 @@
             android:id="@+id/btn_site_next"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Site Next Chapter"
             android:scaleType="fitCenter"
-            android:src="@drawable/ic_toolbar_site_next" />
+            android:src="@android:drawable/ic_media_ff" />
 
         <!-- Close / Dismiss Toolbar -->
         <ImageButton
             android:id="@+id/btn_close"
             android:layout_width="28dp"
             android:layout_height="28dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:background="@android:color/transparent"
             android:contentDescription="Close Toolbar"
             android:scaleType="fitCenter"
             android:src="@android:drawable/ic_menu_close_clear_cancel" />
