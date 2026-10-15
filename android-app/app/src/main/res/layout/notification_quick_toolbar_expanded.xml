@@ -65,7 +65,8 @@
             android:src="@drawable/ic_notification_toolbar_close" />
     </LinearLayout>
 
-    <View
+    <!-- Divider Line: FrameLayout has @RemoteView annotation, plain View does not -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:layout_marginTop="6dp"
@@ -108,8 +109,8 @@
             android:textSize="12sp"
             android:textStyle="bold" />
 
-        <!-- Weight Spacer using standard View (Space is forbidden in RemoteViews) -->
-        <View
+        <!-- Weight Spacer: FrameLayout has @RemoteView annotation -->
+        <FrameLayout
             android:layout_width="0dp"
             android:layout_height="1dp"
             android:layout_weight="1" />

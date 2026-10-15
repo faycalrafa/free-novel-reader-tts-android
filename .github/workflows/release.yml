@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.4.2"
+          DATE_TAG="v2.4.3"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.4.2"
-        run: ./gradlew assembleRelease -PappVersionName=2.4.2 --no-daemon
+          APP_VERSION_NAME: "2.4.3"
+        run: ./gradlew assembleRelease -PappVersionName=2.4.3 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,22 +53,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.4.2 (Stable)
+          name: NovelArrow Reader v2.4.3 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.4.2 (Stable) 📖✨
+            ### NovelArrow Reader v2.4.3 (Stable) 📖✨
 
-            **NovelArrow Reader v2.4.2** fixes persistent notification toolbar visibility across modern Android OS versions (Android 12–15+), introduces Foreground Service persistence, adds system-wide error catching with copyable diagnostics, and includes a real-time Developer Log viewer.
+            **NovelArrow Reader v2.4.3** fixes the `BadForegroundServiceNotificationException` startup crash by removing unsupported view tags from RemoteViews, introduces local pre-inflation validation in the foreground service, and adds automated XML layout regression testing.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Changes in this release:
-            - **Persistent Foreground Service for Toolbar**: Migrated the Quick Reading Toolbar to `QuickToolbarForegroundService` (`specialUse` type) with `FOREGROUND_SERVICE_IMMEDIATE` display, ensuring the toolbar stays alive and visible even when the app is backgrounded.
-            - **Android 14+ Dismiss Rebound**: Added `deleteIntent` rebound mechanism that automatically restores the pinned reading toolbar if swiped away while enabled.
-            - **SystemUI RemoteViews Fix**: Eliminated illegal `<Space>` tags and adaptive launcher icon references that triggered hidden `InflateException` crashes in the Android SystemUI shade.
-            - **Global Error Dialog & Diagnostics**: Catches crashes and service failures globally and presents a clean alert modal with a one-tap "Copy Error Log" button and direct link to developer logs.
-            - **In-App Developer Logs Viewer**: Added a dedicated Developer & Diagnostic Logs page under About (`About -> Developer & Diagnostic Logs`) showing rolling logs from the last 60 minutes with level filters (Error, Warn, Info, Debug), search bar, copy all, share, and system logcat dumping.
-            - **System Permissions & Battery Diagnostic Card**: Added a dedicated card to Toolbar Settings with one-tap shortcuts to grant notification permissions and exempt the app from battery optimization sleep.
+            - **Fix RemoteViews Inflation Crash**: Replaced unsupported plain `android.view.View` tags in `notification_quick_toolbar_expanded.xml` with `@RemoteView`-annotated `<FrameLayout>` elements, resolving `InflateException` on status bar notification inflation.
+            - **Defensive In-Process Pre-Inflation Check**: Added local pre-inflation sanity testing inside `QuickToolbarForegroundService` with automatic safe fallback to standard notifications if layout inflation ever fails, guaranteeing the app never crashes from notification IPC.
+            - **Automated RemoteViews Allowlist Test**: Added `RemoteViewsValidationTest` to ensure that all layout files used in notifications strictly contain `@RemoteView` allowlist widgets.
+            - **Persistent Foreground Service for Toolbar**: Ensures reading toolbar stays alive and easily accessible in notification shade across Android 12–15+.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

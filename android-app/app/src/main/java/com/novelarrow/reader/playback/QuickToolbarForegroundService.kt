@@ -213,20 +213,50 @@ class QuickToolbarForegroundService : Service() {
             setOnClickPendingIntent(R.id.btn_close_exp, closePendingIntent)
         }
 
+        // Test inflate locally in this process before passing to SystemUI
+        var useFallback = false
+        try {
+            val testParent = android.widget.FrameLayout(appContext)
+            compactView.apply(appContext, testParent)
+            expandedView.apply(appContext, testParent)
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Local pre-inflation test failed for RemoteViews: ${t.message}", t)
+            AppErrorBus.postError(
+                title = "Notification Layout Error",
+                message = "Quick reading toolbar failed local layout inflation: ${t.message}. Using safe fallback notification.",
+                throwable = t
+            )
+            useFallback = true
+        }
+
         // 4. Notification Builder
-        return NotificationCompat.Builder(appContext, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_toolbar)
             .setContentIntent(openAppPendingIntent)
-            .setCustomContentView(compactView)
-            .setCustomBigContentView(expandedView)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setDeleteIntent(deletePendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .build()
+
+        return if (!useFallback) {
+            builder
+                .setCustomContentView(compactView)
+                .setCustomBigContentView(expandedView)
+                .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+                .build()
+        } else {
+            builder
+                .setContentTitle(novelTitle)
+                .setContentText(chapterStatus)
+                .addAction(
+                    if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                    if (isPlaying) "Pause" else "Play",
+                    playPausePendingIntent
+                )
+                .build()
+        }
     }
 
     private fun createActionPendingIntent(context: Context, requestCode: Int, action: String): PendingIntent {
