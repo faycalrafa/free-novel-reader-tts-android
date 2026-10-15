@@ -1057,6 +1057,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch { settingsRepository.setAutoNext(enabled) }
     }
 
+    fun updateQuickToolbarSettings(toolbarSettings: com.novelarrow.reader.data.model.QuickToolbarSettings) {
+        viewModelScope.launch {
+            settingsRepository.updateQuickToolbarSettings(toolbarSettings)
+            com.novelarrow.reader.playback.QuickToolbarNotificationManager.updateToolbar(getApplication())
+        }
+    }
+
     fun updateContentSelector(selector: String) {
         viewModelScope.launch {
             settingsRepository.setContentSelector(selector)

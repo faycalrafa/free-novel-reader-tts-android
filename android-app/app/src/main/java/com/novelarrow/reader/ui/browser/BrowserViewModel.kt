@@ -126,7 +126,14 @@ data class BrowserUiState(
     val editorPrefilledCode: String = "",
     val editorPrefilledTitle: String = "",
     val allUserscripts: List<UserscriptEntity> = emptyList(),
-    val activeUserscripts: List<UserscriptEntity> = emptyList()
+    val activeUserscripts: List<UserscriptEntity> = emptyList(),
+
+    // Reading Mode (Reader View)
+    val isReaderMode: Boolean = false,
+    val readerModeTitle: String = "",
+    val readerModeParagraphs: List<Paragraph> = emptyList(),
+    val readerModeCurrentParagraphIndex: Int = 0,
+    val readerModeIsLoadingNext: Boolean = false
 )
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -464,8 +471,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        // 2. Only auto-read next chapter if explicitly enabled in settings (defaults to false)
-        if (_uiState.value.settings.autoReadNextChapter && (_uiState.value.isLiveReading || _uiState.value.settings.ttsAutoStart)) {
+        // 2. If in Reading Mode, automatically re-extract the new chapter content for distraction-free reading
+        if (_uiState.value.isReaderMode) {
+            viewModelScope.launch {
+                delay(500)
+                enterReadingMode()
+                if (_uiState.value.isLiveReading || _uiState.value.settings.autoReadNextChapter) {
+                    startLiveReadingInternal(forceStartAtBeginning = true)
+                }
+            }
+        } else if (_uiState.value.settings.autoReadNextChapter && (_uiState.value.isLiveReading || _uiState.value.settings.ttsAutoStart)) {
             viewModelScope.launch {
                 delay(700)
                 startLiveReadingInternal(forceStartAtBeginning = true)
@@ -949,10 +964,86 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // =========================================================================
 
     fun toggleLiveReading() {
-        if (_uiState.value.isLiveReading) {
-            stopLiveReading()
+        if (_uiState.value.isLivePlaying) {
+            pauseLiveReading()
+        } else if (_uiState.value.isLiveReading && _uiState.value.liveParagraphs.isNotEmpty()) {
+            resumeLiveReading()
         } else {
             startLiveReading()
+        }
+    }
+
+    // =========================================================================
+    // In-Browser Reading Mode (Reader View)
+    // =========================================================================
+
+    fun toggleReadingMode() {
+        if (_uiState.value.isReaderMode) {
+            exitReadingMode()
+        } else {
+            enterReadingMode()
+        }
+    }
+
+    fun enterReadingMode() {
+        val settings = _uiState.value.settings
+        val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+
+        dispatchEvaluateJs(script) { result ->
+            val extracted = WebContentExtractor.extractChapterContent(result, _uiState.value.pageTitle)
+            val title = extracted.title
+            val rawList = extracted.paragraphs
+
+            val paragraphs = mutableListOf<Paragraph>()
+            for (raw in rawList) {
+                val trimmed = raw.trim()
+                if (trimmed.isNotBlank()) {
+                    paragraphs.add(
+                        Paragraph(
+                            index = paragraphs.size,
+                            rawText = trimmed,
+                            spokenText = applyRulesAndSkips(trimmed),
+                            isHeading = paragraphs.isEmpty() && trimmed.length < 60
+                        )
+                    )
+                }
+            }
+
+            _uiState.update {
+                it.copy(
+                    isReaderMode = true,
+                    readerModeTitle = title,
+                    readerModeParagraphs = paragraphs,
+                    readerModeCurrentParagraphIndex = 0,
+                    readerModeIsLoadingNext = false,
+                    liveParagraphs = if (paragraphs.isNotEmpty()) paragraphs else it.liveParagraphs
+                )
+            }
+        }
+    }
+
+    fun exitReadingMode() {
+        _uiState.update { it.copy(isReaderMode = false) }
+    }
+
+    fun onReaderModeParagraphClicked(index: Int) {
+        val paras = _uiState.value.readerModeParagraphs
+        if (index in paras.indices) {
+            _uiState.update { it.copy(readerModeCurrentParagraphIndex = index) }
+            if (_uiState.value.isLiveReading) {
+                seekToParagraph(index)
+            } else {
+                startLiveReadingInternal(forceStartAtBeginning = false)
+            }
+        }
+    }
+
+    fun onReaderModeEndReached() {
+        if (_uiState.value.readerModeIsLoadingNext) return
+        val autoNext = _uiState.value.settings.autoClickOnScroll || _uiState.value.isLiveReading || _uiState.value.settings.autoReadNextChapter
+        if (autoNext) {
+            _uiState.update { it.copy(readerModeIsLoadingNext = true, toastMessage = "Loading next chapter...") }
+            clickNextChapter()
         }
     }
 

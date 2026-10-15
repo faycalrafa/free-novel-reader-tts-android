@@ -11,6 +11,7 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -43,6 +44,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +54,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -115,6 +118,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -130,6 +134,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.WebBrowserSettings
@@ -166,6 +171,8 @@ fun BrowserScreen(
     BackHandler {
         if (uiState.isDownloading) {
             viewModel.stopDownloadLoop()
+        } else if (uiState.isReaderMode) {
+            viewModel.exitReadingMode()
         } else if (uiState.isLiveReading) {
             viewModel.stopLiveReading()
         } else if (webViewInstance?.canGoBack() == true) {
@@ -216,12 +223,13 @@ fun BrowserScreen(
                 isLiveReading = uiState.isLiveReading,
                 isDownloading = uiState.isDownloading,
                 tabCount = uiState.tabs.size,
+                isReaderMode = uiState.isReaderMode,
                 onBackClicked = { viewModel.goBack() },
                 onForwardClicked = { viewModel.goForward() },
                 onReloadClicked = { viewModel.reload() },
                 onHomeClicked = { viewModel.goHome() },
                 onNewTabClicked = { viewModel.openNewTab() },
-                onTabsBadgeClicked = onOpenDrawer,
+                onReadingModeClicked = { viewModel.toggleReadingMode() },
                 onExtensionsClicked = { viewModel.openExtensionsSheet() },
                 onLoopClicked = { viewModel.onLoopButtonClicked() },
                 onSaveFrozenHtmlClicked = { viewModel.saveSingleChapter() },
@@ -270,6 +278,28 @@ fun BrowserScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                if (uiState.isReaderMode) {
+                    BrowserReaderView(
+                        title = uiState.readerModeTitle,
+                        paragraphs = uiState.readerModeParagraphs,
+                        currentIndex = if (uiState.isLiveReading) uiState.liveCurrentParagraphIndex else uiState.readerModeCurrentParagraphIndex,
+                        isLoadingNext = uiState.readerModeIsLoadingNext,
+                        autoScroll = uiState.settings.ttsAutoScroll,
+                        onParagraphClick = { index ->
+                            viewModel.onReaderModeParagraphClicked(index)
+                        },
+                        onNextChapterClick = {
+                            viewModel.clickNextChapter()
+                        },
+                        onEndReached = {
+                            viewModel.onReaderModeEndReached()
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                    )
+                }
             }
         }
 
@@ -499,12 +529,13 @@ private fun BrowserTopBar(
     isLiveReading: Boolean,
     isDownloading: Boolean,
     tabCount: Int,
+    isReaderMode: Boolean,
     onBackClicked: () -> Unit,
     onForwardClicked: () -> Unit,
     onReloadClicked: () -> Unit,
     onHomeClicked: () -> Unit,
     onNewTabClicked: () -> Unit,
-    onTabsBadgeClicked: () -> Unit,
+    onReadingModeClicked: () -> Unit,
     onExtensionsClicked: () -> Unit,
     onLoopClicked: () -> Unit,
     onSaveFrozenHtmlClicked: () -> Unit,
@@ -696,28 +727,22 @@ private fun BrowserTopBar(
                     Icon(Icons.Default.Add, contentDescription = "New Tab", modifier = Modifier.size(18.dp))
                 }
 
-                // Tab Switcher Badge [N]
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                // Reading Mode Toggle Button (Replaces tabs button)
+                IconButton(
+                    onClick = onReadingModeClicked,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onTabsBadgeClicked() }
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(30.dp)
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                    ) {
-                        Text(
-                            text = "$tabCount",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                        .size(34.dp)
+                        .background(
+                            if (isReaderMode) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            shape = RoundedCornerShape(8.dp)
                         )
-                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = if (isReaderMode) "Exit Reading Mode" else "Enter Reading Mode",
+                        tint = if (isReaderMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
 
                 // Batch Download Loop (placed directly next to New Tab +)
@@ -1570,3 +1595,171 @@ private fun createConfiguredWebView(
         }
     }
 }
+
+@Composable
+private fun BrowserReaderView(
+    title: String,
+    paragraphs: List<Paragraph>,
+    currentIndex: Int,
+    isLoadingNext: Boolean,
+    autoScroll: Boolean,
+    onParagraphClick: (Int) -> Unit,
+    onNextChapterClick: () -> Unit,
+    onEndReached: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(currentIndex) {
+        if (autoScroll && currentIndex in paragraphs.indices) {
+            val itemIndex = if (title.isNotBlank()) currentIndex + 1 else currentIndex
+            listState.animateScrollToItem(
+                index = itemIndex,
+                scrollOffset = -150
+            )
+        }
+    }
+
+    LaunchedEffect(listState, paragraphs.size) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 1 && lastVisible >= totalItems - 1
+        }.collect { isAtBottom ->
+            if (isAtBottom && !isLoadingNext && paragraphs.isNotEmpty()) {
+                onEndReached()
+            }
+        }
+    }
+
+    if (paragraphs.isEmpty()) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Extracting clean chapter text...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            state = listState,
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            if (title.isNotBlank()) {
+                item {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp, top = 6.dp)
+                    )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                }
+            }
+
+            itemsIndexed(paragraphs, key = { index, _ -> index }) { index, paragraph ->
+                val isCurrent = index == currentIndex
+                val backgroundColor by animateColorAsState(
+                    targetValue = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
+                    label = "highlight_anim"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(backgroundColor)
+                        .clickable { onParagraphClick(index) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        if (isCurrent) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .width(3.dp)
+                                    .height(20.dp)
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Text(
+                            text = paragraph.rawText,
+                            style = if (paragraph.isHeading) {
+                                MaterialTheme.typography.titleMedium.copy(
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = 28.sp
+                                )
+                            } else {
+                                MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 16.sp,
+                                    lineHeight = 26.sp
+                                )
+                            },
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (isLoadingNext) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Loading next chapter...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    } else {
+                        Button(
+                            onClick = onNextChapterClick,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Next Chapter")
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(140.dp))
+            }
+        }
+    }
+}
+

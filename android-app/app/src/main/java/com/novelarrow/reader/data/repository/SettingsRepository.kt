@@ -363,6 +363,22 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun updateQuickToolbarSettings(toolbarSettings: com.novelarrow.reader.data.model.QuickToolbarSettings) = withContext(Dispatchers.IO) {
+        val current = _settingsFlow.value
+        val updated = current.copy(quickToolbarSettings = toolbarSettings)
+        saveSettings(updated)
+        _settingsFlow.value = updated
+    }
+
+    suspend fun setQuickToolbarEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+        val current = _settingsFlow.value
+        val updated = current.copy(
+            quickToolbarSettings = current.quickToolbarSettings.copy(enabled = enabled)
+        )
+        saveSettings(updated)
+        _settingsFlow.value = updated
+    }
+
     // =========================================================================
     // Persistence
     // =========================================================================

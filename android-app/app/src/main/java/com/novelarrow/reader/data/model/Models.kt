@@ -83,6 +83,17 @@ data class SkipRule(
 )
 
 @Serializable
+data class QuickToolbarSettings(
+    val enabled: Boolean = true,
+    val showSpeedButton: Boolean = true,
+    val showPrevChapButton: Boolean = true,
+    val showPlayPauseButton: Boolean = true,
+    val showNextChapButton: Boolean = true,
+    val showSiteNextButton: Boolean = true,
+    val showCloseButton: Boolean = true
+)
+
+@Serializable
 data class ReaderSettings(
     val theme: ThemeMode = ThemeMode.SEPIA,
     val fontSizeSp: Float = 16f,
@@ -107,7 +118,8 @@ data class ReaderSettings(
     val skipWordsEnabled: Boolean = true,
     val pronunciationRules: List<PronunciationRule> = emptyList(),
     val pronunciationRulesEnabled: Boolean = true,
-    val sleepTimerMinutes: Int = 0
+    val sleepTimerMinutes: Int = 0,
+    val quickToolbarSettings: QuickToolbarSettings = QuickToolbarSettings()
 )
 
 @Serializable

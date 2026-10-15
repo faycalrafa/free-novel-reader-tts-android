@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.3.0"
+          DATE_TAG="v2.4.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.3.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.3.0 --no-daemon
+          APP_VERSION_NAME: "2.4.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.4.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,22 +53,22 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.3.0 (Stable)
+          name: NovelArrow Reader v2.4.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.3.0 (Stable) 📖✨
+            ### NovelArrow Reader v2.4.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.3.0 (Stable)** introduces a complete userscript and extension ecosystem for the integrated web browser, local file-backed script storage, an in-app CodeMirror JavaScript editor, GM_notification Toast support, and a comprehensive Markwon documentation center.
+            **NovelArrow Reader v2.4.0 (Stable)** adds a dedicated Global Settings route, a persistent notification quick toolbar with customizable controls, an in-browser native reading mode, a live TTS pause fix, and unified signing keystore consistency.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Features in this release:
-            - **Userscript Manager & Local File Storage**: Raw JavaScript scripts are stored directly in public `Downloads/NovelArrow_Scripts/*.user.js` files, decoupling script code from the database.
-            - **Extensions Entry Point (🧩 Dropdown)**: Top URL bar now features a dedicated Extensions icon opening a bottom sheet with active script toggles, manager, editor, and documentation shortcuts.
-            - **Advanced CodeMirror Editor**: Embedded offline CodeMirror 5 editor with JavaScript syntax highlighting, line numbers, a top Save toolbar, and a mobile utility bar (Select All, Cut, Copy, Paste, Undo, Redo) docked above the keyboard.
-            - **Greasemonkey GM_notification API**: Full polyfill for `GM_notification` displaying native Android Toast alerts from web userscripts.
-            - **Full Documentation Center & Markdown Export**: In-app documentation rendered via Markwon with a ScrollView + TextView, and a "Copy as Markdown" action using Android's ClipboardManager.
-            - **Auto Disk Sync**: Automatically detects and registers any `.user.js` files dropped into the `Downloads/NovelArrow_Scripts` directory.
+            - **Global Settings Hub**: Accessible from the library sidebar footer right above "About App", organizing app-wide preferences and feature routes.
+            - **Persistent Notification Quick Toolbar**: Independent ongoing notification themed with app colors that stays pinned even after closing the app. Supports on-the-fly TTS speed cycling, play/pause (instant pickup), chapter navigation, and web site next chapter injection.
+            - **Toolbar Customization Options**: Dedicated sub-route in Settings allowing granular toggling of each button on the notification toolbar with a live preview mockup.
+            - **In-Browser Native Reading Mode**: Replaces the tabs button with a Reading Mode toggle (`MenuBook` icon) that extracts clean story text (ignoring ads/hyperlinks/buttons), renders it with native reader typography, and auto-advances to the next chapter while keeping the background `WebView` alive in RAM.
+            - **Browser Live TTS Pause Fix**: Fixed browser mode pause so that pausing retains all extracted paragraphs, cursor position, and audio state instead of resetting.
+            - **Unified Release Keystore**: Configured both debug and release builds with permanent repository release signing and v1/v2 schemes, completely preventing signature mismatch errors between development, CI, and GitHub release installs.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

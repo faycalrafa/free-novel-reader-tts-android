@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("2.3.0")
+        .getOrElse("2.4.0")
 
     defaultConfig {
         applicationId = "com.novelarrow.reader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
+        versionCode = 9
         versionName = appVersionName
     }
 
@@ -31,6 +31,8 @@ android {
             keyPassword = providers.environmentVariable("KEY_PASSWORD")
                 .orElse(providers.gradleProperty("KEY_PASSWORD"))
                 .getOrElse("novelarrow")
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
@@ -39,6 +41,9 @@ android {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

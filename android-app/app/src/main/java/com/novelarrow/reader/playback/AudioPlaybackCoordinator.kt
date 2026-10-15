@@ -558,6 +558,22 @@ object AudioPlaybackCoordinator {
         }
     }
 
+    fun triggerSiteNextChapter() {
+        if (currentSource == PlaybackSource.BROWSER) {
+            browserNextChapterCallback?.invoke() ?: nextChapter()
+        } else {
+            advanceToNextChapter()
+        }
+    }
+
+    fun triggerSitePrevChapter() {
+        if (currentSource == PlaybackSource.BROWSER) {
+            browserPrevChapterCallback?.invoke() ?: previousChapter()
+        } else {
+            advanceToPreviousChapter()
+        }
+    }
+
     fun updateMetadata(
         novelTitle: String,
         chapterTitle: String,
@@ -831,5 +847,8 @@ object AudioPlaybackCoordinator {
             currentParagraph = currentParagraphIndex,
             totalParagraphs = totalParagraphsCount
         )
+        appContext?.let { ctx ->
+            QuickToolbarNotificationManager.updateToolbar(ctx)
+        }
     }
 }

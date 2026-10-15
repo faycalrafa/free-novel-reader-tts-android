@@ -971,6 +971,7 @@ fun LibraryDrawerContent(
     onSelectTab: (String) -> Unit = {},
     onNewTab: () -> Unit = {},
     onCloseTab: (String) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onOpenAbout: () -> Unit,
     onCloseDrawer: () -> Unit
 ) {
@@ -1410,6 +1411,44 @@ fun LibraryDrawerContent(
                             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
                         }
                     }
+                }
+            }
+        }
+
+        HorizontalDivider()
+
+        // Drawer Bottom Footer: Settings
+        Surface(
+            onClick = onOpenSettings,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Toolbar, TTS, CSS & Preferences",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            fontSize = 11.sp
+                        )
+                    )
                 }
             }
         }

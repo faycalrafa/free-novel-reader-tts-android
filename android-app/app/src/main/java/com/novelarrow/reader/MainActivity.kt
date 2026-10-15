@@ -64,17 +64,22 @@ import com.novelarrow.reader.theme.NovelArrowReaderTheme
 import com.novelarrow.reader.ui.about.AboutScreen
 import com.novelarrow.reader.ui.browser.BrowserScreen
 import com.novelarrow.reader.ui.browser.BrowserViewModel
+import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
 import com.novelarrow.reader.ui.reader.LibraryDrawerContent
 import com.novelarrow.reader.ui.reader.ReaderScreen
 import com.novelarrow.reader.ui.reader.ReaderViewModel
 import com.novelarrow.reader.ui.reader.UpdateAvailableDialog
 import com.novelarrow.reader.ui.reader.UpdateDownloadingDialog
+import com.novelarrow.reader.ui.settings.GlobalSettingsScreen
+import com.novelarrow.reader.ui.settings.ToolbarSettingsScreen
 import kotlinx.coroutines.launch
 
 enum class AppScreen {
     READER,
     ABOUT,
-    BROWSER
+    BROWSER,
+    SETTINGS,
+    TOOLBAR_SETTINGS
 }
 
 class MainActivity : ComponentActivity() {
@@ -121,6 +126,7 @@ class MainActivity : ComponentActivity() {
 
             val shouldOpenCssSelector by openCssSelectorEvent
             var showCssSelectorDialog by remember { mutableStateOf(false) }
+            var showGlobalAudioSettings by remember { mutableStateOf(false) }
 
             LaunchedEffect(shouldOpenCssSelector) {
                 if (shouldOpenCssSelector) {
@@ -133,7 +139,11 @@ class MainActivity : ComponentActivity() {
                 scope.launch { drawerState.close() }
             }
 
-            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.ABOUT) {
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.TOOLBAR_SETTINGS) {
+                currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS)) {
                 currentScreen = AppScreen.READER
             }
 
@@ -230,6 +240,10 @@ class MainActivity : ComponentActivity() {
                                 onCloseTab = { tabId ->
                                     browserViewModel.closeTab(tabId)
                                 },
+                                onOpenSettings = {
+                                    currentScreen = AppScreen.SETTINGS
+                                    scope.launch { drawerState.close() }
+                                },
                                 onOpenAbout = {
                                     currentScreen = AppScreen.ABOUT
                                     scope.launch { drawerState.close() }
@@ -271,6 +285,22 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = AppScreen.READER
                                     },
                                     onNavigateBack = { currentScreen = AppScreen.READER }
+                                )
+                            }
+                            AppScreen.SETTINGS -> {
+                                GlobalSettingsScreen(
+                                    onNavigateBack = { currentScreen = AppScreen.READER },
+                                    onNavigateToToolbarSettings = { currentScreen = AppScreen.TOOLBAR_SETTINGS },
+                                    onOpenAudioSettings = { showGlobalAudioSettings = true },
+                                    onOpenCssSelector = { showCssSelectorDialog = true },
+                                    onNavigateToAbout = { currentScreen = AppScreen.ABOUT }
+                                )
+                            }
+                            AppScreen.TOOLBAR_SETTINGS -> {
+                                ToolbarSettingsScreen(
+                                    toolbarSettings = uiState.settings.quickToolbarSettings,
+                                    onUpdateSettings = { viewModel.updateQuickToolbarSettings(it) },
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
                                 )
                             }
                             AppScreen.BROWSER -> {
@@ -340,6 +370,46 @@ class MainActivity : ComponentActivity() {
                                     Toast.makeText(context, "CSS content selector updated", Toast.LENGTH_SHORT).show()
                                 },
                                 onDismiss = { showCssSelectorDialog = false }
+                            )
+                        }
+
+                        if (showGlobalAudioSettings) {
+                            UnifiedAudioSettingsDialog(
+                                speechRate = uiState.settings.speechRate,
+                                speechPitch = uiState.settings.speechPitch,
+                                selectedVoiceName = uiState.settings.selectedVoiceName,
+                                availableVoices = uiState.availableVoices,
+                                sleepTimerMinutes = uiState.sleepTimerMinutes,
+                                sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                                pronunciationRulesEnabled = uiState.settings.pronunciationRulesEnabled,
+                                pronunciationRules = uiState.settings.pronunciationRules,
+                                skipWordsEnabled = uiState.settings.skipWordsEnabled,
+                                skipWords = uiState.settings.skipWords,
+                                headerSkipRulesEnabled = uiState.settings.headerSkipEnabled,
+                                headerSkipRules = uiState.settings.headerSkipRules,
+                                footerSkipRulesEnabled = uiState.settings.footerSkipEnabled,
+                                footerSkipRules = uiState.settings.footerSkipRules,
+                                contentSelectorEnabled = uiState.settings.contentSelectorEnabled,
+                                contentSelector = uiState.settings.contentSelector,
+                                onSpeechRateChange = { viewModel.updateSpeechRate(it) },
+                                onSpeechPitchChange = { viewModel.updateSpeechPitch(it) },
+                                onVoiceChange = { viewModel.updateVoice(it) },
+                                onSleepTimerChange = { viewModel.setSleepTimer(it) },
+                                onPronunciationRulesEnabledChange = { viewModel.updatePronunciationRulesEnabled(it) },
+                                onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
+                                onRemovePronunciationRule = { viewModel.removePronunciationRule(it) },
+                                onSkipWordsEnabledChange = { viewModel.updateSkipWordsEnabled(it) },
+                                onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
+                                onRemoveSkipWord = { viewModel.removeSkipWord(it) },
+                                onHeaderSkipRulesEnabledChange = { viewModel.updateHeaderSkipEnabled(it) },
+                                onAddHeaderSkipRule = { text, exact -> viewModel.addHeaderSkipRule(text, exact) },
+                                onRemoveHeaderSkipRule = { viewModel.removeHeaderSkipRule(it) },
+                                onFooterSkipRulesEnabledChange = { viewModel.updateFooterSkipEnabled(it) },
+                                onAddFooterSkipRule = { text, exact -> viewModel.addFooterSkipRule(text, exact) },
+                                onRemoveFooterSkipRule = { viewModel.removeFooterSkipRule(it) },
+                                onContentSelectorEnabledChange = { viewModel.updateContentSelectorEnabled(it) },
+                                onContentSelectorChange = { viewModel.updateContentSelector(it) },
+                                onDismiss = { showGlobalAudioSettings = false }
                             )
                         }
 
