@@ -66,6 +66,7 @@ fun AboutScreen(
     onCheckForUpdates: () -> Unit,
     onInstallDownloadedApk: () -> Unit,
     onSaveApkToPath: () -> Unit = {},
+    onReplayOnboarding: () -> Unit = {},
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -382,6 +383,23 @@ fun AboutScreen(
                             Text("Save update-latest.apk to Path...")
                         }
                     }
+                }
+            }
+
+            // Permissions & Onboarding Guide
+            item {
+                OutlinedButton(
+                    onClick = onReplayOnboarding,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Replay Setup & Permission Guide")
                 }
             }
 

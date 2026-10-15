@@ -27,6 +27,11 @@ import com.novelarrow.reader.data.updater.AppUpdateManager
 import com.novelarrow.reader.data.updater.CheckUpdateResult
 import com.novelarrow.reader.data.updater.SignatureCompatibility
 import com.novelarrow.reader.data.updater.UpdateInfo
+import com.novelarrow.reader.data.backup.BackupRestoreManager
+import com.novelarrow.reader.data.backup.ExistingConfigsReport
+import com.novelarrow.reader.data.model.WebBrowserSettings
+import com.novelarrow.reader.data.repository.UserPreferencesBackup
+import com.novelarrow.reader.util.PermissionUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,11 +67,13 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.1.2",
+    val installedVersionName: String = "2.2.0",
     val showRawEditor: Boolean = false,
     val rawChapterContent: String? = null,
     val showSignatureMismatchDialog: Boolean = false,
-    val signatureMismatchInfo: SignatureCompatibility.Mismatch? = null
+    val signatureMismatchInfo: SignatureCompatibility.Mismatch? = null,
+    val showExistingConfigsDialog: Boolean = false,
+    val existingConfigsReport: ExistingConfigsReport? = null
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -221,7 +228,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun loadInitialLibrary() {
+    fun loadInitialLibrary() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             val novels = libraryRepository.scanDownloadedWebNovels()
@@ -234,6 +241,75 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 selectNovel(targetNovel)
             }
         }
+    }
+
+    fun checkForExistingConfigs(onComplete: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val report = BackupRestoreManager.detectExistingConfigs(getApplication())
+            if (report.hasConfigs) {
+                _uiState.update {
+                    it.copy(
+                        showExistingConfigsDialog = true,
+                        existingConfigsReport = report
+                    )
+                }
+                onComplete(true)
+            } else {
+                onComplete(false)
+            }
+        }
+    }
+
+    fun restoreExistingConfigs(report: ExistingConfigsReport) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(showExistingConfigsDialog = false, isLoading = true) }
+            BackupRestoreManager.restoreAllData(
+                getApplication(),
+                report,
+                settingsRepository,
+                libraryRepository
+            )
+            val novels = libraryRepository.getNovels()
+            val target = novels.firstOrNull { it.id == report.libraryBackup?.lastActiveNovelId } ?: novels.firstOrNull()
+            _uiState.update {
+                it.copy(
+                    novels = novels,
+                    isLoading = false,
+                    toastMessage = "Restored preferences and reading progress."
+                )
+            }
+            if (target != null) {
+                selectNovel(target)
+            }
+        }
+    }
+
+    fun refuseAndDeleteExistingConfigs(report: ExistingConfigsReport) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(showExistingConfigsDialog = false, isLoading = true) }
+            BackupRestoreManager.deleteAllHiddenConfigs(getApplication(), report)
+            // Reset to defaults
+            val defaultSettings = ReaderSettings()
+            val defaultBrowser = WebBrowserSettings()
+            settingsRepository.applyRestoredBackup(
+                UserPreferencesBackup(
+                    readerSettings = defaultSettings,
+                    browserSettings = defaultBrowser
+                )
+            )
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    toastMessage = "Saved backup files deleted. Starting fresh."
+                )
+            }
+            loadInitialLibrary()
+        }
+    }
+
+    fun skipExistingConfigs() {
+        _uiState.update { it.copy(showExistingConfigsDialog = false) }
+        loadInitialLibrary()
     }
 
     fun refreshLibrary(targetNovelId: String? = null) {
@@ -251,34 +327,27 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun checkAndImportDefaultDownloadFolderOnFirstLaunch() {
+    fun checkAndImportDefaultDownloadFolderOnFirstLaunch() {
+        val hasPermission = PermissionUtils.hasStoragePermission(getApplication())
+        if (!hasPermission) return // Don't consume first launch check if permission is not yet granted
+
         val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
         val alreadyChecked = prefs.getBoolean("has_checked_default_novelreader_folder", false)
         if (alreadyChecked) return
 
-        prefs.edit().putBoolean("has_checked_default_novelreader_folder", true).apply()
-
-        val candidateDirs = listOfNotNull(
-            File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "NovelReader"),
-            File("/storage/emulated/0/Download/NovelReader"),
-            File("/storage/emulated/0/Downloads/NovelReader"),
-            File("/sdcard/Download/NovelReader"),
-            File(android.os.Environment.getExternalStorageDirectory(), "NovelReader"),
-            File("/storage/emulated/0/NovelReader"),
-            File("/sdcard/NovelReader"),
-            getApplication<Application>().getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)?.let { File(it, "NovelReader") },
-            File(getApplication<Application>().filesDir, "NovelReader")
-        )
+        val candidateDirs = BackupRestoreManager.getNovelReaderRoots(getApplication())
 
         for (dir in candidateDirs) {
             if (dir.exists() && dir.isDirectory) {
                 val hasChapters = hasAnySupportedChapters(dir)
                 if (hasChapters) {
+                    prefs.edit().putBoolean("has_checked_default_novelreader_folder", true).apply()
                     scanRootFolder(Uri.fromFile(dir))
                     return
                 }
             }
         }
+        prefs.edit().putBoolean("has_checked_default_novelreader_folder", true).apply()
     }
 
     private fun hasAnySupportedChapters(dir: File): Boolean {

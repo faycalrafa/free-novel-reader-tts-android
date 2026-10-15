@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.1.2"
+          DATE_TAG="v2.2.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.1.2"
-        run: ./gradlew assembleRelease -PappVersionName=2.1.2 --no-daemon
+          APP_VERSION_NAME: "2.2.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.2.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,25 +53,26 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.1.2 (Unstable)
-          prerelease: true
+          name: NovelArrow Reader v2.2.0 (Stable)
+          prerelease: false
           body: |
-            ### NovelArrow Reader v2.1.2 (Unstable) 📖⚡
+            ### NovelArrow Reader v2.2.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.1.2 (Unstable)** integrates a powerful Monaco Code Editor for text chapters and browser inspection with search, match-replace, and beautifying; restricts raw viewing exclusively to text formats; auto-scans `/NovelReader` on first launch; deduplicates TTS settings into the unified control panel; adds on-the-fly notification CSS selector controls; and turns auto-skip header/footer into customizable rule lists.
+            **NovelArrow Reader v2.2.0 (Stable)** is a major stable release introducing persistent reinstall backup restoration, a 3-view interactive onboarding slideshow with live permission indicators, full storage access support to preserve reading progress across device reinstalls, and existing hidden config discovery.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Features in this release:
-            - **Monaco Code Editor for Raw Format**: Built-in WebView Monaco Editor with syntax color coding, HTML formatting/beautifying, Find Search, and Match & Replace for reading or editing chapter source code directly.
-            - **Text-Only Raw Format Scope**: Raw editor access is strictly limited to text-based chapters (HTML, TXT, MD, JSON, XML) and hidden for binary formats (PDF, EPUB).
-            - **Browser Raw HTML Inspection**: Dedicated Code button in the browser top bar allows instant inspection and beautification of the current webpage's DOM.
-            - **First-Launch Default Folder Auto-Scan**: Automatically detects `/NovelReader` (or `novelreader`) download directories on first launch and sets the root library folder without requiring manual configuration.
-            - **Consolidated Unified TTS Controls**: Stripped redundant speed, pitch, voice picker, and filter controls from reader and browser dialogs, keeping all audio preferences exclusively in the bottom dock control panel.
-            - **Notification CSS Content Selector**: Foreground notification action allows editing the HTML content selector on the fly without leaving audio playback.
-            - **Configurable Header & Footer Skip Lists**: Auto-skip headers and footers are now configured as editable rule lists with exact-match word boundary toggles.
-            - **Permanent Release Signing Keystore & In-App Update Fix**: Resolved `INSTALL_FAILED_UPDATE_INCOMPATIBLE` by establishing a permanent repository release keystore so that all CI/GitHub Actions builds produce matching signatures indefinitely, accompanied by pre-installation signature verification and one-time migration guidance for existing installs.
-            - Automated Unstable Release APK build from branch `${{ github.ref_name }}` (`${{ github.sha }}`).
+            - **Reinstall Preference & Folder Restoration**: User settings, audio preferences, and loaded folder playlists are safely backed up in hidden files (`.novelreader_preferences.json` and `.novelreader_library.json`) in the `/NovelReader` root and preserved across app updates and reinstalls.
+            - **Reading Progress Persistence**: Chapter reading progress (`.progress.json`) in each novel folder is reliably synchronized and automatically restored on reinstall.
+            - **Interactive 3-View Onboarding Slideshow**: Clean Material 3 walkthrough explaining app capabilities, background notification controls, and storage protection before app launch.
+            - **Live Permission Status Display**: Slideshow views display real-time reactive permission status badges (Granted vs. Required) that update immediately upon returning from OS settings.
+            - **Existing Configs Detection & Choice**: Intelligently detects existing backups upon reinstall and prompts the user whether to restore settings and playlists or safely delete all hidden files across loaded folders when starting fresh.
+            - **Android 11–16 Storage Permission**: Implemented `MANAGE_EXTERNAL_STORAGE` support and runtime permission handling so external novel folders remain directly accessible without breaking on reinstall.
+            - **Monaco Code Editor**: Built-in Monaco Editor with syntax coloring, search, match & replace, and HTML formatting for raw chapter code inspection and editing.
+            - **Notification CSS Content Selector**: Foreground notification action allows editing the HTML content selector on the fly without interrupting playback.
+            - **Configurable Skip Rules**: Auto-skip headers, footers, and skip words with customizable rule lists and exact-match word boundary toggles.
+            - **Permanent Release Signing Keystore**: Consistent official signatures across all builds with pre-install verification to eliminate update incompatibilities.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

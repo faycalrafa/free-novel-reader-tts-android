@@ -7,7 +7,9 @@ import androidx.documentfile.provider.DocumentFile
 import com.novelarrow.reader.data.model.Chapter
 import com.novelarrow.reader.data.model.Novel
 import com.novelarrow.reader.data.util.NaturalOrderComparator
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -107,15 +109,20 @@ class LibraryRepository(private val context: Context) {
 
             // Fallback: check standard NovelReader directory for this novel title
             val safeTitle = WebNovelDownloader.sanitizeFileName(novelTitle)
-            val candidateDirs = listOfNotNull(
-                File(context.filesDir, "NovelReader/$safeTitle"),
-                File(context.filesDir, "NovelReader/$novelTitle"),
-                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { File(it, "NovelReader/$safeTitle") },
-                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { File(it, "NovelReader/$novelTitle") }
-            )
-            for (candidate in candidateDirs) {
+            val candidateDirs = mutableListOf<File>()
+            candidateDirs.add(File(context.filesDir, "NovelReader/$safeTitle"))
+            candidateDirs.add(File(context.filesDir, "NovelReader/$novelTitle"))
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let {
+                candidateDirs.add(File(it, "NovelReader/$safeTitle"))
+                candidateDirs.add(File(it, "NovelReader/$novelTitle"))
+            }
+            for (root in com.novelarrow.reader.data.backup.BackupRestoreManager.getNovelReaderRoots(context)) {
+                candidateDirs.add(File(root, safeTitle))
+                candidateDirs.add(File(root, novelTitle))
+            }
+            for (candidate in candidateDirs.distinctBy { it.absolutePath }) {
                 val pFile = File(candidate, ".progress.json")
-                if (pFile.exists() && pFile.isFile) {
+                if (pFile.exists() && pFile.isFile && pFile.length() > 0L) {
                     val text = pFile.readText(Charsets.UTF_8)
                     if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
                 }
@@ -155,15 +162,22 @@ class LibraryRepository(private val context: Context) {
             }
 
             val safeTitle = WebNovelDownloader.sanitizeFileName(novelTitle)
-            val candidateDirs = listOfNotNull(
-                File(context.filesDir, "NovelReader/$safeTitle"),
-                File(context.filesDir, "NovelReader/$novelTitle"),
-                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { File(it, "NovelReader/$safeTitle") },
-                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { File(it, "NovelReader/$novelTitle") }
-            )
-            for (candidate in candidateDirs) {
+            val candidateDirs = mutableListOf<File>()
+            candidateDirs.add(File(context.filesDir, "NovelReader/$safeTitle"))
+            candidateDirs.add(File(context.filesDir, "NovelReader/$novelTitle"))
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let {
+                candidateDirs.add(File(it, "NovelReader/$safeTitle"))
+                candidateDirs.add(File(it, "NovelReader/$novelTitle"))
+            }
+            for (root in com.novelarrow.reader.data.backup.BackupRestoreManager.getNovelReaderRoots(context)) {
+                candidateDirs.add(File(root, safeTitle))
+                candidateDirs.add(File(root, novelTitle))
+            }
+            for (candidate in candidateDirs.distinctBy { it.absolutePath }) {
                 if (candidate.exists() && candidate.isDirectory) {
-                    File(candidate, ".progress.json").writeText(jsonText, Charsets.UTF_8)
+                    try {
+                        File(candidate, ".progress.json").writeText(jsonText, Charsets.UTF_8)
+                    } catch (_: Exception) {}
                 }
             }
         } catch (e: Exception) {
@@ -381,46 +395,17 @@ class LibraryRepository(private val context: Context) {
             val novelsByNormTitle = mutableMapOf<String, Novel>()
             val chaptersByNovelId = mutableMapOf<String, MutableList<Chapter>>()
 
-            val rootCandidates = mutableListOf<File>()
-            val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            if (extDir != null) {
-                val candidate1 = File(extDir, "novelreader")
-                val candidate2 = File(extDir, "NovelReader")
-                if (candidate1.exists() && candidate1.isDirectory) rootCandidates.add(candidate1)
-                if (candidate2.exists() && candidate2.isDirectory) rootCandidates.add(candidate2)
-                if (!candidate1.exists() && !candidate2.exists()) {
-                    candidate1.mkdirs()
-                    rootCandidates.add(candidate1)
+            val rootCandidates = com.novelarrow.reader.data.backup.BackupRestoreManager.getNovelReaderRoots(context)
+                .filter { it.exists() && it.isDirectory }
+                .toMutableList()
+            if (rootCandidates.isEmpty()) {
+                val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                if (extDir != null) {
+                    val fallback = File(extDir, "NovelReader")
+                    fallback.mkdirs()
+                    rootCandidates.add(fallback)
                 }
             }
-
-            val internalRoot1 = File(context.filesDir, "novelreader")
-            val internalRoot2 = File(context.filesDir, "NovelReader")
-            if (internalRoot1.exists() && internalRoot1.isDirectory) rootCandidates.add(internalRoot1)
-            if (internalRoot2.exists() && internalRoot2.isDirectory) rootCandidates.add(internalRoot2)
-
-            try {
-                val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val pub1 = File(publicDownloads, "novelreader")
-                val pub2 = File(publicDownloads, "NovelReader")
-                if (pub1.exists() && pub1.isDirectory) rootCandidates.add(pub1)
-                if (pub2.exists() && pub2.isDirectory) rootCandidates.add(pub2)
-
-                val alt1 = File("/storage/emulated/0/Download")
-                if (alt1.exists()) {
-                    val a1 = File(alt1, "novelreader")
-                    val a2 = File(alt1, "NovelReader")
-                    if (a1.exists() && a1.isDirectory) rootCandidates.add(a1)
-                    if (a2.exists() && a2.isDirectory) rootCandidates.add(a2)
-                }
-                val alt2 = File("/storage/emulated/0/Downloads")
-                if (alt2.exists()) {
-                    val b1 = File(alt2, "novelreader")
-                    val b2 = File(alt2, "NovelReader")
-                    if (b1.exists() && b1.isDirectory) rootCandidates.add(b1)
-                    if (b2.exists() && b2.isDirectory) rootCandidates.add(b2)
-                }
-            } catch (_: Exception) {}
 
         val seenPaths = mutableSetOf<String>()
 
@@ -1583,6 +1568,16 @@ class LibraryRepository(private val context: Context) {
             fos = atomicDbFile.startWrite()
             fos.write(bytes)
             atomicDbFile.finishWrite(fos)
+
+            try {
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    com.novelarrow.reader.data.backup.BackupRestoreManager.saveLibraryBackup(
+                        context,
+                        db.novels,
+                        db.lastActiveNovelId
+                    )
+                }
+            } catch (_: Exception) {}
         } catch (e: Exception) {
             e.printStackTrace()
             if (fos != null) {

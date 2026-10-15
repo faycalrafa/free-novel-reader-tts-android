@@ -449,34 +449,44 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun applyRestoredBackup(backup: UserPreferencesBackup) = withContext(Dispatchers.IO) {
+        val loadedReader = backup.readerSettings
+        val loadedBrowser = backup.browserSettings
+        val shared = backup.sharedTts
+
+        val mergedReader = loadedReader.copy(
+            speechRate = shared.speechRate,
+            speechPitch = shared.speechPitch,
+            selectedVoiceName = shared.voiceName,
+            sleepTimerMinutes = shared.sleepTimerMinutes,
+            skipWords = shared.skipWords,
+            skipWordsEnabled = shared.skipWordsEnabled,
+            pronunciationRules = shared.pronunciationRules,
+            pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
+            headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
+            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules
+        )
+        val mergedBrowser = loadedBrowser.copy(
+            ttsRate = shared.speechRate,
+            ttsPitch = shared.speechPitch,
+            ttsVoice = shared.voiceName,
+            sleepTimerMinutes = shared.sleepTimerMinutes,
+            skipWords = shared.skipWords,
+            skipWordsEnabled = shared.skipWordsEnabled,
+            pronunciationRules = shared.pronunciationRules,
+            pronunciationRulesEnabled = shared.pronunciationRulesEnabled
+        )
+
+        saveSettings(mergedReader)
+        saveBrowserSettings(mergedBrowser)
+        saveSharedTts(shared)
+
+        _settingsFlow.value = mergedReader
+        _browserSettingsFlow.value = mergedBrowser
+    }
+
     private fun getNovelReaderRoots(): List<File> {
-        val roots = mutableListOf<File>()
-        val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        if (extDir != null) {
-            roots.add(File(extDir, "novelreader"))
-            roots.add(File(extDir, "NovelReader"))
-        }
-
-        try {
-            val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            roots.add(File(publicDownloads, "novelreader"))
-            roots.add(File(publicDownloads, "NovelReader"))
-
-            val alt1 = File("/storage/emulated/0/Download")
-            if (alt1.exists()) {
-                roots.add(File(alt1, "novelreader"))
-                roots.add(File(alt1, "NovelReader"))
-            }
-            val alt2 = File("/storage/emulated/0/Downloads")
-            if (alt2.exists()) {
-                roots.add(File(alt2, "novelreader"))
-                roots.add(File(alt2, "NovelReader"))
-            }
-        } catch (_: Exception) {}
-
-        roots.add(File(context.filesDir, "novelreader"))
-        roots.add(File(context.filesDir, "NovelReader"))
-        return roots.distinctBy { it.absolutePath }
+        return com.novelarrow.reader.data.backup.BackupRestoreManager.getNovelReaderRoots(context)
     }
 
     fun saveBackupToNovelReaderRoots() {

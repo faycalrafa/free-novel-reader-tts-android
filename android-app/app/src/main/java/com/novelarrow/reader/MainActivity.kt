@@ -21,6 +21,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
+import android.content.Context
+import androidx.compose.material.icons.filled.Folder
+import com.novelarrow.reader.ui.onboarding.OnboardingSlideshow
+import com.novelarrow.reader.util.PermissionUtils
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -80,7 +84,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val prefs = getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
+        val hasCompletedOnboarding = prefs.getBoolean("has_completed_onboarding", false)
+
+        if (hasCompletedOnboarding && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
             }
@@ -97,6 +104,20 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
             val scope = rememberCoroutineScope()
+
+            val prefs = remember { context.getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE) }
+            var isOnboardingCompleted by rememberSaveable {
+                mutableStateOf(prefs.getBoolean("has_completed_onboarding", false))
+            }
+
+            LaunchedEffect(isOnboardingCompleted) {
+                if (isOnboardingCompleted) {
+                    if (PermissionUtils.hasStoragePermission(context)) {
+                        viewModel.checkAndImportDefaultDownloadFolderOnFirstLaunch()
+                        viewModel.checkForExistingConfigs()
+                    }
+                }
+            }
 
             val shouldOpenCssSelector by openCssSelectorEvent
             var showCssSelectorDialog by remember { mutableStateOf(false) }
@@ -137,8 +158,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            NovelArrowReaderTheme(themeMode = uiState.settings.theme) {
-                ModalNavigationDrawer(
+            if (!isOnboardingCompleted) {
+                NovelArrowReaderTheme(themeMode = uiState.settings.theme) {
+                    OnboardingSlideshow(
+                        onFinish = {
+                            prefs.edit().putBoolean("has_completed_onboarding", true).apply()
+                            isOnboardingCompleted = true
+                            viewModel.checkAndImportDefaultDownloadFolderOnFirstLaunch()
+                            viewModel.checkForExistingConfigs()
+                        }
+                    )
+                }
+            } else {
+                NovelArrowReaderTheme(themeMode = uiState.settings.theme) {
+                    ModalNavigationDrawer(
                     drawerState = drawerState,
                     gesturesEnabled = currentScreen != AppScreen.BROWSER,
                     drawerContent = {
@@ -233,6 +266,10 @@ class MainActivity : ComponentActivity() {
                                         val apkName = uiState.updateInfo?.apkName?.ifBlank { "update-latest.apk" } ?: "update-latest.apk"
                                         saveApkLauncher.launch(apkName)
                                     },
+                                    onReplayOnboarding = {
+                                        isOnboardingCompleted = false
+                                        currentScreen = AppScreen.READER
+                                    },
                                     onNavigateBack = { currentScreen = AppScreen.READER }
                                 )
                             }
@@ -305,8 +342,74 @@ class MainActivity : ComponentActivity() {
                                 onDismiss = { showCssSelectorDialog = false }
                             )
                         }
+
+                        if (uiState.showExistingConfigsDialog && uiState.existingConfigsReport != null) {
+                            val report = uiState.existingConfigsReport!!
+                            AlertDialog(
+                                onDismissRequest = { viewModel.skipExistingConfigs() },
+                                title = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Folder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+                                        Text("Restore Previous Data?")
+                                    }
+                                },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(
+                                            "Found saved preferences and reading progress from a previous installation:",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                report.summaryText,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.padding(10.dp)
+                                            )
+                                        }
+                                        Text(
+                                            "Would you like to restore your preferences and previously loaded novel folders, or start fresh and delete them?",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = { viewModel.restoreExistingConfigs(report) }
+                                    ) {
+                                        Text("Restore Data")
+                                    }
+                                },
+                                dismissButton = {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        TextButton(
+                                            onClick = { viewModel.skipExistingConfigs() }
+                                        ) {
+                                            Text("Skip for Now")
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.refuseAndDeleteExistingConfigs(report) }
+                                        ) {
+                                            Text("Delete & Start Fresh", color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
+            }
             }
         }
     }
