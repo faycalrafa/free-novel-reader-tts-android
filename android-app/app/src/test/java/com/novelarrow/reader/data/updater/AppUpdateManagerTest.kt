@@ -56,4 +56,15 @@ class AppUpdateManagerTest {
         assertEquals(15889351L, release?.apkSize)
         assertEquals("15.2 MB", release?.formattedSize)
     }
+
+    @Test
+    fun testCertToSha256() {
+        val sampleBytes = "test certificate data".toByteArray(Charsets.UTF_8)
+        val fingerprint = AppUpdateManager.certToSha256(sampleBytes)
+        assertTrue(fingerprint.matches(Regex("^[0-9A-F]{2}(:[0-9A-F]{2}){31}$")))
+        assertEquals(
+            "2E:FD:4E:4B:04:FA:96:F1:14:32:5B:59:4A:74:1A:D7:C8:A1:C2:4B:7B:FC:FE:A1:3B:D2:7C:19:6F:5D:C9:A0",
+            fingerprint
+        )
+    }
 }

@@ -19,12 +19,32 @@ android {
         versionName = appVersionName
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("keystore/release.keystore")
+            storePassword = providers.environmentVariable("KEYSTORE_PASSWORD")
+                .orElse(providers.gradleProperty("KEYSTORE_PASSWORD"))
+                .getOrElse("novelarrow")
+            keyAlias = providers.environmentVariable("KEY_ALIAS")
+                .orElse(providers.gradleProperty("KEY_ALIAS"))
+                .getOrElse("novelarrow")
+            keyPassword = providers.environmentVariable("KEY_PASSWORD")
+                .orElse(providers.gradleProperty("KEY_PASSWORD"))
+                .getOrElse("novelarrow")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

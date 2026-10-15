@@ -70,6 +70,7 @@ jobs:
             - **Consolidated Unified TTS Controls**: Stripped redundant speed, pitch, voice picker, and filter controls from reader and browser dialogs, keeping all audio preferences exclusively in the bottom dock control panel.
             - **Notification CSS Content Selector**: Foreground notification action allows editing the HTML content selector on the fly without leaving audio playback.
             - **Configurable Header & Footer Skip Lists**: Auto-skip headers and footers are now configured as editable rule lists with exact-match word boundary toggles.
+            - **Permanent Release Signing Keystore & In-App Update Fix**: Resolved `INSTALL_FAILED_UPDATE_INCOMPATIBLE` by establishing a permanent repository release keystore so that all CI/GitHub Actions builds produce matching signatures indefinitely, accompanied by pre-installation signature verification and one-time migration guidance for existing installs.
             - Automated Unstable Release APK build from branch `${{ github.ref_name }}` (`${{ github.sha }}`).
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**

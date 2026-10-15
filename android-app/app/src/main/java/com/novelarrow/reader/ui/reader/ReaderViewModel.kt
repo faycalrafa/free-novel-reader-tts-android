@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import com.novelarrow.reader.data.updater.AppUpdateManager
 import com.novelarrow.reader.data.updater.CheckUpdateResult
+import com.novelarrow.reader.data.updater.SignatureCompatibility
 import com.novelarrow.reader.data.updater.UpdateInfo
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -63,7 +64,9 @@ data class ReaderUiState(
     val downloadedApk: File? = null,
     val installedVersionName: String = "2.1.2",
     val showRawEditor: Boolean = false,
-    val rawChapterContent: String? = null
+    val rawChapterContent: String? = null,
+    val showSignatureMismatchDialog: Boolean = false,
+    val signatureMismatchInfo: SignatureCompatibility.Mismatch? = null
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -1201,9 +1204,22 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.update { it.copy(isDownloadingUpdate = false) }
     }
 
-    fun installDownloadedApk(context: Context) {
+    fun installDownloadedApk(context: Context, force: Boolean = false) {
         val apkFile = _uiState.value.downloadedApk ?: return
         try {
+            if (!force) {
+                val compatibility = AppUpdateManager.checkSignatureCompatibility(context, apkFile)
+                if (compatibility is SignatureCompatibility.Mismatch) {
+                    _uiState.update {
+                        it.copy(
+                            showSignatureMismatchDialog = true,
+                            signatureMismatchInfo = compatibility
+                        )
+                    }
+                    return
+                }
+            }
+
             if (!AppUpdateManager.canRequestPackageInstalls(context)) {
                 _uiState.update {
                     it.copy(toastMessage = "Please allow installing unknown apps from this source.")
@@ -1216,6 +1232,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update {
                 it.copy(toastMessage = "Failed to launch installer: ${e.message}")
             }
+        }
+    }
+
+    fun dismissSignatureMismatchDialog() {
+        _uiState.update {
+            it.copy(
+                showSignatureMismatchDialog = false,
+                signatureMismatchInfo = null
+            )
         }
     }
 

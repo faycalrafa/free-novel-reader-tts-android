@@ -43,6 +43,15 @@ sealed interface CheckUpdateResult {
     data class Error(val message: String, val throwable: Throwable? = null) : CheckUpdateResult
 }
 
+sealed interface SignatureCompatibility {
+    object Compatible : SignatureCompatibility
+    data class Mismatch(
+        val installedFingerprint: String,
+        val archiveFingerprint: String
+    ) : SignatureCompatibility
+    data class Unknown(val reason: String) : SignatureCompatibility
+}
+
 object AppUpdateManager {
     private const val TAG = "AppUpdateManager"
     const val DEFAULT_REPO_OWNER = "faycalrafa"
@@ -368,6 +377,120 @@ object AppUpdateManager {
             pInfo.versionName ?: "2.1.2"
         } catch (e: Exception) {
             "2.1.2"
+        }
+    }
+
+    /**
+     * Converts a certificate raw byte array into an uppercase colon-separated SHA-256 fingerprint string.
+     */
+    fun certToSha256(certBytes: ByteArray): String {
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(certBytes)
+        return digest.joinToString(":") { "%02X".format(it) }
+    }
+
+    /**
+     * Retrieves the SHA-256 signing certificate fingerprint of the currently installed application.
+     */
+    fun getInstalledSigningCertificateFingerprint(context: Context): String? {
+        return try {
+            val pm = context.packageManager
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getPackageInfo(
+                        context.packageName,
+                        PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong())
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                }
+                val signingInfo = packageInfo.signingInfo
+                if (signingInfo != null) {
+                    if (signingInfo.hasMultipleSigners()) {
+                        signingInfo.apkContentsSigners
+                    } else {
+                        signingInfo.signingCertificateHistory
+                    }
+                } else {
+                    null
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val packageInfo = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+                @Suppress("DEPRECATION")
+                packageInfo.signatures
+            }
+
+            signatures?.firstOrNull()?.let { certToSha256(it.toByteArray()) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to query installed signing certificate fingerprint", e)
+            null
+        }
+    }
+
+    /**
+     * Retrieves the SHA-256 signing certificate fingerprint from a downloaded APK archive file.
+     */
+    fun getArchiveSigningCertificateFingerprint(context: Context, apkFile: File): String? {
+        return try {
+            if (!apkFile.exists()) return null
+            val pm = context.packageManager
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
+            }
+
+            val archiveInfo = pm.getPackageArchiveInfo(apkFile.absolutePath, flags) ?: return null
+
+            val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val signingInfo = archiveInfo.signingInfo
+                if (signingInfo != null) {
+                    if (signingInfo.hasMultipleSigners()) {
+                        signingInfo.apkContentsSigners
+                    } else {
+                        signingInfo.signingCertificateHistory
+                    }
+                } else {
+                    @Suppress("DEPRECATION")
+                    archiveInfo.signatures
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                archiveInfo.signatures
+            }
+
+            signatures?.firstOrNull()?.let { certToSha256(it.toByteArray()) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to query archive signing certificate fingerprint: ${apkFile.absolutePath}", e)
+            null
+        }
+    }
+
+    /**
+     * Verifies that the downloaded APK signature matches the installed package signature.
+     * Prevents INSTALL_FAILED_UPDATE_INCOMPATIBLE by warning the user beforehand.
+     */
+    fun checkSignatureCompatibility(context: Context, apkFile: File): SignatureCompatibility {
+        if (!apkFile.exists()) {
+            return SignatureCompatibility.Unknown("APK file does not exist: ${apkFile.absolutePath}")
+        }
+
+        val installedFingerprint = getInstalledSigningCertificateFingerprint(context)
+            ?: return SignatureCompatibility.Compatible // Fallback to system package installer
+
+        val archiveFingerprint = getArchiveSigningCertificateFingerprint(context, apkFile)
+            ?: return SignatureCompatibility.Compatible // Fallback to system package installer
+
+        return if (installedFingerprint.equals(archiveFingerprint, ignoreCase = true)) {
+            SignatureCompatibility.Compatible
+        } else {
+            SignatureCompatibility.Mismatch(
+                installedFingerprint = installedFingerprint,
+                archiveFingerprint = archiveFingerprint
+            )
         }
     }
 }
