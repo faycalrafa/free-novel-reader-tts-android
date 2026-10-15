@@ -86,6 +86,30 @@ object WebScriptInjector {
     fun buildHelperScript(): String {
         return """
             (function() {
+                // Polyfill and alias BrowserBridge and AndroidBridge
+                window.BrowserBridge = window.BrowserBridge || window.AndroidBridge;
+                window.AndroidBridge = window.AndroidBridge || window.BrowserBridge;
+
+                // Polyfill Greasemonkey GM_notification API (Toast)
+                if (typeof window.GM_notification === 'undefined') {
+                    window.GM_notification = function(details, ondone) {
+                        var text = '';
+                        if (typeof details === 'string') {
+                            text = details;
+                        } else if (typeof details === 'object' && details !== null) {
+                            text = details.text || details.title || JSON.stringify(details);
+                        }
+                        if (window.BrowserBridge && window.BrowserBridge.gmNotification) {
+                            window.BrowserBridge.gmNotification(String(text));
+                        } else if (window.AndroidBridge && window.AndroidBridge.gmNotification) {
+                            window.AndroidBridge.gmNotification(String(text));
+                        }
+                        if (typeof ondone === 'function') {
+                            try { ondone(); } catch(e) {}
+                        }
+                    };
+                }
+
                 // 1. Inject highlight and hover styles
                 if (!document.getElementById('na-tts-styles')) {
                     var styleEl = document.createElement('style');

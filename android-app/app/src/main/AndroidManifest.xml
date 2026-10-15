@@ -31,6 +31,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.browser.DocumentationActivity"
+            android:exported="false"
+            android:label="Userscript Documentation"
+            android:theme="@style/Theme.NovelArrowReader" />
+
         <service
             android:name=".playback.NovelAudioPlaybackService"
             android:foregroundServiceType="mediaPlayback"

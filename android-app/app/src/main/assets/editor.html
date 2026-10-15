@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+    <title>CodeMirror Editor</title>
+    <!-- Embedded CodeMirror CSS -->
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: Consolas, 'Fira Code', 'Courier New', monospace;
+        }
+        #editor-container {
+            width: 100%;
+            height: 100%;
+        }
+        .CodeMirror {
+            width: 100%;
+            height: 100%;
+            font-size: 14px;
+            line-height: 1.5;
+            background-color: #1e1e1e !important;
+            color: #d4d4d4 !important;
+            font-family: Consolas, 'Fira Code', 'Courier New', monospace !important;
+        }
+        .CodeMirror-gutters {
+            background-color: #252526 !important;
+            border-right: 1px solid #333333 !important;
+        }
+        .CodeMirror-linenumber {
+            color: #858585 !important;
+            padding: 0 5px 0 3px !important;
+        }
+        .CodeMirror-cursor {
+            border-left: 2px solid #569cd6 !important;
+        }
+        .CodeMirror-selected {
+            background-color: rgba(38, 79, 120, 0.7) !important;
+        }
+        .CodeMirror-focused .CodeMirror-selected {
+            background-color: rgba(38, 79, 120, 0.7) !important;
+        }
+        .cm-keyword { color: #c586c0 !important; font-weight: bold; }
+        .cm-atom { color: #569cd6 !important; }
+        .cm-number { color: #b5cea8 !important; }
+        .cm-def { color: #dcdcaa !important; }
+        .cm-variable { color: #9cdcfe !important; }
+        .cm-variable-2 { color: #4ec9b0 !important; }
+        .cm-property { color: #9cdcfe !important; }
+        .cm-operator { color: #d4d4d4 !important; }
+        .cm-comment { color: #6a9955 !important; font-style: italic; }
+        .cm-string { color: #ce9178 !important; }
+        .cm-string-2 { color: #ce9178 !important; }
+        .cm-meta { color: #569cd6 !important; }
+        .cm-error { background-color: #f44747; color: white !important; }
+
+        #fallback-editor {
+            display: none;
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            padding: 10px;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: Consolas, 'Fira Code', 'Courier New', monospace;
+            font-size: 14px;
+            border: none;
+            outline: none;
+            resize: none;
+            white-space: pre;
+            word-wrap: normal;
+        }
+    </style>
+    <!-- CodeMirror 5 CDN with local fallback -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+</head>
+<body>
+    <div id="editor-container"></div>
+    <textarea id="fallback-editor" spellcheck="false" placeholder="// Write userscript JavaScript code here..."></textarea>
+
+    <script>
+        var editor = null;
+        var initialCode = "";
+
+        function initEditor(code) {
+            initialCode = code || "";
+            try {
+                if (typeof CodeMirror !== 'undefined') {
+                    editor = CodeMirror(document.getElementById('editor-container'), {
+                        value: initialCode,
+                        mode: "javascript",
+                        theme: "dracula",
+                        lineNumbers: true,
+                        matchBrackets: true,
+                        lineWrapping: true,
+                        autoCloseBrackets: true,
+                        tabSize: 4,
+                        indentUnit: 4,
+                        inputStyle: "contenteditable"
+                    });
+                } else {
+                    showFallback(initialCode);
+                }
+            } catch (err) {
+                console.error("CodeMirror init failed, using fallback:", err);
+                showFallback(initialCode);
+            }
+        }
+
+        function showFallback(code) {
+            document.getElementById('editor-container').style.display = 'none';
+            var fb = document.getElementById('fallback-editor');
+            fb.style.display = 'block';
+            fb.value = code;
+        }
+
+        // Bridge methods exposed to Kotlin
+        window.getEditorValue = function() {
+            if (editor) {
+                return editor.getValue();
+            }
+            var fb = document.getElementById('fallback-editor');
+            return fb ? fb.value : initialCode;
+        };
+
+        window.setEditorValue = function(val) {
+            if (editor) {
+                editor.setValue(val || "");
+            } else {
+                var fb = document.getElementById('fallback-editor');
+                if (fb) fb.value = val || "";
+            }
+        };
+
+        window.selectAllText = function() {
+            if (editor) {
+                editor.execCommand('selectAll');
+            } else {
+                var fb = document.getElementById('fallback-editor');
+                if (fb) fb.select();
+            }
+        };
+
+        window.getSelectionText = function() {
+            if (editor) {
+                return editor.getSelection();
+            }
+            var fb = document.getElementById('fallback-editor');
+            if (fb && fb.selectionStart !== fb.selectionEnd) {
+                return fb.value.substring(fb.selectionStart, fb.selectionEnd);
+            }
+            return "";
+        };
+
+        window.replaceSelectionText = function(text) {
+            if (editor) {
+                editor.replaceSelection(text);
+                editor.focus();
+            } else {
+                var fb = document.getElementById('fallback-editor');
+                if (fb) {
+                    var start = fb.selectionStart;
+                    var end = fb.selectionEnd;
+                    fb.value = fb.value.substring(0, start) + text + fb.value.substring(end);
+                    fb.selectionStart = fb.selectionEnd = start + text.length;
+                    fb.focus();
+                }
+            }
+        };
+
+        window.undoAction = function() {
+            if (editor) editor.undo();
+        };
+
+        window.redoAction = function() {
+            if (editor) editor.redo();
+        };
+
+        // Notify Kotlin that the editor is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            initEditor(window.__pendingCode || "");
+            if (window.CodeEditorBridge && window.CodeEditorBridge.onEditorReady) {
+                window.CodeEditorBridge.onEditorReady();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
@@ -221,6 +222,7 @@ fun BrowserScreen(
                 onHomeClicked = { viewModel.goHome() },
                 onNewTabClicked = { viewModel.openNewTab() },
                 onTabsBadgeClicked = onOpenDrawer,
+                onExtensionsClicked = { viewModel.openExtensionsSheet() },
                 onLoopClicked = { viewModel.onLoopButtonClicked() },
                 onSaveFrozenHtmlClicked = { viewModel.saveSingleChapter() },
                 onRawCodeClicked = { viewModel.extractAndShowRawHtml() },
@@ -437,6 +439,49 @@ fun BrowserScreen(
                 onDismiss = { viewModel.dismissSettingsDialog() }
             )
         }
+
+        // Extensions & Userscripts Bottom Sheet
+        if (uiState.showExtensionsSheet) {
+            UserscriptBottomSheet(
+                currentUrl = uiState.currentUrl,
+                activeScripts = uiState.activeUserscripts,
+                onToggleScript = { id, enabled -> viewModel.toggleUserscript(id, enabled) },
+                onManageScripts = { viewModel.openUserscriptManager() },
+                onCreateScript = { viewModel.openCodeMirrorEditor(null) },
+                onOpenDocs = { viewModel.openDocumentationDialog() },
+                onDismiss = { viewModel.dismissExtensionsSheet() }
+            )
+        }
+
+        // Userscript Manager Dialog
+        if (uiState.showUserscriptManager) {
+            UserscriptManagerDialog(
+                scripts = uiState.allUserscripts,
+                onToggleEnabled = { id, enabled -> viewModel.toggleUserscript(id, enabled) },
+                onEditScript = { script -> viewModel.openCodeMirrorEditor(script) },
+                onDeleteScript = { id -> viewModel.deleteUserscript(id) },
+                onCreateNewScript = { viewModel.openCodeMirrorEditor(null) },
+                onSyncDisk = { viewModel.syncUserscriptsFromDisk() },
+                onDismiss = { viewModel.dismissUserscriptManager() }
+            )
+        }
+
+        // CodeMirror Editor Dialog
+        if (uiState.showCodeMirrorEditor) {
+            CodeMirrorEditorDialog(
+                initialTitle = uiState.editorPrefilledTitle,
+                initialContent = uiState.editorPrefilledCode,
+                onDismiss = { viewModel.dismissCodeMirrorEditor() },
+                onSave = { code -> viewModel.saveUserscriptFromEditor(code) }
+            )
+        }
+
+        // Userscript Documentation Dialog
+        if (uiState.showDocumentationDialog) {
+            DocumentationDialog(
+                onDismiss = { viewModel.dismissDocumentationDialog() }
+            )
+        }
     }
 }
 
@@ -460,6 +505,7 @@ private fun BrowserTopBar(
     onHomeClicked: () -> Unit,
     onNewTabClicked: () -> Unit,
     onTabsBadgeClicked: () -> Unit,
+    onExtensionsClicked: () -> Unit,
     onLoopClicked: () -> Unit,
     onSaveFrozenHtmlClicked: () -> Unit,
     onRawCodeClicked: () -> Unit,
@@ -575,28 +621,17 @@ private fun BrowserTopBar(
 
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // Tab Switcher Badge [N]
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onTabsBadgeClicked() }
+                // Extensions (🧩) Icon Button
+                IconButton(
+                    onClick = onExtensionsClicked,
+                    modifier = Modifier.size(36.dp)
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(34.dp)
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                    ) {
-                        Text(
-                            text = "$tabCount",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
-                    }
+                    Icon(
+                        Icons.Default.Extension,
+                        contentDescription = "Extensions & Userscripts",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
 
@@ -659,6 +694,30 @@ private fun BrowserTopBar(
                     modifier = Modifier.size(34.dp)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "New Tab", modifier = Modifier.size(18.dp))
+                }
+
+                // Tab Switcher Badge [N]
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onTabsBadgeClicked() }
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(30.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                    ) {
+                        Text(
+                            text = "$tabCount",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        )
+                    }
                 }
 
                 // Batch Download Loop (placed directly next to New Tab +)
@@ -1462,6 +1521,7 @@ private fun createConfiguredWebView(
         }
 
         val bridge = com.novelarrow.reader.browser.engine.BrowserBridge(
+            context = context,
             onParagraphClickedCallback = { index -> viewModel.seekToParagraph(index) },
             onScrolledToBottomCallback = {
                 if (viewModel.uiState.value.settings.autoClickOnScroll) {
@@ -1470,6 +1530,7 @@ private fun createConfiguredWebView(
             }
         )
         addJavascriptInterface(bridge, com.novelarrow.reader.browser.engine.BrowserBridge.INTERFACE_NAME)
+        addJavascriptInterface(bridge, com.novelarrow.reader.browser.engine.BrowserBridge.INTERFACE_NAME_BROWSER)
 
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {

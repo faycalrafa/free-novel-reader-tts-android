@@ -17,6 +17,9 @@ import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.WebBrowserSettings
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
+import com.novelarrow.reader.data.userscript.UserscriptEntity
+import com.novelarrow.reader.data.userscript.UserscriptMetadataParser
+import com.novelarrow.reader.data.userscript.UserscriptRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
 import kotlinx.coroutines.Dispatchers
@@ -112,13 +115,25 @@ data class BrowserUiState(
     val rawHtmlContent: String? = null,
 
     // Last downloaded novel reference
-    val lastDownloadedNovel: Novel? = null
+    val lastDownloadedNovel: Novel? = null,
+
+    // Extensions & Userscripts
+    val showExtensionsSheet: Boolean = false,
+    val showUserscriptManager: Boolean = false,
+    val showCodeMirrorEditor: Boolean = false,
+    val showDocumentationDialog: Boolean = false,
+    val editingUserscript: UserscriptEntity? = null,
+    val editorPrefilledCode: String = "",
+    val editorPrefilledTitle: String = "",
+    val allUserscripts: List<UserscriptEntity> = emptyList(),
+    val activeUserscripts: List<UserscriptEntity> = emptyList()
 )
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
 
     private val libraryRepository = LibraryRepository(application)
     private val settingsRepository = SettingsRepository(application)
+    private val userscriptRepository = UserscriptRepository(application)
 
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
@@ -183,6 +198,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         sleepTimerRemainingSeconds = if (it.sleepTimerRemainingSeconds == 0) newSettings.sleepTimerMinutes * 60 else it.sleepTimerRemainingSeconds
                     )
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            userscriptRepository.scriptsFlow.collect { scripts ->
+                val curUrl = _uiState.value.currentUrl
+                val active = scripts.filter { script ->
+                    script.isEnabled && script.matchPatterns.any { pattern ->
+                        WebScriptInjector.matchesPattern(curUrl, pattern)
+                    }
+                }
+                _uiState.update { it.copy(allUserscripts = scripts, activeUserscripts = active) }
             }
         }
 
@@ -400,6 +427,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         if (startScripts.isNotBlank()) {
             dispatchEvaluateJs(startScripts)
         }
+        injectFileUserscripts(url, "document-start")
     }
 
     fun onPageProgress(progress: Int) {
@@ -454,6 +482,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val endScripts = WebScriptInjector.buildUserscriptInjectionCode(url, RunAt.DOCUMENT_END)
         if (endScripts.isNotBlank()) {
             dispatchEvaluateJs(endScripts)
+        }
+        injectFileUserscripts(url, "document-end")
+        injectFileUserscripts(url, "document-idle")
+    }
+
+    private fun injectFileUserscripts(url: String, runAtTarget: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val scripts = userscriptRepository.getScriptsForUrl(url).filter {
+                it.runAt.equals(runAtTarget, ignoreCase = true)
+            }
+            for (script in scripts) {
+                val code = userscriptRepository.getScriptCode(script)
+                if (code.isNotBlank()) {
+                    val safeName = script.name.replace("*/", "* /")
+                    val wrapped = "(function() {\n  try {\n    /* Userscript: $safeName */\n$code\n  } catch (err) {\n    console.error('Error executing userscript [$safeName]:', err);\n  }\n})();"
+                    dispatchEvaluateJs(wrapped)
+                }
+            }
         }
     }
 
@@ -1359,6 +1405,115 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearToast() {
         _uiState.update { it.copy(toastMessage = null) }
+    }
+
+    // =========================================================================
+    // Extensions & Userscripts Management
+    // =========================================================================
+
+    fun openExtensionsSheet() {
+        val curUrl = _uiState.value.currentUrl
+        val active = _uiState.value.allUserscripts.filter { script ->
+            script.isEnabled && script.matchPatterns.any { pattern ->
+                WebScriptInjector.matchesPattern(curUrl, pattern)
+            }
+        }
+        _uiState.update { it.copy(showExtensionsSheet = true, activeUserscripts = active) }
+    }
+
+    fun dismissExtensionsSheet() {
+        _uiState.update { it.copy(showExtensionsSheet = false) }
+    }
+
+    fun openUserscriptManager() {
+        _uiState.update { it.copy(showUserscriptManager = true, showExtensionsSheet = false) }
+    }
+
+    fun dismissUserscriptManager() {
+        _uiState.update { it.copy(showUserscriptManager = false) }
+    }
+
+    fun openCodeMirrorEditor(script: UserscriptEntity? = null) {
+        viewModelScope.launch {
+            if (script != null) {
+                val code = userscriptRepository.getScriptCode(script)
+                _uiState.update {
+                    it.copy(
+                        showCodeMirrorEditor = true,
+                        editingUserscript = script,
+                        editorPrefilledCode = code,
+                        editorPrefilledTitle = script.name,
+                        showExtensionsSheet = false,
+                        showUserscriptManager = false
+                    )
+                }
+            } else {
+                val currentUrl = _uiState.value.currentUrl
+                val template = UserscriptMetadataParser.generateDefaultTemplate(currentUrl, "New Userscript")
+                _uiState.update {
+                    it.copy(
+                        showCodeMirrorEditor = true,
+                        editingUserscript = null,
+                        editorPrefilledCode = template,
+                        editorPrefilledTitle = "New Userscript",
+                        showExtensionsSheet = false,
+                        showUserscriptManager = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissCodeMirrorEditor() {
+        _uiState.update { it.copy(showCodeMirrorEditor = false, editingUserscript = null) }
+    }
+
+    fun saveUserscriptFromEditor(code: String) {
+        viewModelScope.launch {
+            try {
+                val existing = _uiState.value.editingUserscript
+                val saved = userscriptRepository.saveScript(code, preferredName = existing?.name, existingId = existing?.id)
+                _uiState.update {
+                    it.copy(
+                        showCodeMirrorEditor = false,
+                        editingUserscript = null,
+                        toastMessage = "Saved ${saved.name} to Downloads/NovelArrow_Scripts"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(toastMessage = "Failed to save script: ${e.message}") }
+            }
+        }
+    }
+
+    fun toggleUserscript(id: String, isEnabled: Boolean) {
+        viewModelScope.launch {
+            userscriptRepository.toggleScriptEnabled(id, isEnabled)
+        }
+    }
+
+    fun deleteUserscript(id: String) {
+        viewModelScope.launch {
+            val success = userscriptRepository.deleteScript(id)
+            if (success) {
+                _uiState.update { it.copy(toastMessage = "Deleted script and physical file") }
+            }
+        }
+    }
+
+    fun syncUserscriptsFromDisk() {
+        viewModelScope.launch {
+            val list = userscriptRepository.syncFromDisk()
+            _uiState.update { it.copy(toastMessage = "Synced ${list.size} scripts from Downloads") }
+        }
+    }
+
+    fun openDocumentationDialog() {
+        _uiState.update { it.copy(showDocumentationDialog = true, showExtensionsSheet = false) }
+    }
+
+    fun dismissDocumentationDialog() {
+        _uiState.update { it.copy(showDocumentationDialog = false) }
     }
 
     override fun onCleared() {

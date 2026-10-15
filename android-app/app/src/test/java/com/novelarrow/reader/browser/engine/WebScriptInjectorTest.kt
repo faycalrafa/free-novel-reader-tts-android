@@ -107,6 +107,8 @@ class WebScriptInjectorTest {
         assertTrue(script.contains("__novelArrowScrollBound"))
         assertTrue(script.contains("window.AndroidBridge.onParagraphClicked"))
         assertTrue(script.contains("window.AndroidBridge.onScrolledToBottom"))
+        assertTrue(script.contains("window.GM_notification"))
+        assertTrue(script.contains("window.BrowserBridge"))
     }
 
     @Test

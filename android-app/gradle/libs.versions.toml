@@ -18,8 +18,10 @@ documentfile = "1.0.1"
 jsoup = "1.18.3"
 datastore = "1.1.2"
 kotlinxSerializationJson = "1.8.0"
+markwon = "4.6.2"
 
 [libraries]
+markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
