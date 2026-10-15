@@ -83,6 +83,14 @@ class MainActivity : ComponentActivity() {
                 uri?.let { viewModel.scanRootFolder(it) }
             }
 
+            val saveApkLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.CreateDocument("application/vnd.android.package-archive")
+            ) { uri ->
+                uri?.let { destinationUri ->
+                    viewModel.saveApkToCustomUri(destinationUri, context)
+                }
+            }
+
             LaunchedEffect(uiState.toastMessage) {
                 uiState.toastMessage?.let { msg ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -109,8 +117,6 @@ class MainActivity : ComponentActivity() {
                                 installedVersionName = uiState.installedVersionName,
                                 onSelectNovel = { novel ->
                                     viewModel.selectNovel(novel)
-                                    currentScreen = AppScreen.READER
-                                    scope.launch { drawerState.close() }
                                 },
                                 onSelectChapter = { index ->
                                     viewModel.selectChapter(index)
@@ -184,6 +190,10 @@ class MainActivity : ComponentActivity() {
                                     downloadedApk = uiState.downloadedApk,
                                     onCheckForUpdates = { viewModel.checkForUpdate(silent = false) },
                                     onInstallDownloadedApk = { viewModel.installDownloadedApk(context) },
+                                    onSaveApkToPath = {
+                                        val apkName = uiState.updateInfo?.apkName?.ifBlank { "update-latest.apk" } ?: "update-latest.apk"
+                                        saveApkLauncher.launch(apkName)
+                                    },
                                     onNavigateBack = { currentScreen = AppScreen.READER }
                                 )
                             }
@@ -210,6 +220,10 @@ class MainActivity : ComponentActivity() {
                                 downloadedApk = uiState.downloadedApk,
                                 onDownloadClick = { viewModel.startUpdateDownload() },
                                 onInstallClick = { viewModel.installDownloadedApk(context) },
+                                onSaveToPathClick = {
+                                    val apkName = uiState.updateInfo?.apkName?.ifBlank { "update-latest.apk" } ?: "update-latest.apk"
+                                    saveApkLauncher.launch(apkName)
+                                },
                                 onDismiss = { viewModel.dismissUpdateDialog() }
                             )
                         }

@@ -1090,7 +1090,10 @@ fun LibraryDrawerContent(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onSelectNovel(novel) }
+                                    .clickable {
+                                        onSelectNovel(novel)
+                                        selectedTab = 1
+                                    }
                                     .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -1238,6 +1241,35 @@ fun LibraryDrawerContent(
         } else {
             // Chapters list
             Column(modifier = Modifier.weight(1f)) {
+                if (currentNovel != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Book,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = currentNovel.title,
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                }
                 LazyColumn(
                     state = chapterListState,
                     modifier = Modifier.weight(1f)
@@ -2472,6 +2504,7 @@ fun UpdateAvailableDialog(
     downloadedApk: java.io.File?,
     onDownloadClick: () -> Unit,
     onInstallClick: () -> Unit,
+    onSaveToPathClick: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -2543,24 +2576,34 @@ fun UpdateAvailableDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onSaveToPathClick,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Save APK...")
+                }
+                Button(
+                    onClick = {
+                        if (downloadedApk != null && downloadedApk.exists()) {
+                            onInstallClick()
+                        } else {
+                            onDownloadClick()
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
                     if (downloadedApk != null && downloadedApk.exists()) {
-                        onInstallClick()
+                        Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Install Now")
                     } else {
-                        onDownloadClick()
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Download & Install")
                     }
-                },
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                if (downloadedApk != null && downloadedApk.exists()) {
-                    Icon(Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Install Now")
-                } else {
-                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Download & Install")
                 }
             }
         },

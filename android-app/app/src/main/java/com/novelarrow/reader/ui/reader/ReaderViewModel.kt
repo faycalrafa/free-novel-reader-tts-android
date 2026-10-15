@@ -61,7 +61,7 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.1.0"
+    val installedVersionName: String = "2.1.1"
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -85,6 +85,52 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         checkForUpdate(silent = true)
     }
 
+    fun syncActiveProgress(
+        novelId: String? = _uiState.value.currentNovel?.id,
+        chapterIndex: Int,
+        chapterId: String? = null,
+        paragraphIndex: Int = _uiState.value.currentParagraphIndex,
+        isCompleted: Boolean = false
+    ) {
+        if (novelId == null) return
+        _uiState.update { state ->
+            val updatedNovels = state.novels.map { nov ->
+                if (nov.id == novelId) nov.copy(currentChapterIndex = chapterIndex) else nov
+            }
+            val updatedCurrentNovel = if (state.currentNovel?.id == novelId) {
+                state.currentNovel.copy(currentChapterIndex = chapterIndex)
+            } else {
+                state.currentNovel
+            }
+            val updatedChapters = state.chapters.map { chap ->
+                if ((chapterId != null && chap.id == chapterId) || chap.orderIndex == chapterIndex) {
+                    chap.copy(
+                        lastReadParagraphIndex = paragraphIndex,
+                        isCompleted = isCompleted || chap.isCompleted
+                    )
+                } else chap
+            }
+            val updatedCurrentChapter = if (state.currentChapter != null &&
+                ((chapterId != null && state.currentChapter.id == chapterId) || state.currentChapter.orderIndex == chapterIndex)
+            ) {
+                state.currentChapter.copy(
+                    lastReadParagraphIndex = paragraphIndex,
+                    isCompleted = isCompleted || state.currentChapter.isCompleted
+                )
+            } else {
+                state.currentChapter
+            }
+
+            state.copy(
+                novels = updatedNovels,
+                currentNovel = updatedCurrentNovel,
+                chapters = updatedChapters,
+                currentChapter = updatedCurrentChapter,
+                currentParagraphIndex = paragraphIndex
+            )
+        }
+    }
+
     private fun observePlaybackService() {
         viewModelScope.launch {
             AudioPlaybackCoordinator.playbackProgressState.collect { progress ->
@@ -95,6 +141,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         val currentChap = _uiState.value.currentChapter
                         val isSameChapter = currentChap != null && (progress.chapterId == currentChap.id || progress.chapterIndex == currentChap.orderIndex)
                         if (isSameChapter) {
+                            syncActiveProgress(
+                                novelId = curNovel.id,
+                                chapterIndex = progress.chapterIndex,
+                                chapterId = progress.chapterId,
+                                paragraphIndex = progress.currentParagraphIndex,
+                                isCompleted = false
+                            )
                             _uiState.update {
                                 it.copy(
                                     isPlaying = progress.isPlaying,
@@ -106,6 +159,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                             val newChap = chapters.firstOrNull { it.id == progress.chapterId }
                                 ?: chapters.getOrNull(progress.chapterIndex)
                             if (newChap != null && newChap.id != currentChap?.id) {
+                                syncActiveProgress(
+                                    novelId = curNovel.id,
+                                    chapterIndex = newChap.orderIndex,
+                                    chapterId = newChap.id,
+                                    paragraphIndex = progress.currentParagraphIndex,
+                                    isCompleted = false
+                                )
                                 _uiState.update {
                                     it.copy(
                                         currentChapter = newChap,
@@ -291,6 +351,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val total = _uiState.value.paragraphs.size
         val isCompleted = total > 0 && currentIdx >= total - 1
 
+        syncActiveProgress(
+            novelId = novel.id,
+            chapterIndex = chapter.orderIndex,
+            chapterId = chapter.id,
+            paragraphIndex = currentIdx,
+            isCompleted = isCompleted
+        )
+
         viewModelScope.launch {
             libraryRepository.updateChapterProgress(
                 novelId = novel.id,
@@ -298,24 +366,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 paragraphIndex = currentIdx,
                 scrollOffset = 0,
                 isCompleted = isCompleted
-            )
-        }
-
-        _uiState.update { state ->
-            val updatedChapters = state.chapters.map { chap ->
-                if (chap.id == chapter.id || chap.orderIndex == chapter.orderIndex) {
-                    chap.copy(
-                        lastReadParagraphIndex = currentIdx,
-                        isCompleted = isCompleted || chap.isCompleted
-                    )
-                } else chap
-            }
-            state.copy(
-                chapters = updatedChapters,
-                currentChapter = chapter.copy(
-                    lastReadParagraphIndex = currentIdx,
-                    isCompleted = isCompleted || chapter.isCompleted
-                )
             )
         }
     }
@@ -336,6 +386,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         val chapters = _uiState.value.chapters
         val chapter = chapters[index]
+
+        val curNovel = _uiState.value.currentNovel
+        if (curNovel != null) {
+            syncActiveProgress(
+                novelId = curNovel.id,
+                chapterIndex = index,
+                chapterId = chapter.id,
+                paragraphIndex = if (forceStartAtBeginning) 0 else chapter.lastReadParagraphIndex
+            )
+        }
 
         viewModelScope.launch {
             loadChapterContent(chapter, restoreProgress = !forceStartAtBeginning)
@@ -372,6 +432,17 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 chapter.lastReadParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
             } else 0
 
+            val novel = _uiState.value.currentNovel
+            if (novel != null) {
+                syncActiveProgress(
+                    novelId = novel.id,
+                    chapterIndex = chapter.orderIndex,
+                    chapterId = chapter.id,
+                    paragraphIndex = targetIndex,
+                    isCompleted = chapter.isCompleted
+                )
+            }
+
             _uiState.update {
                 it.copy(
                     paragraphs = paragraphs,
@@ -380,7 +451,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
 
-            val novel = _uiState.value.currentNovel
             if (novel != null) {
                 libraryRepository.updateChapterProgress(
                     novelId = novel.id,
@@ -510,10 +580,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val chapters = _uiState.value.chapters
         val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
         if (currentIdx + 1 < chapters.size) {
+            val nextIdx = currentIdx + 1
+            val novel = _uiState.value.currentNovel
+            if (novel != null && nextIdx in chapters.indices) {
+                syncActiveProgress(
+                    novelId = novel.id,
+                    chapterIndex = nextIdx,
+                    chapterId = chapters[nextIdx].id,
+                    paragraphIndex = chapters[nextIdx].lastReadParagraphIndex
+                )
+            }
             if (_uiState.value.isPlaying) {
                 AudioPlaybackCoordinator.nextChapter()
             } else {
-                selectChapter(currentIdx + 1, forceStartAtBeginning = false)
+                selectChapter(nextIdx, forceStartAtBeginning = false)
             }
         } else {
             _uiState.update { it.copy(toastMessage = "End of novel reached") }
@@ -526,10 +606,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val chapters = _uiState.value.chapters
         val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
         if (currentIdx - 1 >= 0) {
+            val prevIdx = currentIdx - 1
+            val novel = _uiState.value.currentNovel
+            if (novel != null && prevIdx in chapters.indices) {
+                syncActiveProgress(
+                    novelId = novel.id,
+                    chapterIndex = prevIdx,
+                    chapterId = chapters[prevIdx].id,
+                    paragraphIndex = chapters[prevIdx].lastReadParagraphIndex
+                )
+            }
             if (_uiState.value.isPlaying) {
                 AudioPlaybackCoordinator.previousChapter()
             } else {
-                selectChapter(currentIdx - 1, forceStartAtBeginning = false)
+                selectChapter(prevIdx, forceStartAtBeginning = false)
             }
         }
     }
@@ -1006,6 +1096,68 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         } catch (e: Exception) {
             _uiState.update {
                 it.copy(toastMessage = "Failed to launch installer: ${e.message}")
+            }
+        }
+    }
+
+    fun saveApkToCustomUri(destinationUri: Uri, context: Context) {
+        viewModelScope.launch {
+            val apkFile = _uiState.value.downloadedApk
+            if (apkFile != null && apkFile.exists()) {
+                val success = AppUpdateManager.copyApkToUri(context, apkFile, destinationUri)
+                _uiState.update {
+                    it.copy(
+                        toastMessage = if (success) "Saved update-latest.apk to selected path" else "Failed to save APK to selected path"
+                    )
+                }
+            } else {
+                val info = _uiState.value.updateInfo
+                val downloadUrl = info?.downloadUrl ?: "https://github.com/faycalrafa/free-novel-reader-tts-android/releases/latest/download/update-latest.apk"
+                val apkSize = info?.apkSize ?: 0L
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = true,
+                        updateProgress = 0f,
+                        updateDownloadedBytes = 0L,
+                        updateTotalBytes = apkSize
+                    )
+                }
+                try {
+                    val tempApk = AppUpdateManager.downloadApk(
+                        downloadUrl = downloadUrl,
+                        expectedSize = apkSize,
+                        context = context,
+                        onProgress = { bytesRead, totalBytes ->
+                            val progress = if (totalBytes > 0) (bytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+                            _uiState.update {
+                                it.copy(
+                                    updateProgress = progress,
+                                    updateDownloadedBytes = bytesRead,
+                                    updateTotalBytes = totalBytes
+                                )
+                            }
+                        }
+                    )
+                    _uiState.update {
+                        it.copy(
+                            isDownloadingUpdate = false,
+                            downloadedApk = tempApk
+                        )
+                    }
+                    val success = AppUpdateManager.copyApkToUri(context, tempApk, destinationUri)
+                    _uiState.update {
+                        it.copy(
+                            toastMessage = if (success) "Saved update-latest.apk to selected path" else "Failed to save APK to selected path"
+                        )
+                    }
+                } catch (e: Exception) {
+                    _uiState.update {
+                        it.copy(
+                            isDownloadingUpdate = false,
+                            toastMessage = "Download failed: ${e.message}"
+                        )
+                    }
+                }
             }
         }
     }

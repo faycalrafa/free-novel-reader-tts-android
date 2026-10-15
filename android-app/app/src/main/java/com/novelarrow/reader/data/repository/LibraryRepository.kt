@@ -384,17 +384,42 @@ class LibraryRepository(private val context: Context) {
             val rootCandidates = mutableListOf<File>()
             val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             if (extDir != null) {
-                val extRoot = File(extDir, "NovelReader")
-                if (extRoot.exists() && extRoot.isDirectory) rootCandidates.add(extRoot)
+                val candidate1 = File(extDir, "novelreader")
+                val candidate2 = File(extDir, "NovelReader")
+                if (candidate1.exists() && candidate1.isDirectory) rootCandidates.add(candidate1)
+                if (candidate2.exists() && candidate2.isDirectory) rootCandidates.add(candidate2)
+                if (!candidate1.exists() && !candidate2.exists()) {
+                    candidate1.mkdirs()
+                    rootCandidates.add(candidate1)
+                }
             }
 
-            val internalRoot = File(context.filesDir, "NovelReader")
-            if (internalRoot.exists() && internalRoot.isDirectory) rootCandidates.add(internalRoot)
+            val internalRoot1 = File(context.filesDir, "novelreader")
+            val internalRoot2 = File(context.filesDir, "NovelReader")
+            if (internalRoot1.exists() && internalRoot1.isDirectory) rootCandidates.add(internalRoot1)
+            if (internalRoot2.exists() && internalRoot2.isDirectory) rootCandidates.add(internalRoot2)
 
             try {
                 val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val publicRoot = File(publicDownloads, "NovelReader")
-                if (publicRoot.exists() && publicRoot.isDirectory) rootCandidates.add(publicRoot)
+                val pub1 = File(publicDownloads, "novelreader")
+                val pub2 = File(publicDownloads, "NovelReader")
+                if (pub1.exists() && pub1.isDirectory) rootCandidates.add(pub1)
+                if (pub2.exists() && pub2.isDirectory) rootCandidates.add(pub2)
+
+                val alt1 = File("/storage/emulated/0/Download")
+                if (alt1.exists()) {
+                    val a1 = File(alt1, "novelreader")
+                    val a2 = File(alt1, "NovelReader")
+                    if (a1.exists() && a1.isDirectory) rootCandidates.add(a1)
+                    if (a2.exists() && a2.isDirectory) rootCandidates.add(a2)
+                }
+                val alt2 = File("/storage/emulated/0/Downloads")
+                if (alt2.exists()) {
+                    val b1 = File(alt2, "novelreader")
+                    val b2 = File(alt2, "NovelReader")
+                    if (b1.exists() && b1.isDirectory) rootCandidates.add(b1)
+                    if (b2.exists() && b2.isDirectory) rootCandidates.add(b2)
+                }
             } catch (_: Exception) {}
 
         val seenPaths = mutableSetOf<String>()
@@ -1323,11 +1348,11 @@ class LibraryRepository(private val context: Context) {
         paragraphIndex: Int,
         scrollOffset: Int,
         isCompleted: Boolean
-    ) = withContext(Dispatchers.IO) {
+    ): Novel? = withContext(Dispatchers.IO) {
         dbMutex.withLock {
             val db = loadDatabaseLocked()
-            val chapters = db.chapters[novelId]?.toMutableList() ?: return@withContext
-            if (chapterIndex !in chapters.indices) return@withContext
+            val chapters = db.chapters[novelId]?.toMutableList() ?: return@withContext null
+            if (chapterIndex !in chapters.indices) return@withContext null
 
             val target = chapters[chapterIndex]
             chapters[chapterIndex] = target.copy(
@@ -1351,6 +1376,8 @@ class LibraryRepository(private val context: Context) {
                 put(novelId, chapters)
             }
 
+            val targetNovel = updatedNovels.firstOrNull { it.id == novelId }
+
             saveDatabaseLocked(
                 db.copy(
                     novels = updatedNovels,
@@ -1359,7 +1386,6 @@ class LibraryRepository(private val context: Context) {
                 )
             )
 
-            val targetNovel = updatedNovels.firstOrNull { it.id == novelId }
             if (targetNovel != null) {
                 writeFolderProgress(
                     folderUriOrPath = targetNovel.rootTreeUri,
@@ -1382,6 +1408,7 @@ class LibraryRepository(private val context: Context) {
                     )
                 )
             }
+            targetNovel
         }
     }
 

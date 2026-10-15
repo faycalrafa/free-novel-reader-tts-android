@@ -122,6 +122,9 @@ object AudioPlaybackCoordinator {
                 applyTtsSettings()
             }
         }
+
+        // Initialize persistent notification toolbar with last paused hearing session
+        restoreLastHearingSession(autoPlay = false)
     }
 
     fun attachService(service: NovelAudioPlaybackService) {
@@ -140,10 +143,18 @@ object AudioPlaybackCoordinator {
         ttsManager?.setLanguageOverride(locale)
     }
 
-    private fun ensureServiceRunning(context: Context) {
+    fun ensureServiceRunning(context: Context) {
         if (attachedService == null) {
             val intent = Intent(context.applicationContext, NovelAudioPlaybackService::class.java).apply {
-                action = NovelAudioPlaybackService.ACTION_PLAY
+                action = NovelAudioPlaybackService.ACTION_UPDATE_STATE
+                putExtra(NovelAudioPlaybackService.EXTRA_IS_PLAYING, _isPlayingState.value)
+                putExtra(NovelAudioPlaybackService.EXTRA_NOVEL_TITLE, currentNovelTitle)
+                putExtra(NovelAudioPlaybackService.EXTRA_CHAPTER_TITLE, currentChapterTitle)
+                putExtra(NovelAudioPlaybackService.EXTRA_PROGRESS_TEXT, currentProgressText)
+                putExtra(NovelAudioPlaybackService.EXTRA_CHAPTER_INDEX, currentChapterIndex)
+                putExtra(NovelAudioPlaybackService.EXTRA_TOTAL_CHAPTERS, totalChaptersCount)
+                putExtra(NovelAudioPlaybackService.EXTRA_PROGRESS_CURRENT, currentParagraphIndex)
+                putExtra(NovelAudioPlaybackService.EXTRA_PROGRESS_TOTAL, totalParagraphsCount)
             }
             try {
                 ContextCompat.startForegroundService(context.applicationContext, intent)
@@ -337,6 +348,83 @@ object AudioPlaybackCoordinator {
         }
     }
 
+    fun restoreLastHearingSession(autoPlay: Boolean = false, callback: (() -> Unit)? = null) {
+        coordinatorScope.launch(Dispatchers.IO) {
+            val repo = libraryRepository ?: return@launch
+            val lastActiveId = repo.getLastActiveNovelId()
+            val novels = repo.getNovels()
+            val targetNovel = (if (lastActiveId != null) novels.firstOrNull { it.id == lastActiveId } else null)
+                ?: novels.firstOrNull() ?: return@launch
+            val chapters = repo.getChapters(targetNovel.id)
+            if (chapters.isEmpty()) return@launch
+
+            val chapIdx = targetNovel.currentChapterIndex.coerceIn(0, chapters.size - 1)
+            val chap = chapters[chapIdx]
+            val content = try { repo.readChapterContent(chap) } catch (_: Exception) { "" }
+            if (content.isBlank()) return@launch
+
+            val settings = settingsRepository?.getSettings() ?: com.novelarrow.reader.data.model.ReaderSettings()
+            val parsed = ChapterParser.parse(
+                content = content,
+                fileName = chap.title,
+                contentSelector = settings.contentSelector,
+                contentSelectorEnabled = settings.contentSelectorEnabled,
+                pronunciationRules = settings.pronunciationRules,
+                pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                skipWords = settings.skipWords,
+                skipWordsEnabled = settings.skipWordsEnabled,
+                headerSkipString = settings.headerSkipString,
+                headerSkipEnabled = settings.headerSkipEnabled,
+                footerSkipString = settings.footerSkipString,
+                footerSkipEnabled = settings.footerSkipEnabled
+            )
+
+            val paraIdx = chap.lastReadParagraphIndex.coerceIn(0, (parsed.size - 1).coerceAtLeast(0))
+
+            withContext(Dispatchers.Main) {
+                currentSource = PlaybackSource.READER
+                currentNovelId = targetNovel.id
+                currentNovelTitle = targetNovel.title
+                currentChapterId = chap.id
+                currentChapterTitle = chap.title
+                currentChapterIndex = chapIdx
+                totalChaptersCount = chapters.size
+                currentParagraphs = parsed
+                totalParagraphsCount = parsed.size
+                currentParagraphIndex = paraIdx
+
+                _playbackProgressState.update {
+                    it.copy(
+                        isPlaying = autoPlay,
+                        source = PlaybackSource.READER,
+                        novelId = targetNovel.id,
+                        novelTitle = targetNovel.title,
+                        chapterId = chap.id,
+                        chapterTitle = chap.title,
+                        chapterIndex = chapIdx,
+                        totalChapters = chapters.size,
+                        currentParagraphIndex = paraIdx,
+                        totalParagraphs = parsed.size,
+                        currentParagraphText = parsed.getOrNull(paraIdx)?.spokenText ?: ""
+                    )
+                }
+
+                currentProgressText = "Ch. ${chapIdx + 1}/${chapters.size} • ¶ ${paraIdx + 1}/${parsed.size}"
+
+                appContext?.let { ctx ->
+                    ensureServiceRunning(ctx)
+                }
+                updateServiceState()
+
+                if (autoPlay) {
+                    _isPlayingState.value = true
+                    speakCurrentParagraph()
+                }
+                callback?.invoke()
+            }
+        }
+    }
+
     fun play() {
         if (!_isPlayingState.value) {
             _isPlayingState.value = true
@@ -350,33 +438,37 @@ object AudioPlaybackCoordinator {
                 startSleepTimerCountdown()
             }
 
-            // If empty paragraphs in reader, reload active chapter
-            if (currentParagraphs.isEmpty() && currentSource == PlaybackSource.READER && currentNovelId != null) {
-                coordinatorScope.launch(Dispatchers.IO) {
-                    val repo = libraryRepository ?: return@launch
-                    val chapters = repo.getChapters(currentNovelId!!)
-                    val chap = chapters.getOrNull(currentChapterIndex) ?: chapters.firstOrNull() ?: return@launch
-                    val content = repo.readChapterContent(chap)
-                    val settings = settingsRepository?.getSettings() ?: com.novelarrow.reader.data.model.ReaderSettings()
-                    val parsed = ChapterParser.parse(
-                        content = content,
-                        fileName = chap.title,
-                        contentSelector = settings.contentSelector,
-                        contentSelectorEnabled = settings.contentSelectorEnabled,
-                        pronunciationRules = settings.pronunciationRules,
-                        pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
-                        skipWords = settings.skipWords,
-                        skipWordsEnabled = settings.skipWordsEnabled,
-                        headerSkipString = settings.headerSkipString,
-                        headerSkipEnabled = settings.headerSkipEnabled,
-                        footerSkipString = settings.footerSkipString,
-                        footerSkipEnabled = settings.footerSkipEnabled
-                    )
-                    withContext(Dispatchers.Main) {
-                        currentParagraphs = parsed
-                        totalParagraphsCount = parsed.size
-                        speakCurrentParagraph()
+            // If empty paragraphs, restore from last paused hearing session or reload
+            if (currentParagraphs.isEmpty()) {
+                if (currentSource == PlaybackSource.READER && currentNovelId != null) {
+                    coordinatorScope.launch(Dispatchers.IO) {
+                        val repo = libraryRepository ?: return@launch
+                        val chapters = repo.getChapters(currentNovelId!!)
+                        val chap = chapters.getOrNull(currentChapterIndex) ?: chapters.firstOrNull() ?: return@launch
+                        val content = repo.readChapterContent(chap)
+                        val settings = settingsRepository?.getSettings() ?: com.novelarrow.reader.data.model.ReaderSettings()
+                        val parsed = ChapterParser.parse(
+                            content = content,
+                            fileName = chap.title,
+                            contentSelector = settings.contentSelector,
+                            contentSelectorEnabled = settings.contentSelectorEnabled,
+                            pronunciationRules = settings.pronunciationRules,
+                            pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                            skipWords = settings.skipWords,
+                            skipWordsEnabled = settings.skipWordsEnabled,
+                            headerSkipString = settings.headerSkipString,
+                            headerSkipEnabled = settings.headerSkipEnabled,
+                            footerSkipString = settings.footerSkipString,
+                            footerSkipEnabled = settings.footerSkipEnabled
+                        )
+                        withContext(Dispatchers.Main) {
+                            currentParagraphs = parsed
+                            totalParagraphsCount = parsed.size
+                            speakCurrentParagraph()
+                        }
                     }
+                } else {
+                    restoreLastHearingSession(autoPlay = true)
                 }
             } else {
                 speakCurrentParagraph()
@@ -406,6 +498,12 @@ object AudioPlaybackCoordinator {
     }
 
     fun nextParagraph() {
+        if (currentParagraphs.isEmpty()) {
+            restoreLastHearingSession(autoPlay = false) {
+                nextParagraph()
+            }
+            return
+        }
         if (currentParagraphIndex + 1 < currentParagraphs.size) {
             currentParagraphIndex++
             _playbackProgressState.update { it.copy(currentParagraphIndex = currentParagraphIndex) }

@@ -779,6 +779,12 @@ class NovelAudioPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val prevAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_media_previous,
+            "Previous",
+            prevChapPendingIntent
+        ).build()
+
         val playPauseAction = if (isPlaying) {
             NotificationCompat.Action.Builder(
                 android.R.drawable.ic_media_pause,
@@ -793,6 +799,12 @@ class NovelAudioPlaybackService : MediaSessionService() {
             ).build()
         }
 
+        val forwardAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_media_next,
+            "Forward",
+            nextParaPendingIntent
+        ).build()
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
             .setContentText(novelTitle.ifBlank { "NovelArrow Reader" })
@@ -800,7 +812,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openAppPendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOngoing(true) // Persistent notification in notification panel even when playback is paused
+            .setOngoing(true) // Persistent toolbar in notification panel even when playback is paused
 
         if (coverBitmap != null) {
             builder.setLargeIcon(coverBitmap)
@@ -811,11 +823,11 @@ class NovelAudioPlaybackService : MediaSessionService() {
             (currentParagraphIndex + 1).coerceIn(0, totalParagraphsCount.coerceAtLeast(1)),
             false
         )
-        .addAction(android.R.drawable.ic_media_previous, "Prev Chap", prevChapPendingIntent)
-        .addAction(playPauseAction)
-        .addAction(android.R.drawable.ic_media_next, "Next Chap", nextChapPendingIntent)
+        .addAction(prevAction)       // Action 0: Previous
+        .addAction(playPauseAction)  // Action 1: Play / Pause
+        .addAction(forwardAction)    // Action 2: Forward (advances where user last paused)
         .addAction(android.R.drawable.ic_media_rew, "Prev ¶", prevParaPendingIntent)
-        .addAction(android.R.drawable.ic_media_ff, "Next ¶", nextParaPendingIntent)
+        .addAction(android.R.drawable.ic_media_ff, "Next Chap", nextChapPendingIntent)
 
         mediaSession?.let { session ->
             val mediaStyle = MediaStyleNotificationHelper.MediaStyle(session)

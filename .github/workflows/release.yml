@@ -35,40 +35,45 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.1.0"
+          DATE_TAG="v2.1.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.1.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.1.0 --no-daemon
+          APP_VERSION_NAME: "2.1.1"
+        run: ./gradlew assembleRelease -PappVersionName=2.1.1 --no-daemon
+
+      - name: Prepare APK Assets
+        run: |
+          cp android-app/app/build/outputs/apk/release/app-release.apk android-app/app/build/outputs/apk/release/update-latest.apk
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.1.0 (Stable)
-          prerelease: false
+          name: NovelArrow Reader v2.1.1 (Unstable)
+          prerelease: true
           body: |
-            ### NovelArrow Reader v2.1.0 (Stable) 📖🚀
+            ### NovelArrow Reader v2.1.1 (Unstable) 📖⚡
 
-            **NovelArrow Reader v2.1.0** introduces free drag-and-drop chapter reordering with 6-dot handles, a centralized options dialog for TTS & parsing filters directly in the media bar, continuous playback between library and browser, reactive lockscreen/notification metadata synchronization, unified download directory handling with hidden `.progress.json` persistence, and instant speech speed switching.
+            **NovelArrow Reader v2.1.1 (Unstable)** brings persistent notification toolbar media controls, zero-latency instantaneous progress synchronization, chapter list navigation on folder tap, automatic library loading from the default Download `novelreader` folder, full user preference backup and restoration across reinstalls, and custom path selection for saving `update-latest.apk`.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Features in this release:
-            - **Free Drag-and-Drop Chapter Reordering**: Intuitive 6-dots handle on the far left of each chapter row in the library sidebar to reorder chapters freely.
-            - **Centralized Rules, Skips, and TTS Settings**: Fast options button (`Tune`) neatly placed right beside the paragraph progress bar in the bottom media bar, bringing together Speech Speed, Pitch, Voice Selection, Sleep Timer, Pronunciation Rules, and Skip Words for the entire app.
-            - **Unified Media Control Bottom Bar**: Consistent media bottom bar across both the offline reader and embedded browser; ongoing playback seamlessly persists when switching screens.
-            - **Reactive Notification & Lockscreen Metadata**: Android System Media Notification reactively updates chapter name, novel title, artwork, and playback state when scrubbing or advancing paragraphs/chapters.
-            - **Download Directory as Default Library**: The `NovelReader` download directory is automatically scanned and treated identically to imported folders, storing progress in `.progress.json` that survives app reinstalls.
-            - **Browser TTS Stream Management**: Clean toggle behavior (tapping TTS button again halts playback and hides dock); page navigation stops the previous audio stream and respects auto-read next chapter settings.
-            - **Instant Speed Switching**: Speech speed changes apply instantaneously to the active TTS engine without delay.
-            - Automated Release APK build from branch `${{ github.ref_name }}` (`${{ github.sha }}`).
+            - **Persistent Notification Media Toolbar**: Ongoing playback notification bar with Previous, Play/Pause, and Forward controls that resumes exactly where your listening session was paused.
+            - **Instant Progress Synchronization**: Completely eliminates sidebar/reader lag when scrubbing or jumping between chapters (e.g. jumping to chapter 60 immediately updates the library sidebar without delay).
+            - **Folder Tap Chapter Browsing**: Clicking a folder/novel in the library drawer switches directly to the Chapters tab to view the chapter list first instead of jumping straight into reading.
+            - **Auto-Load Default Download Folder**: Automatically scans and loads novels from `novelreader` (or `NovelReader`) inside the default download directories on app launch (even on first install).
+            - **Reinstall Preference Backup & Restore**: Automatically saves user parameters (dark mode, TTS speed, pitch, voice, font size, skip words, pronunciation rules, browser settings) into hidden `.novelreader_preferences.json` in the root of the `novelreader` folder to restore all settings on reinstallation.
+            - **Save `update-latest.apk` to Custom Path**: Option in update dialogs and About screen to choose any destination folder or storage location to save `update-latest.apk` using the Android system file picker.
+            - Automated Unstable Release APK build from branch `${{ github.ref_name }}` (`${{ github.sha }}`).
 
-            **Download and install `app-release.apk` below:**
-          files: android-app/app/build/outputs/apk/release/app-release.apk
+            **Download and install `app-release.apk` or `update-latest.apk` below:**
+          files: |
+            android-app/app/build/outputs/apk/release/app-release.apk
+            android-app/app/build/outputs/apk/release/update-latest.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

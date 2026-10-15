@@ -6,6 +6,8 @@ import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.ThemeMode
 import com.novelarrow.reader.data.model.WebBrowserSettings
+import android.os.Environment
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,9 +30,17 @@ data class SharedTtsSettings(
     val pronunciationRulesEnabled: Boolean = true
 )
 
+@Serializable
+data class UserPreferencesBackup(
+    val readerSettings: ReaderSettings = ReaderSettings(),
+    val browserSettings: WebBrowserSettings = WebBrowserSettings(),
+    val sharedTts: SharedTtsSettings = SharedTtsSettings(),
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
 class SettingsRepository(private val context: Context) {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val settingsFile: File
         get() = File(context.filesDir, "novel_settings_v1.json")
     private val browserSettingsFile: File
@@ -50,9 +60,27 @@ class SettingsRepository(private val context: Context) {
     val browserSettingsFlow: StateFlow<WebBrowserSettings>
 
     init {
-        val loadedReader = loadRawSettings()
-        val loadedBrowser = loadRawBrowserSettings()
-        val shared = loadSharedTts(loadedReader, loadedBrowser)
+        val backup = restoreBackupFromNovelReaderRoots()
+        val isFirstInstall = !settingsFile.exists() && !browserSettingsFile.exists() && !sharedTtsFile.exists()
+        val shouldRestoreBackup = backup != null && (isFirstInstall || backup.lastUpdated > settingsFile.lastModified())
+
+        val loadedReader = if (shouldRestoreBackup) {
+            backup.readerSettings
+        } else {
+            loadRawSettings()
+        }
+
+        val loadedBrowser = if (shouldRestoreBackup) {
+            backup.browserSettings
+        } else {
+            loadRawBrowserSettings()
+        }
+
+        val shared = if (shouldRestoreBackup) {
+            backup.sharedTts
+        } else {
+            loadSharedTts(loadedReader, loadedBrowser)
+        }
 
         val mergedReader = loadedReader.copy(
             speechRate = shared.speechRate,
@@ -89,6 +117,15 @@ class SettingsRepository(private val context: Context) {
 
         _browserSettingsFlow = sharedBrowserSettingsFlowInternal!!
         browserSettingsFlow = _browserSettingsFlow.asStateFlow()
+
+        // Sync backup to disk if first install restored
+        if (shouldRestoreBackup) {
+            saveSettings(mergedReader)
+            saveBrowserSettings(mergedBrowser)
+            saveSharedTts(shared)
+        } else {
+            saveBackupToNovelReaderRoots()
+        }
     }
 
     fun getSettings(): ReaderSettings = _settingsFlow.value
@@ -313,6 +350,7 @@ class SettingsRepository(private val context: Context) {
         try {
             val text = json.encodeToString(settings)
             settingsFile.writeText(text)
+            saveBackupToNovelReaderRoots()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -332,6 +370,7 @@ class SettingsRepository(private val context: Context) {
         try {
             val text = json.encodeToString(settings)
             browserSettingsFile.writeText(text)
+            saveBackupToNovelReaderRoots()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -371,8 +410,104 @@ class SettingsRepository(private val context: Context) {
         try {
             val text = json.encodeToString(shared)
             sharedTtsFile.writeText(text)
+            saveBackupToNovelReaderRoots()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun getNovelReaderRoots(): List<File> {
+        val roots = mutableListOf<File>()
+        val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        if (extDir != null) {
+            roots.add(File(extDir, "novelreader"))
+            roots.add(File(extDir, "NovelReader"))
+        }
+
+        try {
+            val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            roots.add(File(publicDownloads, "novelreader"))
+            roots.add(File(publicDownloads, "NovelReader"))
+
+            val alt1 = File("/storage/emulated/0/Download")
+            if (alt1.exists()) {
+                roots.add(File(alt1, "novelreader"))
+                roots.add(File(alt1, "NovelReader"))
+            }
+            val alt2 = File("/storage/emulated/0/Downloads")
+            if (alt2.exists()) {
+                roots.add(File(alt2, "novelreader"))
+                roots.add(File(alt2, "NovelReader"))
+            }
+        } catch (_: Exception) {}
+
+        roots.add(File(context.filesDir, "novelreader"))
+        roots.add(File(context.filesDir, "NovelReader"))
+        return roots.distinctBy { it.absolutePath }
+    }
+
+    fun saveBackupToNovelReaderRoots() {
+        try {
+            val currentReader = _settingsFlow.value
+            val currentBrowser = _browserSettingsFlow.value
+            val currentShared = SharedTtsSettings(
+                speechRate = currentReader.speechRate,
+                speechPitch = currentReader.speechPitch,
+                voiceName = currentReader.selectedVoiceName,
+                sleepTimerMinutes = currentReader.sleepTimerMinutes,
+                skipWords = currentReader.skipWords,
+                skipWordsEnabled = currentReader.skipWordsEnabled,
+                pronunciationRules = currentReader.pronunciationRules,
+                pronunciationRulesEnabled = currentReader.pronunciationRulesEnabled
+            )
+
+            val backup = UserPreferencesBackup(
+                readerSettings = currentReader,
+                browserSettings = currentBrowser,
+                sharedTts = currentShared,
+                lastUpdated = System.currentTimeMillis()
+            )
+            val jsonText = json.encodeToString(backup)
+
+            val roots = getNovelReaderRoots()
+            for (root in roots) {
+                try {
+                    if (!root.exists()) {
+                        root.mkdirs()
+                    }
+                    if (root.exists() && root.isDirectory) {
+                        File(root, ".novelreader_preferences.json").writeText(jsonText, Charsets.UTF_8)
+                        File(root, ".preferences.json").writeText(jsonText, Charsets.UTF_8)
+                    }
+                } catch (e: Exception) {
+                    Log.d("SettingsRepo", "Cannot write backup to ${root.absolutePath}: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("SettingsRepo", "Failed to backup preferences: ${e.message}")
+        }
+    }
+
+    private fun restoreBackupFromNovelReaderRoots(): UserPreferencesBackup? {
+        val candidateFileNames = listOf(".novelreader_preferences.json", ".preferences.json")
+        for (root in getNovelReaderRoots()) {
+            if (!root.exists() || !root.isDirectory) continue
+            for (fName in candidateFileNames) {
+                val f = File(root, fName)
+                if (f.exists() && f.isFile && f.length() > 0L) {
+                    try {
+                        val text = f.readText(Charsets.UTF_8)
+                        if (text.isNotBlank()) {
+                            val backup = json.decodeFromString<UserPreferencesBackup>(text)
+                            Log.i("SettingsRepo", "Loaded preferences from ${f.absolutePath} (theme=${backup.readerSettings.theme}, rate=${backup.sharedTts.speechRate})")
+                            return backup
+                        }
+                    } catch (e: Exception) {
+                        Log.w("SettingsRepo", "Failed to parse backup from ${f.absolutePath}: ${e.message}")
+                    }
+                }
+            }
+        }
+        return null
     }
 }

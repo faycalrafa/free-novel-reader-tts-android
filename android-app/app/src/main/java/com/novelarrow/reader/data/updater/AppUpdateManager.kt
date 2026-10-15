@@ -292,6 +292,23 @@ object AppUpdateManager {
     }
 
     /**
+     * Copies a downloaded APK file to a custom URI selected by the user.
+     */
+    suspend fun copyApkToUri(context: Context, sourceApk: File, destinationUri: Uri): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val copied = context.contentResolver.openOutputStream(destinationUri)?.use { out ->
+                sourceApk.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+            } ?: 0L
+            copied > 0L
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
      * Checks if the app is allowed to request package installs on Android 8.0+.
      */
     fun canRequestPackageInstalls(context: Context): Boolean {
@@ -348,9 +365,9 @@ object AppUpdateManager {
                 @Suppress("DEPRECATION")
                 context.packageManager.getPackageInfo(context.packageName, 0)
             }
-            pInfo.versionName ?: "2.1.0"
+            pInfo.versionName ?: "2.1.1"
         } catch (e: Exception) {
-            "2.1.0"
+            "2.1.1"
         }
     }
 }
