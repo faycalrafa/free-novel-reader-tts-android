@@ -169,14 +169,14 @@ object AudioExportEngine {
                             chapterWav.delete()
 
                             if (mp3File.exists()) {
-                                finalOutputFiles.add(saveToDownloadsDirectory(context, mp3File))
+                                finalOutputFiles.add(saveToDownloadsDirectory(context, mp3File, safeNovelTitle))
                             }
                         }
                     }
 
                     // Create M3U playlist file
                     val playlistFile = if (finalOutputFiles.isNotEmpty()) {
-                        createM3uPlaylist(context, safeNovelTitle, finalOutputFiles)
+                        createM3uPlaylist(context, safeNovelTitle, finalOutputFiles, safeNovelTitle)
                     } else null
 
                     ExportResult(finalOutputFiles, playlistFile, isCancelled = isCancelled())
@@ -225,7 +225,7 @@ object AudioExportEngine {
                     encodeWavToMp3(combinedWav, finalMp3)
                     combinedWav.delete()
 
-                    val exportedFile = saveToDownloadsDirectory(context, finalMp3)
+                    val exportedFile = saveToDownloadsDirectory(context, finalMp3, safeNovelTitle)
                     onProgress?.invoke(totalChapters, totalChapters, 0, 0, 100, "Export complete")
                     ExportResult(listOf(exportedFile), isCancelled = isCancelled())
                 }
@@ -271,7 +271,7 @@ object AudioExportEngine {
                                 partWav.delete()
 
                                 if (partMp3.exists()) {
-                                    finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3))
+                                    finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3, safeNovelTitle))
                                 }
                                 partNumber++
                                 currentPartDurationSeconds = 0.0
@@ -293,12 +293,12 @@ object AudioExportEngine {
                         partWav.delete()
 
                         if (partMp3.exists()) {
-                            finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3))
+                            finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3, safeNovelTitle))
                         }
                     }
 
                     val playlistFile = if (finalOutputFiles.isNotEmpty()) {
-                        createM3uPlaylist(context, safeNovelTitle, finalOutputFiles)
+                        createM3uPlaylist(context, safeNovelTitle, finalOutputFiles, safeNovelTitle)
                     } else null
 
                     ExportResult(finalOutputFiles, playlistFile, isCancelled = isCancelled())
@@ -377,13 +377,15 @@ object AudioExportEngine {
             encodeWavToMp3(combinedWav, mp3File)
             combinedWav.delete()
 
-            saveToDownloadsDirectory(context, mp3File)
+            saveToDownloadsDirectory(context, mp3File, subFolder = null)
         } finally {
             withContext(Dispatchers.Main) {
                 try {
                     tts.stop()
                     tts.shutdown()
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Error shutting down text synthesis TTS: ${e.message}", e)
+                }
             }
             tempDir.deleteRecursively()
         }
@@ -560,9 +562,15 @@ object AudioExportEngine {
         }
     }
 
-    private fun createM3uPlaylist(context: Context, novelTitle: String, mp3Files: List<File>): File {
-        val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "BookReader").apply { mkdirs() }
-        val m3uFile = File(downloadsDir, "${novelTitle}_playlist.m3u")
+    private fun createM3uPlaylist(context: Context, novelTitle: String, mp3Files: List<File>, subFolder: String? = null): File {
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val baseDir = File(downloadsDir, "BookReader")
+        val targetDir = if (!subFolder.isNullOrBlank()) {
+            File(baseDir, sanitizeFilename(subFolder)).apply { mkdirs() }
+        } else {
+            baseDir.apply { mkdirs() }
+        }
+        val m3uFile = File(targetDir, "${sanitizeFilename(novelTitle)}_playlist.m3u")
         m3uFile.bufferedWriter(Charsets.UTF_8).use { writer ->
             writer.write("#EXTM3U\n")
             mp3Files.forEach { file ->
@@ -574,11 +582,16 @@ object AudioExportEngine {
         return m3uFile
     }
 
-    fun saveToDownloadsDirectory(context: Context, file: File): File {
+    fun saveToDownloadsDirectory(context: Context, file: File, subFolder: String? = null): File {
         return try {
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val appDownloadsDir = File(downloadsDir, "BookReader").apply { mkdirs() }
-            val destFile = File(appDownloadsDir, file.name)
+            val baseDir = File(downloadsDir, "BookReader")
+            val targetDir = if (!subFolder.isNullOrBlank()) {
+                File(baseDir, sanitizeFilename(subFolder)).apply { mkdirs() }
+            } else {
+                baseDir.apply { mkdirs() }
+            }
+            val destFile = File(targetDir, file.name)
             file.copyTo(destFile, overwrite = true)
             MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), null, null)
             AppLogger.i(TAG, "Saved MP3 file to public Downloads: ${destFile.absolutePath}")

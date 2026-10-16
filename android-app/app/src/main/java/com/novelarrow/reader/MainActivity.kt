@@ -397,7 +397,8 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
                                     onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
                                     onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
-                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR }
+                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR },
+                                    onOpenAudioStudio = { currentScreen = AppScreen.TEXT_TO_MP3 }
                                 )
                             }
                             AppScreen.ABOUT -> {

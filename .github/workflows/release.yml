@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.3.0"
+          DATE_TAG="v3.4.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.3.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.3.0 --no-daemon
+          APP_VERSION_NAME: "3.4.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.4.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,34 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.3.0 (Stable)
+          name: BookReader v3.4.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.3.0 (Stable) 📖✨
+            ### BookReader v3.4.0 (Stable) 📖✨
 
-            **BookReader v3.3.0** brings major enhancements to audio playback seeking, multi-language voice management, browser batch downloads, home boot flow, and dedicated skip/selector screens!
+            **BookReader v3.4.0** brings dedicated offline neural voice management (Piper, Kokoro, KittenTTS), integrated search across all settings sub-routes, audio library folder accordion with track management, and batch downloading optimizations!
 
             #### Key Updates in this release:
+            - **Dedicated Offline Neural Voice Routes (Piper, Kokoro, KittenTTS)**:
+              - Dedicated settings routes for Piper TTS, Kokoro 82M (sherpa-onnx), and KittenTTS with on-device model management.
+              - Download prompt cards with real-time download progress, background cancellation, and disk status.
+              - Curated Hugging Face ONNX models: lightweight single voices (<80MB) and multi-voice packages (<350MB).
+              - Language filtering showing only supported languages per engine (EN, FR, AR for Piper; EN, FR for Kokoro; EN for KittenTTS).
+              - Sample audio preview with animated visualizer pulse and TopAppBar Save button to activate as the app default voice.
+            - **Settings Sub-Routes Search Standardization**:
+              - Replaced all in-body search boxes with the sleek in-TopAppBar search design from the voice engine route.
+              - Applied to Pronunciation Rules, Skip Words, Content Selectors, and Header/Footer Skips screens with clear buttons and hardware back navigation.
+            - **Audio Studio Library Accordion & Track Management**:
+              - Per-folder accordion view where tapping a novel folder expands its tracks and automatically collapses others.
+              - Inline long-press actions on tracks: instant audio sharing via FileProvider and track deletion with automatic library refresh.
+              - Generation redirect: starting MP3 generation automatically routes to the Audio Studio Library view with live progress tracking.
+              - Chapters and playlists organized neatly into their respective novel subfolders (`Downloads/BookReader/<NovelTitle>/`).
+            - **Batch Chapter Download Race Condition Fix**:
+              - Resolved download stalling on fast web novel chapter transitions by bypassing redundant URL equality checks once DOM transition is verified.
+            - **TTS Voice Retention & ExoPlayer Thread Safety**:
+              - Fixed voice selection resetting to system default when reading chapters.
+              - Added authentic Arabic sample phrase for TTS voice preview.
+              - Switched audio file progress ticker to Main dispatcher, eliminating ExoPlayer thread access crashes.
             - **Custom Claymorphic Loading Animation**:
               - Replaced all circular progress spinners across the app with the custom looping claymorphic book & pulsating audio waveform animation.
               - Super-smooth transparent animated WebP (`app_loading_animation.webp`) with graceful pulsing brand fallback on legacy Android versions.

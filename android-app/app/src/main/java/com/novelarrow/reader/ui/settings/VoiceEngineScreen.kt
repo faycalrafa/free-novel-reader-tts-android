@@ -89,7 +89,10 @@ import kotlinx.coroutines.launch
 
 enum class VoiceEngineScreenMode {
     ENGINE_SELECTION,
-    VOICE_SELECTION
+    VOICE_SELECTION,
+    PIPER_VOICES,
+    KOKORO_VOICES,
+    KITTEN_VOICES
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,9 +102,38 @@ fun VoiceEngineScreen(
     initialMode: VoiceEngineScreenMode = VoiceEngineScreenMode.ENGINE_SELECTION,
     modifier: Modifier = Modifier
 ) {
+    var currentMode by remember { mutableStateOf(initialMode) }
+
+    when (currentMode) {
+        VoiceEngineScreenMode.PIPER_VOICES -> {
+            OfflineEngineVoiceScreen(
+                engineType = "PIPER",
+                onNavigateBack = { currentMode = VoiceEngineScreenMode.ENGINE_SELECTION },
+                modifier = modifier
+            )
+            return
+        }
+        VoiceEngineScreenMode.KOKORO_VOICES -> {
+            OfflineEngineVoiceScreen(
+                engineType = "KOKORO",
+                onNavigateBack = { currentMode = VoiceEngineScreenMode.ENGINE_SELECTION },
+                modifier = modifier
+            )
+            return
+        }
+        VoiceEngineScreenMode.KITTEN_VOICES -> {
+            OfflineEngineVoiceScreen(
+                engineType = "KITTEN",
+                onNavigateBack = { currentMode = VoiceEngineScreenMode.ENGINE_SELECTION },
+                modifier = modifier
+            )
+            return
+        }
+        else -> Unit
+    }
+
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var currentMode by remember { mutableStateOf(initialMode) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
 
@@ -293,6 +325,15 @@ fun VoiceEngineScreen(
                         onSelectBuiltIn = {
                             currentMode = VoiceEngineScreenMode.VOICE_SELECTION
                         },
+                        onOpenPiper = {
+                            currentMode = VoiceEngineScreenMode.PIPER_VOICES
+                        },
+                        onOpenKokoro = {
+                            currentMode = VoiceEngineScreenMode.KOKORO_VOICES
+                        },
+                        onOpenKitten = {
+                            currentMode = VoiceEngineScreenMode.KITTEN_VOICES
+                        },
                         onOpenSystemTtsSettings = {
                             openSystemTtsSettings(context)
                         }
@@ -324,6 +365,7 @@ fun VoiceEngineScreen(
                         }
                     )
                 }
+                else -> Unit
             }
         }
     }
@@ -336,6 +378,9 @@ private fun EngineSelectionContent(
     selectedEngineType: String,
     onSelectEngine: (String) -> Unit,
     onSelectBuiltIn: () -> Unit,
+    onOpenPiper: () -> Unit,
+    onOpenKokoro: () -> Unit,
+    onOpenKitten: () -> Unit,
     onOpenSystemTtsSettings: () -> Unit
 ) {
     val defaultEngine = AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "com.google.android.tts"
@@ -467,28 +512,28 @@ private fun EngineSelectionContent(
         // Piper TTS Card
         OpenSourceEngineCard(
             title = "Piper TTS",
-            subtitle = "Ultra-fast, lightweight neural text-to-speech optimized for mobile devices (via sherpa-onnx).",
-            status = "Available",
+            subtitle = "Ultra-fast neural text-to-speech with English, French, and Arabic voices (<65MB each).",
+            status = "Models & Voices",
             isSelected = selectedEngineType == "PIPER",
-            onClick = { onSelectEngine("PIPER") }
+            onClick = onOpenPiper
         )
 
         // Kokoro TTS Card
         OpenSourceEngineCard(
             title = "Kokoro TTS",
-            subtitle = "State-of-the-art 82M open-weight neural voice model delivering studio audio quality (via sherpa-onnx).",
-            status = "Available",
+            subtitle = "State-of-the-art 82M open-weight neural voice bundle (88MB) delivering human-grade prosody.",
+            status = "Models & Voices",
             isSelected = selectedEngineType == "KOKORO",
-            onClick = { onSelectEngine("KOKORO") }
+            onClick = onOpenKokoro
         )
 
         // KittenTTS Card
         OpenSourceEngineCard(
             title = "KittenTTS",
-            subtitle = "Ultra-compact embedded on-device model designed for high-efficiency reading with minimal battery impact.",
-            status = "Available",
+            subtitle = "Ultra-compact embedded on-device models (<30MB) designed for minimal battery consumption.",
+            status = "Models & Voices",
             isSelected = selectedEngineType == "KITTEN",
-            onClick = { onSelectEngine("KITTEN") }
+            onClick = onOpenKitten
         )
 
         Spacer(modifier = Modifier.weight(1f))
@@ -600,6 +645,13 @@ private fun OpenSourceEngineCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = "Configure Voices",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }

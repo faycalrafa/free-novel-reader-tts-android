@@ -24,6 +24,7 @@ class TtsManager(
         private set
 
     private var languageOverride: Locale? = null
+    private var activeCustomVoice: Voice? = null
 
     var onParagraphStart: ((Int) -> Unit)? = null
     var onParagraphDone: ((Int) -> Unit)? = null
@@ -237,6 +238,15 @@ class TtsManager(
     fun speak(index: Int, text: String, rate: Float = 1.0f, pitch: Float = 1.0f) {
         if (!isInitialized) return
         configureLanguageSafely(text)
+        activeCustomVoice?.let { voice ->
+            try {
+                if (tts?.voice != voice) {
+                    tts?.voice = voice
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to re-assert custom voice ${voice.name}: ${e.message}", e)
+            }
+        }
         tts?.setSpeechRate(rate)
         tts?.setPitch(pitch)
 
@@ -277,6 +287,7 @@ class TtsManager(
 
     fun setVoiceByName(voiceName: String?) {
         if (voiceName == null) {
+            activeCustomVoice = null
             try {
                 tts?.defaultVoice?.let { tts?.voice = it }
                 configureLanguageSafely()
@@ -288,6 +299,7 @@ class TtsManager(
         }
         val voice = getAvailableVoices().firstOrNull { it.name == voiceName }
         if (voice != null) {
+            activeCustomVoice = voice
             // Apply locale first, then set explicit voice so setLanguage does not reset voice
             try {
                 voice.locale?.let { loc ->
@@ -300,6 +312,7 @@ class TtsManager(
             }
             try {
                 tts?.voice = voice
+                AppLogger.d(TAG, "Applied active voice: ${voice.name}")
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Failed to apply voice ${voice.name}: ${e.message}", e)
             }
@@ -413,11 +426,13 @@ class TtsManager(
             val lang = locale.language.lowercase().trim()
             return when {
                 lang == "en" || lang == "eng" -> "This is a voice sample for BookReader."
+                lang == "ar" || lang == "ara" -> "هذا نموذج صوتي لتطبيق قارئ الروايات."
                 lang == "ja" || lang == "jpn" -> "これは音声プレビューです。"
                 lang == "zh" || lang == "zho" || lang == "chi" -> "这是语音预览示例。"
                 lang == "es" || lang == "spa" -> "Esta es una muestra de voz."
                 lang == "fr" || lang == "fra" || lang == "fre" -> "Ceci est un échantillon vocal."
                 lang == "de" || lang == "deu" || lang == "ger" -> "Dies ist ein Sprachbeispiel."
+                locale.displayLanguage.equals("Arabic", ignoreCase = true) -> "هذا نموذج صوتي لتطبيق قارئ الروايات."
                 locale.displayLanguage.equals("English", ignoreCase = true) -> "This is a voice sample for BookReader."
                 locale.displayLanguage.equals("Japanese", ignoreCase = true) -> "これは音声プレビューです。"
                 locale.displayLanguage.equals("Chinese", ignoreCase = true) -> "这是语音预览示例。"

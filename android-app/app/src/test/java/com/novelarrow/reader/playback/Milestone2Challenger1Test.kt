@@ -211,11 +211,14 @@ class Milestone2Challenger1Test {
         assertEquals("Ceci est un échantillon vocal.", TtsManager.getSampleTextForLocale(Locale("FR", "FR")))
         assertEquals("Dies ist ein Sprachbeispiel.", TtsManager.getSampleTextForLocale(Locale("DE", "DE")))
 
+        // Arabic sample phrases
+        assertEquals("هذا نموذج صوتي لتطبيق قارئ الروايات.", TtsManager.getSampleTextForLocale(Locale("ar")))
+        assertEquals("هذا نموذج صوتي لتطبيق قارئ الروايات.", TtsManager.getSampleTextForLocale(Locale("ara")))
+
         // Unmatched/unsupported languages fallback cleanly to default sentence
         assertEquals("Testing Text to Speech voice preview.", TtsManager.getSampleTextForLocale(Locale.ITALIAN))
         assertEquals("Testing Text to Speech voice preview.", TtsManager.getSampleTextForLocale(Locale.KOREAN))
         assertEquals("Testing Text to Speech voice preview.", TtsManager.getSampleTextForLocale(Locale("ru")))
-        assertEquals("Testing Text to Speech voice preview.", TtsManager.getSampleTextForLocale(Locale("ar")))
         assertEquals("Testing Text to Speech voice preview.", TtsManager.getSampleTextForLocale(Locale("pt")))
         assertEquals("Testing Text to Speech voice preview.", TtsManager.getSampleTextForLocale(Locale("hi")))
     }

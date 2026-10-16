@@ -1,5 +1,6 @@
 package com.novelarrow.reader.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -8,20 +9,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -46,22 +51,105 @@ fun ContentSelectorScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
     var showDialog by remember { mutableStateOf(false) }
     var selectorToEdit by remember { mutableStateOf<ContentSelectorRule?>(null) }
     var selectorToDelete by remember { mutableStateOf<ContentSelectorRule?>(null) }
+
+    val filteredSelectors = remember(selectors, searchQuery) {
+        if (searchQuery.isBlank()) {
+            selectors
+        } else {
+            val q = searchQuery.trim().lowercase()
+            selectors.filter {
+                it.selector.lowercase().contains(q) ||
+                        it.scopePattern.lowercase().contains(q)
+            }
+        }
+    }
+
+    BackHandler(enabled = isSearchActive) {
+        isSearchActive = false
+        searchQuery = ""
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        "CSS Content Selectors",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
+                    if (isSearchActive) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 16.sp
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier.weight(1f),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "Search selectors...",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { searchQuery = "" },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Clear,
+                                        contentDescription = "Clear search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            "CSS Content Selectors",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(
+                        onClick = {
+                            if (isSearchActive) {
+                                isSearchActive = false
+                                searchQuery = ""
+                            } else {
+                                onNavigateBack()
+                            }
+                        }
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (!isSearchActive) {
+                        IconButton(onClick = { isSearchActive = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search selectors")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -164,7 +252,7 @@ fun ContentSelectorScreen(
                 }
             }
 
-            if (selectors.isEmpty()) {
+            if (filteredSelectors.isEmpty()) {
                 item(key = "empty_state") {
                     Box(
                         modifier = Modifier
@@ -183,12 +271,12 @@ fun ContentSelectorScreen(
                                 modifier = Modifier.size(48.dp)
                             )
                             Text(
-                                text = "No custom selectors configured",
+                                text = if (searchQuery.isNotBlank()) "No selectors match \"$searchQuery\"" else "No custom selectors configured",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Tap the + button to add a target CSS selector for novel content.",
+                                text = if (searchQuery.isNotBlank()) "Try a different search query" else "Tap the + button to add a target CSS selector for novel content.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
@@ -196,7 +284,7 @@ fun ContentSelectorScreen(
                     }
                 }
             } else {
-                itemsIndexed(selectors, key = { _, item -> item.id }) { index, rule ->
+                itemsIndexed(filteredSelectors, key = { _, item -> item.id }) { index, rule ->
                     ContentSelectorItemCard(
                         rule = rule,
                         priorityIndex = index + 1,

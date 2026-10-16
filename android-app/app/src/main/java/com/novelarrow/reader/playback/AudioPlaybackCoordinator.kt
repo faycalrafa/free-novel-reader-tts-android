@@ -98,7 +98,7 @@ object AudioPlaybackCoordinator {
     private fun startAudioFileProgressTicker() {
         audioFileProgressJob?.cancel()
         if (attachedService == null) return
-        audioFileProgressJob = coordinatorScope.launch(Dispatchers.Default) {
+        audioFileProgressJob = coordinatorScope.launch(Dispatchers.Main) {
             while (currentSource == PlaybackSource.AUDIO_FILE && _isPlayingState.value && attachedService != null) {
                 val service = attachedService
                 if (service != null) {
@@ -901,6 +901,60 @@ object AudioPlaybackCoordinator {
         }
     }
 
+    fun setVoice(voiceName: String?) {
+        currentVoiceName = voiceName
+        applyTtsSettings()
+        coordinatorScope.launch(Dispatchers.IO) {
+            settingsRepository?.setVoice(voiceName)
+        }
+    }
+
+    private var neuralPreviewPlayer: android.media.MediaPlayer? = null
+
+    fun previewNeuralAudio(voiceId: String, sampleUrl: String) {
+        if (_previewingVoiceName.value == voiceId) {
+            stopVoicePreview()
+            return
+        }
+
+        if (_isPlayingState.value) {
+            pause()
+        }
+        stopVoicePreview()
+
+        _previewingVoiceName.value = voiceId
+        AppLogger.d("AudioPlaybackCoordinator", "Previewing neural voice $voiceId from $sampleUrl")
+
+        try {
+            neuralPreviewPlayer = android.media.MediaPlayer().apply {
+                setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
+                setDataSource(sampleUrl)
+                setOnPreparedListener { start() }
+                setOnCompletionListener {
+                    _previewingVoiceName.value = null
+                    try { release() } catch (e: Exception) { AppLogger.w("AudioPlaybackCoordinator", "Error releasing neural player", e) }
+                    neuralPreviewPlayer = null
+                }
+                setOnErrorListener { _, what, extra ->
+                    AppLogger.w("AudioPlaybackCoordinator", "Neural sample playback error: what=$what, extra=$extra")
+                    _previewingVoiceName.value = null
+                    try { release() } catch (e: Exception) { AppLogger.w("AudioPlaybackCoordinator", "Error releasing neural player", e) }
+                    neuralPreviewPlayer = null
+                    true
+                }
+                prepareAsync()
+            }
+        } catch (e: Exception) {
+            AppLogger.e("AudioPlaybackCoordinator", "Failed to start neural voice preview: ${e.message}", e)
+            _previewingVoiceName.value = null
+        }
+    }
+
     fun previewVoice(voice: Voice, sampleText: String? = null) {
         if (_previewingVoiceName.value == voice.name) {
             stopVoicePreview()
@@ -919,11 +973,27 @@ object AudioPlaybackCoordinator {
     }
 
     fun stopVoicePreview() {
+        neuralPreviewPlayer?.let { player ->
+            try {
+                if (player.isPlaying) player.stop()
+                player.release()
+            } catch (e: Exception) {
+                AppLogger.w("AudioPlaybackCoordinator", "Error stopping neural preview: ${e.message}", e)
+            }
+        }
+        neuralPreviewPlayer = null
+
         if (_previewingVoiceName.value != null) {
             _previewingVoiceName.value = null
             ttsManager?.stopPreview()
             applyTtsSettings()
             AppLogger.d("AudioPlaybackCoordinator", "Stopped voice preview and restored TTS settings")
+        }
+    }
+
+    fun setSelectedEngineType(engineType: String) {
+        coordinatorScope.launch {
+            settingsRepository?.setSelectedEngineType(engineType)
         }
     }
 

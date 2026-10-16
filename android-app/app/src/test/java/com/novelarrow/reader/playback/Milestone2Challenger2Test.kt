@@ -50,9 +50,12 @@ class Milestone2Challenger2Test {
     @Test
     fun testVoiceEngineScreenMode_enumContract() {
         val modes = VoiceEngineScreenMode.values()
-        assertEquals(2, modes.size)
+        assertEquals(5, modes.size)
         assertTrue(modes.contains(VoiceEngineScreenMode.ENGINE_SELECTION))
         assertTrue(modes.contains(VoiceEngineScreenMode.VOICE_SELECTION))
+        assertTrue(modes.contains(VoiceEngineScreenMode.PIPER_VOICES))
+        assertTrue(modes.contains(VoiceEngineScreenMode.KOKORO_VOICES))
+        assertTrue(modes.contains(VoiceEngineScreenMode.KITTEN_VOICES))
     }
 
     @Test

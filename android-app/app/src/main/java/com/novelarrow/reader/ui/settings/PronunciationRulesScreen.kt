@@ -1,10 +1,12 @@
 package com.novelarrow.reader.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -21,7 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -42,6 +47,7 @@ fun PronunciationRulesScreen(
     onNavigateBack: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
     var showDialog by remember { mutableStateOf(false) }
     var ruleToEdit by remember { mutableStateOf<PronunciationRule?>(null) }
     var ruleToDelete by remember { mutableStateOf<PronunciationRule?>(null) }
@@ -59,18 +65,87 @@ fun PronunciationRulesScreen(
         }
     }
 
+    BackHandler(enabled = isSearchActive) {
+        isSearchActive = false
+        searchQuery = ""
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        "Pronunciation Rules",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
+                    if (isSearchActive) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 16.sp
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                decorationBox = { innerTextField ->
+                                    Box(
+                                        modifier = Modifier.weight(1f),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "Search pronunciation rules...",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { searchQuery = "" },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Clear,
+                                        contentDescription = "Clear search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            "Pronunciation Rules",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to Settings")
+                    IconButton(
+                        onClick = {
+                            if (isSearchActive) {
+                                isSearchActive = false
+                                searchQuery = ""
+                            } else {
+                                onNavigateBack()
+                            }
+                        }
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (!isSearchActive) {
+                        IconButton(onClick = { isSearchActive = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search rules")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -131,28 +206,6 @@ fun PronunciationRulesScreen(
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Search Bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search by word, replacement or scope...") },
-                leadingIcon = {
-                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
-                        }
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                singleLine = true
-            )
 
             Spacer(modifier = Modifier.height(12.dp))
 

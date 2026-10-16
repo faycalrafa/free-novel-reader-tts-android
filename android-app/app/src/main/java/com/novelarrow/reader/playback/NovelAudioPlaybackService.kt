@@ -12,7 +12,9 @@ import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.speech.tts.Voice
 import androidx.core.app.NotificationCompat
@@ -919,18 +921,48 @@ class NovelAudioPlaybackService : MediaSessionService() {
     }
 
     fun getAudioFilePositionMs(): Long {
-        return exoPlayer?.currentPosition ?: 0L
+        val player = exoPlayer ?: return 0L
+        return try {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                player.currentPosition
+            } else {
+                0L
+            }
+        } catch (e: Exception) {
+            AppLogger.w("NovelAudioPlaybackService", "Error reading audio file position: ${e.message}", e)
+            0L
+        }
     }
 
     fun getAudioFileDurationMs(): Long {
-        val dur = exoPlayer?.duration ?: 0L
-        return if (dur > 0L) dur else 0L
+        val player = exoPlayer ?: return 0L
+        return try {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                val dur = player.duration
+                if (dur > 0L) dur else 0L
+            } else {
+                0L
+            }
+        } catch (e: Exception) {
+            AppLogger.w("NovelAudioPlaybackService", "Error reading audio file duration: ${e.message}", e)
+            0L
+        }
     }
 
     fun seekAudioFile(positionMs: Long) {
         val player = exoPlayer ?: return
         try {
-            player.seekTo(positionMs.coerceAtLeast(0L))
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                player.seekTo(positionMs.coerceAtLeast(0L))
+            } else {
+                Handler(Looper.getMainLooper()).post {
+                    try {
+                        player.seekTo(positionMs.coerceAtLeast(0L))
+                    } catch (e: Exception) {
+                        AppLogger.e("NovelAudioPlaybackService", "Error seeking audio file on main looper", e)
+                    }
+                }
+            }
             AppLogger.d("NovelAudioPlaybackService", "Seeked audio file to $positionMs ms")
         } catch (e: Exception) {
             AppLogger.e("NovelAudioPlaybackService", "Error seeking audio file to $positionMs ms", e)

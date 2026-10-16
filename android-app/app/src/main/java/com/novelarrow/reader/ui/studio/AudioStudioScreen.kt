@@ -1,15 +1,22 @@
 package com.novelarrow.reader.ui.studio
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,19 +34,28 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.core.content.FileProvider
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.TextButton
 import com.novelarrow.reader.ui.common.AppLoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,6 +85,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -80,12 +97,14 @@ import com.novelarrow.reader.data.export.AudioFileItem
 import com.novelarrow.reader.data.export.AudioFolderItem
 import com.novelarrow.reader.data.export.AudioLibraryContent
 import com.novelarrow.reader.data.export.AudioLibraryScanner
+import com.novelarrow.reader.data.export.FileFusionManager
 import com.novelarrow.reader.data.model.Novel
 import com.novelarrow.reader.playback.AudioExportService
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
 import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
 import com.novelarrow.reader.ui.reader.TtsDock
+import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -126,6 +145,8 @@ fun AudioStudioScreen(
     var libraryContent by remember { mutableStateOf(AudioLibraryContent()) }
     var isScanning by remember { mutableStateOf(false) }
     var showAudioSettingsDialog by remember { mutableStateOf(false) }
+    var expandedFolderKey by remember { mutableStateOf<String?>(null) }
+    var activeActionFilePath by remember { mutableStateOf<String?>(null) }
 
     fun refreshLibrary() {
         isScanning = true
@@ -400,12 +421,76 @@ fun AudioStudioScreen(
                                 }
                             }
 
-                            items(orderedFolders, key = { it.folder.absolutePath }) { folderItem ->
-                                FolderAudioCard(
-                                    folder = folderItem,
-                                    isPlayingThis = (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.novelTitle == folderItem.name && playbackProgress.isPlaying),
-                                    onPlayFolder = { AudioPlaybackCoordinator.playAudioFolder(folderItem.folder) }
-                                )
+                            orderedFolders.forEach { folderItem ->
+                                val isExpanded = expandedFolderKey == folderItem.folder.absolutePath
+                                item(key = "folder_${folderItem.folder.absolutePath}") {
+                                    FolderAudioCard(
+                                        folder = folderItem,
+                                        isExpanded = isExpanded,
+                                        isPlayingThis = (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.novelTitle == folderItem.name && playbackProgress.isPlaying),
+                                        onToggleExpand = {
+                                            expandedFolderKey = if (isExpanded) null else folderItem.folder.absolutePath
+                                        },
+                                        onPlayFolder = { AudioPlaybackCoordinator.playAudioFolder(folderItem.folder) }
+                                    )
+                                }
+
+                                if (isExpanded) {
+                                    if (folderItem.files.isEmpty()) {
+                                        item(key = "empty_${folderItem.folder.absolutePath}") {
+                                            Text(
+                                                text = "No audio tracks in this folder",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(start = 24.dp, top = 4.dp, bottom = 4.dp)
+                                            )
+                                        }
+                                    } else {
+                                        items(folderItem.files, key = { "file_${it.file.absolutePath}" }) { fileItem ->
+                                            FileAudioCard(
+                                                file = fileItem,
+                                                isPlayingThis = (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name && playbackProgress.isPlaying),
+                                                showInlineActions = (activeActionFilePath == fileItem.file.absolutePath),
+                                                onPlayFile = {
+                                                    if (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name && playbackProgress.isPlaying) {
+                                                        AudioPlaybackCoordinator.pause()
+                                                    } else {
+                                                        AudioPlaybackCoordinator.playAudioFile(fileItem.file)
+                                                    }
+                                                },
+                                                onLongPress = {
+                                                    activeActionFilePath = if (activeActionFilePath == fileItem.file.absolutePath) null else fileItem.file.absolutePath
+                                                },
+                                                onShare = {
+                                                    try {
+                                                        val shareIntent = FileFusionManager.createShareIntent(context, fileItem.file, "audio/mpeg")
+                                                        context.startActivity(Intent.createChooser(shareIntent, "Share Audio Track"))
+                                                    } catch (e: Exception) {
+                                                        AppLogger.e("AudioStudio", "Failed to share audio file: ${fileItem.file.absolutePath}", e)
+                                                        Toast.makeText(context, "Failed to share audio file", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                onDelete = {
+                                                    try {
+                                                        if (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name) {
+                                                            AudioPlaybackCoordinator.stop()
+                                                        }
+                                                        if (fileItem.file.exists() && fileItem.file.delete()) {
+                                                            Toast.makeText(context, "Track deleted", Toast.LENGTH_SHORT).show()
+                                                            refreshLibrary()
+                                                        } else {
+                                                            Toast.makeText(context, "Could not delete file", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        AppLogger.e("AudioStudio", "Error deleting file: ${fileItem.file.absolutePath}", e)
+                                                        Toast.makeText(context, "Error deleting file: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                                modifier = Modifier.padding(start = 16.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -431,11 +516,46 @@ fun AudioStudioScreen(
                                 }
                             }
 
-                            items(libraryContent.standaloneFiles, key = { it.file.absolutePath }) { fileItem ->
+                            items(libraryContent.standaloneFiles, key = { "standalone_${it.file.absolutePath}" }) { fileItem ->
                                 FileAudioCard(
                                     file = fileItem,
                                     isPlayingThis = (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name && playbackProgress.isPlaying),
-                                    onPlayFile = { AudioPlaybackCoordinator.playAudioFile(fileItem.file) }
+                                    showInlineActions = (activeActionFilePath == fileItem.file.absolutePath),
+                                    onPlayFile = {
+                                        if (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name && playbackProgress.isPlaying) {
+                                            AudioPlaybackCoordinator.pause()
+                                        } else {
+                                            AudioPlaybackCoordinator.playAudioFile(fileItem.file)
+                                        }
+                                    },
+                                    onLongPress = {
+                                        activeActionFilePath = if (activeActionFilePath == fileItem.file.absolutePath) null else fileItem.file.absolutePath
+                                    },
+                                    onShare = {
+                                        try {
+                                            val shareIntent = FileFusionManager.createShareIntent(context, fileItem.file, "audio/mpeg")
+                                            context.startActivity(Intent.createChooser(shareIntent, "Share Audio Track"))
+                                        } catch (e: Exception) {
+                                            AppLogger.e("AudioStudio", "Failed to share audio file: ${fileItem.file.absolutePath}", e)
+                                            Toast.makeText(context, "Failed to share audio file", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onDelete = {
+                                        try {
+                                            if (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name) {
+                                                AudioPlaybackCoordinator.stop()
+                                            }
+                                            if (fileItem.file.exists() && fileItem.file.delete()) {
+                                                Toast.makeText(context, "Track deleted", Toast.LENGTH_SHORT).show()
+                                                refreshLibrary()
+                                            } else {
+                                                Toast.makeText(context, "Could not delete file", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            AppLogger.e("AudioStudio", "Error deleting file: ${fileItem.file.absolutePath}", e)
+                                            Toast.makeText(context, "Error deleting file: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -799,6 +919,7 @@ fun AudioStudioScreen(
                                     maxMinutes = maxMinutes,
                                     speed = generatorSpeechRate
                                 )
+                                currentMode = AudioStudioMode.LIBRARY
                             },
                             enabled = selectedNovel != null && totalChapters > 0 && exportState !is AudioExportService.ExportState.Running,
                             shape = RoundedCornerShape(12.dp),
@@ -961,7 +1082,9 @@ private fun ExportProgressCard(
 @Composable
 private fun FolderAudioCard(
     folder: AudioFolderItem,
+    isExpanded: Boolean,
     isPlayingThis: Boolean,
+    onToggleExpand: () -> Unit,
     onPlayFolder: () -> Unit
 ) {
     Surface(
@@ -971,7 +1094,7 @@ private fun FolderAudioCard(
         border = if (isPlayingThis) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onPlayFolder() }
+            .clickable { onToggleExpand() }
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -1017,68 +1140,144 @@ private fun FolderAudioCard(
                     modifier = Modifier.size(28.dp)
                 )
             }
+
+            IconButton(onClick = onToggleExpand) {
+                Icon(
+                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (isExpanded) "Collapse folder" else "Expand folder",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileAudioCard(
     file: AudioFileItem,
     isPlayingThis: Boolean,
-    onPlayFile: () -> Unit
+    showInlineActions: Boolean,
+    onPlayFile: () -> Unit,
+    onLongPress: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = if (isPlayingThis) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
         border = if (isPlayingThis) BorderStroke(1.dp, MaterialTheme.colorScheme.secondary) else null,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable { onPlayFile() }
+            .clip(RoundedCornerShape(12.dp))
+            .combinedClickable(
+                onClick = onPlayFile,
+                onLongClick = onLongPress
+            )
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = if (isPlayingThis) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.size(38.dp)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (isPlayingThis) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Audiotrack,
+                            contentDescription = null,
+                            tint = if (isPlayingThis) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = file.name,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${file.formattedSize} • MP3",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                IconButton(onClick = onPlayFile) {
                     Icon(
-                        Icons.Default.Audiotrack,
-                        contentDescription = null,
-                        tint = if (isPlayingThis) MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(20.dp)
+                        if (isPlayingThis) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = if (isPlayingThis) "Pause file" else "Play file",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            AnimatedVisibility(
+                visible = showInlineActions,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                        thickness = 0.5.dp
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = onShare,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share", style = MaterialTheme.typography.labelMedium)
+                        }
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = file.name,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "${file.formattedSize} • MP3",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+                        Spacer(modifier = Modifier.width(4.dp))
 
-            IconButton(onClick = onPlayFile) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    contentDescription = "Play file",
-                    tint = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(24.dp)
-                )
+                        TextButton(
+                            onClick = onDelete,
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Delete", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        IconButton(
+                            onClick = onLongPress,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close actions",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }

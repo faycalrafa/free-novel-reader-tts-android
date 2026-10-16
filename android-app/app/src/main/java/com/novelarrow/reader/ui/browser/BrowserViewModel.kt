@@ -494,14 +494,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         // 1. If batch download is active, trigger sequence/verification and NEVER trigger TTS
         if (_uiState.value.isDownloading) {
-            if (lastExtractedHeading.isNotBlank() || lastExtractedSample.isNotBlank()) {
-                // Ensure we do not immediately extract stale DOM if content has not transitioned yet
-                if (domVerificationJob?.isActive != true) {
-                    startDomContentVerification()
-                }
-            } else {
-                triggerBatchDownloadSequence()
-            }
+            AppLogger.d(TAG, "onPageFinished during batch download for URL: $url")
+            domVerificationJob?.cancel()
+            startDomContentVerification()
             return
         }
 
@@ -767,7 +762,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
             if (contentTransitioned) {
                 _uiState.update { it.copy(downloadStatus = "New chapter detected, preparing download...") }
-                triggerBatchDownloadSequence()
+                triggerBatchDownloadSequence(isDomTransitionVerified = true)
             } else {
                 AppLogger.w(TAG, "DOM transition verification timed out after 20s without content change. Last heading: '$lastExtractedHeading'")
                 if (duplicatePageRetryCount < 2) {
@@ -789,7 +784,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun triggerBatchDownloadSequence() {
+    private fun triggerBatchDownloadSequence(isDomTransitionVerified: Boolean = false) {
         if (!_uiState.value.isDownloading) return
         downloadCountdownJob?.cancel()
         domVerificationJob?.cancel()
@@ -798,8 +793,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val currentUrl = _uiState.value.currentUrl
             val pageTitle = _uiState.value.pageTitle
 
-            // If we are still on the exact same URL as the chapter we just downloaded, do NOT skip or re-download!
-            if (lastBatchDownloadedUrl.isNotBlank() && currentUrl == lastBatchDownloadedUrl) {
+            // If we are still on the exact same URL as the chapter we just downloaded, and DOM transition was not verified, wait for navigation
+            if (!isDomTransitionVerified && lastBatchDownloadedUrl.isNotBlank() && currentUrl == lastBatchDownloadedUrl) {
                 AppLogger.d(TAG, "Page is still on last downloaded URL ($currentUrl). Waiting for navigation...")
                 _uiState.update { it.copy(downloadStatus = "Waiting for next chapter...") }
                 startDomContentVerification()
@@ -809,8 +804,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
             val novelTitle = _uiState.value.downloadNovelTitle.ifBlank { detected.novelTitle }
 
-            // Sync chapter number from detected URL/DOM if available to avoid skipping
-            val chapterNum = if (detected.chapterNumber > 0) {
+            // Sync chapter number: if DOM transition was verified, trust the scheduled downloadCurrentChapter
+            val chapterNum = if (isDomTransitionVerified && _uiState.value.downloadCurrentChapter > 0) {
+                _uiState.value.downloadCurrentChapter
+            } else if (detected.chapterNumber > 0) {
                 detected.chapterNumber
             } else if (_uiState.value.downloadCurrentChapter > 0) {
                 _uiState.value.downloadCurrentChapter

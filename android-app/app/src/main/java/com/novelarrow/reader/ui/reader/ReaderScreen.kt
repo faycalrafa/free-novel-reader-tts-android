@@ -189,6 +189,7 @@ fun ReaderScreen(
     onNavigateToSkipWords: (() -> Unit)? = null,
     onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
     onNavigateToContentSelector: (() -> Unit)? = null,
+    onOpenAudioStudio: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -341,6 +342,7 @@ fun ReaderScreen(
                     autoScroll = uiState.settings.autoScroll,
                     chapterTitle = uiState.currentChapter?.title ?: "Chapter",
                     speechRate = uiState.settings.speechRate,
+                    onOpenAudioStudio = onOpenAudioStudio,
                     onParagraphClick = { index -> viewModel.speakAtParagraph(index) }
                 )
             }
@@ -574,6 +576,7 @@ fun ReaderContentView(
     autoScroll: Boolean,
     chapterTitle: String = "Chapter",
     speechRate: Float = 1.0f,
+    onOpenAudioStudio: (() -> Unit)? = null,
     onParagraphClick: (Int) -> Unit
 ) {
     val context = LocalContext.current
@@ -735,6 +738,7 @@ fun ReaderContentView(
                             )
                             Toast.makeText(context, "Audifying ${selectedIndices.size} paragraphs in background...", Toast.LENGTH_SHORT).show()
                             selectedIndices = emptySet()
+                            onOpenAudioStudio?.invoke()
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
@@ -1995,6 +1999,7 @@ fun LibraryDrawerContent(
                         splitMode = splitMode,
                         speed = speed
                     )
+                    onOpenAudioStudio()
                 }
             )
         }
@@ -2024,6 +2029,7 @@ fun LibraryDrawerContent(
                         splitMode = AudioExportEngine.SplitMode.SINGLE_FILE,
                         speed = speed
                     )
+                    onOpenAudioStudio()
                 }
             )
         }
