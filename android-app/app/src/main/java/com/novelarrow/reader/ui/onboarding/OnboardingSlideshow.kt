@@ -6,7 +6,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.ui.res.painterResource
+import com.novelarrow.reader.R
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -245,20 +248,11 @@ private fun SlideWelcome() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer,
+        Image(
+            painter = painterResource(id = R.drawable.ic_app_icon_round),
+            contentDescription = "BookReader Icon",
             modifier = Modifier.size(96.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.Headphones,
-                    contentDescription = null,
-                    modifier = Modifier.size(52.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
+        )
 
         Spacer(Modifier.height(20.dp))
 

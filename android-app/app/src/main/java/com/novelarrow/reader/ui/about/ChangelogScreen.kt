@@ -48,8 +48,18 @@ data class ReleaseItem(
 
 val FullReleaseHistory = listOf(
     ReleaseItem(
-        version = "v3.2.1",
+        version = "v3.2.2",
         date = "Latest Release",
+        title = "Starting Home Screen & Onboarding 3D Icon Suite",
+        changes = listOf(
+            "Integrated circular 3D app icon (ic_app_icon_round.webp) on starting home screen empty state",
+            "Integrated circular 3D app icon (ic_app_icon_round.webp) on onboarding welcome slide",
+            "Harmonized visual branding and claymorphic aesthetic throughout entire app launch workflow"
+        )
+    ),
+    ReleaseItem(
+        version = "v3.2.1",
+        date = "2026-10-16",
         title = "About Screen Icon Crash Fix & Terracotta 3D Squircle Update",
         changes = listOf(
             "Fixed Compose painterResource crash in AboutScreen caused by adaptive-icon XML",

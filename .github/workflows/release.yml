@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.2.1"
+          DATE_TAG="v3.2.2"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.2.1"
-        run: ./gradlew assembleRelease -PappVersionName=3.2.1 --no-daemon
+          APP_VERSION_NAME: "3.2.2"
+        run: ./gradlew assembleRelease -PappVersionName=3.2.2 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.2.1 (Stable)
+          name: BookReader v3.2.2 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.2.1 (Stable) 📖✨
+            ### BookReader v3.2.2 (Stable) 📖✨
 
-            **BookReader v3.2.1** fixes the About screen icon crash, brings the circular 3D icon to the About page, and updates the standard squircle launcher icon with high-contrast terracotta claymorphic styling!
+            **BookReader v3.2.2** updates the starting home screen and onboarding experience to feature the official circular 3D app icon!
 
             #### Key Updates in this release:
+            - **Starting Home Screen & Onboarding Icon Integration**:
+              - Replaced placeholder icons in Reader home screen empty state (`EmptyState`) and Onboarding welcome slide (`SlideWelcome`) with the dedicated high-definition circular 3D icon (`ic_app_icon_round.webp`).
+              - Ensures consistent, premium branding across the entire launch flow, home screen, and about page.
             - **About Screen Crash Fix & Circular 3D Icon**:
               - Fixed `IllegalArgumentException` in `AboutScreen` caused by `painterResource` encountering an adaptive-icon XML.
               - Integrated dedicated rasterized `ic_app_icon_round.webp` in `res/drawable/` ensuring safe loading and authentic circular 3D depth in the About hero card.

@@ -9,8 +9,11 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.res.painterResource
+import com.novelarrow.reader.R
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -967,24 +970,11 @@ fun EmptyState(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(88.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(AccentBlue, AccentPurple)
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.MenuBook,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(44.dp)
-            )
-        }
+        Image(
+            painter = painterResource(id = R.drawable.ic_app_icon_round),
+            contentDescription = "BookReader Icon",
+            modifier = Modifier.size(96.dp)
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
