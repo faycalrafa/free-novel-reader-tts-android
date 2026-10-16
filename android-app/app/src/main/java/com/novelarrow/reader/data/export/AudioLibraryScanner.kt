@@ -91,7 +91,7 @@ object AudioLibraryScanner {
             for (child in children) {
                 if (child.isDirectory) {
                     val mp3s = child.listFiles { f ->
-                        f.isFile && f.extension.equals("mp3", ignoreCase = true)
+                        f.isFile && f.extension.equals("mp3", ignoreCase = true) && f.length() > 0L
                     }?.map { AudioFileItem(it) }
                         ?.sortedBy { it.file.name.lowercase() }
                         ?: emptyList()
@@ -101,7 +101,7 @@ object AudioLibraryScanner {
                         folderFilesMap[key] = child
                         foldersMap.getOrPut(key) { mutableListOf() }.addAll(mp3s)
                     }
-                } else if (child.isFile && child.extension.equals("mp3", ignoreCase = true)) {
+                } else if (child.isFile && child.extension.equals("mp3", ignoreCase = true) && child.length() > 0L) {
                     standaloneFiles.add(AudioFileItem(child))
                 }
             }

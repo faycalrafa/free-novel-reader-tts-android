@@ -54,14 +54,14 @@ object AudioExportEngine {
         currentParagraph: Int,
         totalParagraphs: Int
     ): Int {
-        if (totalChapters <= 0) return 0
+        if (totalChapters <= 0 || currentChapter <= 0) return 0
         val safeChapter = currentChapter.coerceIn(1, totalChapters)
-        val chapterBase = (safeChapter - 1).toFloat() / totalChapters.toFloat()
-        val paraFraction = if (totalParagraphs > 0) {
-            val safePara = currentParagraph.coerceIn(0, totalParagraphs)
-            (safePara.toFloat() / totalParagraphs.toFloat()) * (1f / totalChapters.toFloat())
-        } else 0f
-        return ((chapterBase + paraFraction) * 100).toInt().coerceIn(0, 100)
+        val safeParaFraction = if (totalParagraphs > 0) {
+            currentParagraph.coerceIn(0, totalParagraphs).toDouble() / totalParagraphs.toDouble()
+        } else 0.0
+        val completedUnits = (safeChapter - 1).toDouble() + safeParaFraction
+        val progress = (completedUnits / totalChapters.toDouble()) * 100.0
+        return (progress + 1e-9).toInt().coerceIn(0, 100)
     }
 
     enum class SplitMode {
@@ -187,7 +187,8 @@ object AudioExportEngine {
                     val chapterWavs = mutableListOf<File>()
                     request.chapters.forEachIndexed { index, chapter ->
                         if (isCancelled()) return@forEachIndexed
-                        val initialPct = calculateGranularProgress(index + 1, totalChapters, 0, 0)
+                        val rawInitialPct = calculateGranularProgress(index + 1, totalChapters, 0, 0)
+                        val initialPct = ((rawInitialPct * 85) / 100).coerceIn(0, 85)
                         onProgress?.invoke(index + 1, totalChapters, 0, 0, initialPct, "Synthesizing Chapter ${index + 1}/$totalChapters: ${chapter.title}")
 
                         val chWav = synthesizeChapterToWav(
@@ -199,7 +200,8 @@ object AudioExportEngine {
                             tempDir = tempDir,
                             isCancelled = isCancelled,
                             onParagraphProgress = { curPara, totalParas ->
-                                val pct = calculateGranularProgress(index + 1, totalChapters, curPara, totalParas)
+                                val rawPct = calculateGranularProgress(index + 1, totalChapters, curPara, totalParas)
+                                val pct = ((rawPct * 85) / 100).coerceIn(0, 85)
                                 val status = "Synthesizing Chapter ${index + 1}/$totalChapters • ¶ $curPara/$totalParas: ${chapter.title}"
                                 onProgress?.invoke(index + 1, totalChapters, curPara, totalParas, pct, status)
                             }
@@ -213,17 +215,18 @@ object AudioExportEngine {
                         return@withContext ExportResult(emptyList(), isCancelled = true)
                     }
 
-                    onProgress?.invoke(totalChapters, totalChapters, 0, 0, 85, "Merging audio into single file...")
+                    onProgress?.invoke(totalChapters, totalChapters, 0, 0, 90, "Merging audio into single file...")
                     val combinedWav = File(tempDir, "${safeNovelTitle}_combined.wav")
                     concatenateWavFiles(chapterWavs, combinedWav)
                     chapterWavs.forEach { it.delete() }
 
-                    onProgress?.invoke(totalChapters, totalChapters, 0, 0, 90, "Encoding MP3 audio...")
+                    onProgress?.invoke(totalChapters, totalChapters, 0, 0, 95, "Encoding MP3 audio...")
                     val finalMp3 = File(tempDir, "${safeNovelTitle}.mp3")
                     encodeWavToMp3(combinedWav, finalMp3)
                     combinedWav.delete()
 
                     val exportedFile = saveToDownloadsDirectory(context, finalMp3)
+                    onProgress?.invoke(totalChapters, totalChapters, 0, 0, 100, "Export complete")
                     ExportResult(listOf(exportedFile), isCancelled = isCancelled())
                 }
 

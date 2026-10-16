@@ -94,4 +94,40 @@ class AudioLibraryScannerTest {
             tempRoot.deleteRecursively()
         }
     }
+
+    @Test
+    fun testScanDirectoriesExcludesZeroByteFiles() {
+        val tempRoot = Files.createTempDirectory("scanner_zerobyte").toFile()
+        try {
+            // Standalone 0-byte MP3
+            File(tempRoot, "Corrupt_Standalone.mp3").createNewFile()
+            // Standalone valid MP3
+            File(tempRoot, "Valid_Standalone.mp3").writeBytes(ByteArray(1024))
+
+            // Folder with 0-byte MP3 and valid MP3
+            val folder1 = File(tempRoot, "MixedFolder").apply { mkdirs() }
+            File(folder1, "Zero.mp3").createNewFile()
+            File(folder1, "Valid.mp3").writeBytes(ByteArray(2048))
+
+            // Folder with ONLY 0-byte MP3
+            val folder2 = File(tempRoot, "OnlyZeroFolder").apply { mkdirs() }
+            File(folder2, "Corrupt1.mp3").createNewFile()
+            File(folder2, "Corrupt2.mp3").createNewFile()
+
+            val content = AudioLibraryScanner.scanDirectories(listOf(tempRoot))
+
+            // Only 1 standalone file
+            assertEquals(1, content.standaloneFiles.size)
+            assertEquals("Valid_Standalone", content.standaloneFiles.first().name)
+
+            // Only MixedFolder should be listed, OnlyZeroFolder should NOT be listed
+            assertEquals(1, content.folders.size)
+            val mixed = content.folders.first()
+            assertEquals("MixedFolder", mixed.name)
+            assertEquals(1, mixed.fileCount)
+            assertEquals("Valid", mixed.files.first().name)
+        } finally {
+            tempRoot.deleteRecursively()
+        }
+    }
 }

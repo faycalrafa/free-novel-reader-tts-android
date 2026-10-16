@@ -21,6 +21,7 @@ import androidx.media3.common.AudioAttributes as Media3AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.SilenceMediaSource
@@ -327,6 +328,14 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
                         AudioPlaybackCoordinator.onAudioFileCompleted()
                     }
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                AppLogger.e("NovelAudioPlaybackService", "ExoPlayer playback error: ${error.message}", error)
+                releaseWakeLock()
+                if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                    AudioPlaybackCoordinator.onAudioFileCompleted()
                 }
             }
         })
@@ -893,6 +902,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
     fun stopAudioFile() {
         val player = exoPlayer ?: return
         try {
+            releaseWakeLock()
             currentAudioFile = null
             player.stop()
             silenceMediaSource?.let {

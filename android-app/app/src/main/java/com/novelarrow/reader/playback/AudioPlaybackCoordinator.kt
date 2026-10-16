@@ -74,6 +74,7 @@ object AudioPlaybackCoordinator {
     private var autoNextChapterEnabled: Boolean = true
     private var currentPlaylist: List<File> = emptyList()
     private var currentAudioFile: File? = null
+    private var pendingAudioFile: File? = null
 
     var currentSpeechRate: Float = 1.0f
         private set
@@ -141,6 +142,11 @@ object AudioPlaybackCoordinator {
 
     fun attachService(service: NovelAudioPlaybackService) {
         attachedService = service
+        val pending = pendingAudioFile
+        if (pending != null) {
+            pendingAudioFile = null
+            service.playAudioFile(pending)
+        }
         updateServiceState()
     }
 
@@ -377,7 +383,13 @@ object AudioPlaybackCoordinator {
         appContext?.let { ctx ->
             ensureServiceRunning(ctx)
         }
-        attachedService?.playAudioFile(activeFile)
+        val service = attachedService
+        if (service != null) {
+            pendingAudioFile = null
+            service.playAudioFile(activeFile)
+        } else {
+            pendingAudioFile = activeFile
+        }
         updateServiceState()
 
         if (_sleepTimerMinutesState.value > 0) {
@@ -640,6 +652,7 @@ object AudioPlaybackCoordinator {
         currentSource = PlaybackSource.NONE
         currentPlaylist = emptyList()
         currentAudioFile = null
+        pendingAudioFile = null
         _playbackProgressState.update { it.copy(isPlaying = false, source = PlaybackSource.NONE) }
         attachedService?.stopServicePlayback()
     }
