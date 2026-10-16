@@ -370,13 +370,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
             override fun getDeviceInfo(): androidx.media3.common.DeviceInfo {
                 val hwSettings = AudioPlaybackCoordinator.settingsRepository?.getSettings()?.hardwareButtonSettings
                 if (hwSettings != null && hwSettings.enabled) {
-                    val isInteractive = HardwareButtonCoordinator.isScreenInteractive(this@NovelAudioPlaybackService)
-                    if (HardwareButtonCoordinator.isConditionSatisfied(hwSettings, isInteractive)) {
-                        return androidx.media3.common.DeviceInfo.Builder(androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE)
-                            .setMinVolume(0)
-                            .setMaxVolume(15)
-                            .build()
-                    }
+                    return androidx.media3.common.DeviceInfo.Builder(androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE)
+                        .setMinVolume(0)
+                        .setMaxVolume(15)
+                        .build()
                 }
                 return super.getDeviceInfo()
             }

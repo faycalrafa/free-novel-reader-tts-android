@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.8.0"
+          DATE_TAG="v2.9.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.8.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.8.0 --no-daemon
+          APP_VERSION_NAME: "2.9.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.9.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,30 +53,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.8.0 (Stable)
+          name: NovelArrow Reader v2.9.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.8.0 (Stable) 📖✨
+            ### NovelArrow Reader v2.9.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.8.0** introduces a decluttered **Library Drawer** with contextual long-press reveals, an intuitive **Novel Archiving System**, and a dedicated **Archived Novels Management Area**!
+            **NovelArrow Reader v2.9.0** brings **System-Wide and Screen-Off Hardware Volume Button Mapping**, allowing you to control novel TTS playback from outside the app, on the home screen, inside other apps, and when the screen is turned off!
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Changes in this release:
-            - **Decluttered Library Drawer with Long-Press Action Reveals**:
-              - Novel folders and chapter lists now hide action buttons and drag handles by default, providing maximum readability and zero visual clutter.
-              - **Long-Press on Novel Folder**: Reveals the **Archive** button and **Delete** button directly inline on that novel.
-              - **Long-Press on Chapter**: Reveals the **6-Dots Drag & Drop Handle** on the far left (allowing full drag-to-reorder) and the **Read Status Toggle** and **Delete** buttons on the right.
-              - Normal single taps continue to seamlessly select and switch novels/chapters.
-            - **Novel Archiving & Storage Safety**:
-              - Added an **Archive** action that immediately removes the novel from the active library drawer without deleting downloaded files or reading progress.
-            - **Dedicated Archived Novels Management Screen**:
-              - Replaced the redundant top header icon in the Library Drawer with a direct **Archive button** (`Icons.Default.Archive`) taking users to the archive management area.
-              - Easily view all archived novels, their progress, and chapter counts.
-              - **Restore Novels**: Instantly move archived novels back into the active library with preserved reading progress.
-              - **View & Manage Archived Chapters**: Inspect individual chapters and selectively delete chapters.
-              - **Rename Novels**: Rename archived novel titles with an interactive edit dialog.
-              - **Permanent Deletion**: Permanently delete novels or chapters with optional checkbox to clean up storage files.
+            - **System-Wide Hardware Button Interception**:
+              - Added `NovelArrowAccessibilityService` with hardware key event filtering capability.
+              - Physical Volume Up and Volume Down gestures (Single, Double, and Long Press) are now recognized system-wide across all applications, home screen, and lock screen.
+            - **Screen-Off Active Playback Interception**:
+              - Enhanced `NovelAudioPlaybackService`'s MediaSession with consistent remote volume provider routing.
+              - Volume button gestures seamlessly control TTS playback while walking, running, or listening with the phone locked in your pocket.
+            - **Interactive Accessibility Permission Card**:
+              - Added a live status card in **Settings ➔ Hardware Buttons** displaying whether the accessibility service is active.
+              - Includes a direct one-tap button to open system accessibility settings and automatically updates when returning to the app.
+            - **Cross-Channel Deduplication**:
+              - Smart timestamp-based debounce prevents duplicate actions between accessibility key events and media session volume adjustments.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

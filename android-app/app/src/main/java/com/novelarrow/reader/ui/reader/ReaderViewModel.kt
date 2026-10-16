@@ -68,7 +68,7 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.8.0",
+    val installedVersionName: String = "2.9.0",
     val showRawEditor: Boolean = false,
     val rawChapterContent: String? = null,
     val showSignatureMismatchDialog: Boolean = false,

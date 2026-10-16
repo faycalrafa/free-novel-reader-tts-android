@@ -14,16 +14,28 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeDown
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.novelarrow.reader.data.model.HardwareButtonAction
 import com.novelarrow.reader.data.model.HardwareButtonScreenCondition
 import com.novelarrow.reader.data.model.HardwareButtonSettings
+import com.novelarrow.reader.playback.NovelArrowAccessibilityService
 
 private enum class EditingButtonSlot {
     VOL_UP_SINGLE,
@@ -72,6 +85,21 @@ fun HardwareButtonsScreen(
     onOpenDrawer: () -> Unit
 ) {
     var editingSlot by remember { mutableStateOf<EditingButtonSlot?>(null) }
+    val context = LocalContext.current
+    var isAccessibilityActive by remember { mutableStateOf(NovelArrowAccessibilityService.isEnabled(context)) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isAccessibilityActive = NovelArrowAccessibilityService.isEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -140,6 +168,76 @@ fun HardwareButtonsScreen(
                         checked = settings.enabled,
                         onCheckedChange = { onUpdateSettings(settings.copy(enabled = it)) }
                     )
+                }
+            }
+
+            // Accessibility Service Status Card
+            if (settings.enabled) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isAccessibilityActive)
+                            Color(0xFF2E7D32).copy(alpha = 0.12f)
+                        else
+                            Color(0xFFE65100).copy(alpha = 0.12f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isAccessibilityActive) Icons.Default.CheckCircle else Icons.Default.Security,
+                                contentDescription = null,
+                                tint = if (isAccessibilityActive) Color(0xFF2E7D32) else Color(0xFFE65100),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = if (isAccessibilityActive)
+                                    "System-Wide & Screen-Off Active"
+                                else
+                                    "Accessibility Permission Required",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (isAccessibilityActive) Color(0xFF2E7D32) else Color(0xFFE65100)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = if (isAccessibilityActive) {
+                                "NovelArrow Accessibility Service is active. Volume button shortcuts work everywhere across the system, in other apps, on the lock screen, and when the screen is turned off."
+                            } else {
+                                "To detect volume buttons outside the app, on the home screen, and when the screen is turned off, Android requires you to enable NovelArrow Reader in Accessibility settings."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (!isAccessibilityActive) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100))
+                            ) {
+                                Text("Open Accessibility Settings", color = Color.White)
+                            }
+                        }
+                    }
                 }
             }
 
