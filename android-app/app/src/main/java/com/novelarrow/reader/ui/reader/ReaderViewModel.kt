@@ -602,7 +602,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     footerSkipString = settings.footerSkipString,
                     footerSkipEnabled = settings.footerSkipEnabled,
                     headerSkipRules = settings.headerSkipRules,
-                    footerSkipRules = settings.footerSkipRules
+                    footerSkipRules = settings.footerSkipRules,
+                    folderPath = chapter.fileUri.ifBlank { _uiState.value.currentNovel?.rootTreeUri },
+                    novelUrl = chapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl
                 )
             }
 
@@ -1181,9 +1183,41 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun setSkipWordsEnabled(enabled: Boolean) {
+        updateSkipWordsEnabled(enabled)
+    }
+
     fun addSkipWord(word: String, exactMatch: Boolean) {
         viewModelScope.launch {
             settingsRepository.addSkipWord(com.novelarrow.reader.data.model.SkipWord(text = word, exactMatch = exactMatch))
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addSkipWord(skipWord: com.novelarrow.reader.data.model.SkipWord) {
+        viewModelScope.launch {
+            settingsRepository.addSkipWord(skipWord)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updateSkipWord(word: com.novelarrow.reader.data.model.SkipWord) {
+        viewModelScope.launch {
+            settingsRepository.updateSkipWord(word)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun toggleSkipWord(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.toggleSkipWord(id, enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun deleteSkipWord(id: String) {
+        viewModelScope.launch {
+            settingsRepository.deleteSkipWord(id)
             _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
         }
     }
@@ -1193,6 +1227,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             settingsRepository.removeSkipWord(index)
             _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
         }
+    }
+
+    fun setPronunciationRulesEnabled(enabled: Boolean) {
+        updatePronunciationRulesEnabled(enabled)
     }
 
     fun updatePronunciationRulesEnabled(enabled: Boolean) {
@@ -1205,6 +1243,34 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun addPronunciationRule(from: String, to: String, exactMatch: Boolean) {
         viewModelScope.launch {
             settingsRepository.addPronunciationRule(com.novelarrow.reader.data.model.PronunciationRule(from = from, to = to, exactMatch = exactMatch))
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addPronunciationRule(rule: com.novelarrow.reader.data.model.PronunciationRule) {
+        viewModelScope.launch {
+            settingsRepository.addPronunciationRule(rule)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updatePronunciationRule(rule: com.novelarrow.reader.data.model.PronunciationRule) {
+        viewModelScope.launch {
+            settingsRepository.updatePronunciationRule(rule)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun togglePronunciationRule(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.togglePronunciationRule(id, enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun deletePronunciationRule(id: String) {
+        viewModelScope.launch {
+            settingsRepository.deletePronunciationRule(id)
             _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
         }
     }

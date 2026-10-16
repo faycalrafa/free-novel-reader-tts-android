@@ -151,7 +151,9 @@ fun BrowserScreen(
     viewModel: BrowserViewModel,
     onNavigateBack: () -> Unit,
     onOpenDownloadedNovel: (novelId: String) -> Unit = {},
-    onOpenDrawer: () -> Unit = {}
+    onOpenDrawer: () -> Unit = {},
+    onNavigateToPronunciationRules: (() -> Unit)? = null,
+    onNavigateToSkipWords: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
@@ -446,6 +448,18 @@ fun BrowserScreen(
                 onAddSkipWord = { word, exact -> viewModel.addSkipWord(word, exact) },
                 onRemoveSkipWord = { viewModel.removeSkipWord(it) },
                 onContentSelectorChange = { viewModel.updateContentSelector(it) },
+                onNavigateToPronunciationRules = onNavigateToPronunciationRules?.let { nav ->
+                    {
+                        showAudioSettingsDialog = false
+                        nav()
+                    }
+                },
+                onNavigateToSkipWords = onNavigateToSkipWords?.let { nav ->
+                    {
+                        showAudioSettingsDialog = false
+                        nav()
+                    }
+                },
                 onDismiss = { showAudioSettingsDialog = false }
             )
         }

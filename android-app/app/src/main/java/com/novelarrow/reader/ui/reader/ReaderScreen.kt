@@ -181,6 +181,8 @@ fun ReaderScreen(
     onNavigateToBrowser: (createNewTab: Boolean) -> Unit,
     onOpenDrawer: () -> Unit = {},
     onAddFolder: () -> Unit = {},
+    onNavigateToPronunciationRules: (() -> Unit)? = null,
+    onNavigateToSkipWords: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -404,6 +406,18 @@ fun ReaderScreen(
             onRemoveFooterSkipRule = { viewModel.removeFooterSkipRule(it) },
             onContentSelectorEnabledChange = { viewModel.updateContentSelectorEnabled(it) },
             onContentSelectorChange = { viewModel.updateContentSelector(it) },
+            onNavigateToPronunciationRules = onNavigateToPronunciationRules?.let { nav ->
+                {
+                    showUnifiedAudioSettings = false
+                    nav()
+                }
+            },
+            onNavigateToSkipWords = onNavigateToSkipWords?.let { nav ->
+                {
+                    showUnifiedAudioSettings = false
+                    nav()
+                }
+            },
             onDismiss = { showUnifiedAudioSettings = false }
         )
     }

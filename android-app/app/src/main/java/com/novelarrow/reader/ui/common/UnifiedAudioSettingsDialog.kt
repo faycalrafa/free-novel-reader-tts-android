@@ -28,7 +28,7 @@ import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.SkipRule
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun UnifiedAudioSettingsDialog(
     speechRate: Float,
@@ -65,6 +65,8 @@ fun UnifiedAudioSettingsDialog(
     onRemoveFooterSkipRule: (Int) -> Unit = {},
     onContentSelectorEnabledChange: ((Boolean) -> Unit)? = null,
     onContentSelectorChange: ((String) -> Unit)? = null,
+    onNavigateToPronunciationRules: (() -> Unit)? = null,
+    onNavigateToSkipWords: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -187,27 +189,26 @@ fun UnifiedAudioSettingsDialog(
                                     steps = 39
                                 )
 
-                                Row(
+                                FlowRow(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(bottom = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { rate ->
                                         val isSelected = kotlin.math.abs(speechRate - rate) < 0.03f
                                         Surface(
-                                            shape = RoundedCornerShape(6.dp),
+                                            shape = RoundedCornerShape(8.dp),
                                             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { onSpeechRateChange(rate) }
+                                            modifier = Modifier.clickable { onSpeechRateChange(rate) }
                                         ) {
                                             Text(
                                                 text = "${rate}x",
                                                 fontSize = 11.sp,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                 color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                                modifier = Modifier.padding(vertical = 6.dp),
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                                 textAlign = TextAlign.Center,
                                                 maxLines = 1,
                                                 softWrap = false
@@ -335,25 +336,24 @@ fun UnifiedAudioSettingsDialog(
 
                                         Spacer(modifier = Modifier.height(8.dp))
 
-                                        Row(
+                                        FlowRow(
                                             modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             listOf(0, 15, 30, 45, 60, 90).forEach { mins ->
                                                 val isSelected = sleepTimerMinutes == mins
                                                 Surface(
-                                                    shape = RoundedCornerShape(6.dp),
+                                                    shape = RoundedCornerShape(8.dp),
                                                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .clickable { onSleepTimerChange(mins) }
+                                                    modifier = Modifier.clickable { onSleepTimerChange(mins) }
                                                 ) {
                                                     Text(
                                                         text = if (mins == 0) "Off" else "${mins}m",
                                                         fontSize = 11.sp,
                                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                                         color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                                        modifier = Modifier.padding(vertical = 6.dp),
+                                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                                         textAlign = TextAlign.Center
                                                     )
                                                 }
@@ -387,6 +387,25 @@ fun UnifiedAudioSettingsDialog(
                                         checked = pronunciationRulesEnabled,
                                         onCheckedChange = onPronunciationRulesEnabledChange
                                     )
+                                }
+                            }
+
+                            if (onNavigateToPronunciationRules != null) {
+                                item {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onDismiss()
+                                            onNavigateToPronunciationRules()
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Open Full Pronunciation Rules Manager")
+                                    }
                                 }
                             }
 
@@ -425,14 +444,14 @@ fun UnifiedAudioSettingsDialog(
 
                                             Spacer(modifier = Modifier.height(6.dp))
 
-                                            Row(
+                                            FlowRow(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.weight(1f)
+                                                    modifier = Modifier.padding(vertical = 2.dp)
                                                 ) {
                                                     Switch(
                                                         checked = ruleExactMatch,
@@ -549,6 +568,25 @@ fun UnifiedAudioSettingsDialog(
                                 }
                             }
 
+                            if (onNavigateToSkipWords != null) {
+                                item {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onDismiss()
+                                            onNavigateToSkipWords()
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Open Full Skip Words Manager")
+                                    }
+                                }
+                            }
+
                             if (skipWordsEnabled) {
                                 item {
                                     Card(
@@ -573,14 +611,14 @@ fun UnifiedAudioSettingsDialog(
 
                                             Spacer(modifier = Modifier.height(6.dp))
 
-                                            Row(
+                                            FlowRow(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.weight(1f)
+                                                    modifier = Modifier.padding(vertical = 2.dp)
                                                 ) {
                                                     Switch(
                                                         checked = skipWordExactMatch,
@@ -1026,8 +1064,14 @@ fun UnifiedAudioSettingsDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("Close")
+                }
             }
         }
     )

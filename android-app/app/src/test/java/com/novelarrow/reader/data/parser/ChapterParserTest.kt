@@ -6,6 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import com.novelarrow.reader.data.model.isTextBased
 import com.novelarrow.reader.data.model.detectEditorLanguage
+import com.novelarrow.reader.data.model.PronunciationRule
+import com.novelarrow.reader.data.model.PronunciationScopeType
+import com.novelarrow.reader.data.model.SkipWord
 
 class ChapterParserTest {
 
@@ -374,4 +377,133 @@ class ChapterParserTest {
         assertEquals("plaintext", txtChapter.detectEditorLanguage())
         assertEquals("markdown", mdChapter.detectEditorLanguage())
     }
+
+    @Test
+    fun testPronunciationRule_activeVsInactiveToggle() {
+        val rules = listOf(
+            PronunciationRule(
+                from = "Qi",
+                to = "Chee",
+                exactMatch = true,
+                enabled = true,
+                scopeType = PronunciationScopeType.GLOBAL
+            ),
+            PronunciationRule(
+                from = "Dan",
+                to = "Pill",
+                exactMatch = true,
+                enabled = false,
+                scopeType = PronunciationScopeType.GLOBAL
+            )
+        )
+
+        val text = "Cultivate your Qi and consume the Dan."
+        val result = ChapterParser.applyRulesAndSkips(
+            text = text,
+            pronunciationRules = rules,
+            skipWords = emptyList(),
+            folderPath = null,
+            novelUrl = null
+        )
+        // Qi -> Chee (active), Dan is NOT replaced (disabled)
+        assertEquals("Cultivate your Chee and consume the Dan.", result)
+    }
+
+    @Test
+    fun testPronunciationRule_folderScopeMatching() {
+        val rules = listOf(
+            PronunciationRule(
+                from = "Dao",
+                to = "Way",
+                exactMatch = true,
+                enabled = true,
+                scopeType = PronunciationScopeType.FOLDER,
+                scopePattern = "xianxia"
+            )
+        )
+
+        val text = "The Dao is eternal."
+
+        // 1. Matches folder path
+        val matchedResult = ChapterParser.applyRulesAndSkips(
+            text = text,
+            pronunciationRules = rules,
+            skipWords = emptyList(),
+            folderPath = "/storage/emulated/0/Novels/xianxia/chapter1.txt",
+            novelUrl = null
+        )
+        assertEquals("The Way is eternal.", matchedResult)
+
+        // 2. Outside folder path
+        val unmatchedResult = ChapterParser.applyRulesAndSkips(
+            text = text,
+            pronunciationRules = rules,
+            skipWords = emptyList(),
+            folderPath = "/storage/emulated/0/Novels/scifi/chapter1.txt",
+            novelUrl = null
+        )
+        assertEquals("The Dao is eternal.", unmatchedResult)
+    }
+
+    @Test
+    fun testPronunciationRule_urlPatternScopeMatching() {
+        val rules = listOf(
+            PronunciationRule(
+                from = "Sect",
+                to = "Clan",
+                exactMatch = true,
+                enabled = true,
+                scopeType = PronunciationScopeType.URL_PATTERN,
+                scopePattern = "*wuxiaworld.com*"
+            )
+        )
+
+        val text = "Welcome to the Spirit Sect."
+
+        // 1. URL matches pattern
+        val matchedResult = ChapterParser.applyRulesAndSkips(
+            text = text,
+            pronunciationRules = rules,
+            skipWords = emptyList(),
+            folderPath = null,
+            novelUrl = "https://www.wuxiaworld.com/novel/spirit-realm/chapter-1"
+        )
+        assertEquals("Welcome to the Spirit Clan.", matchedResult)
+
+        // 2. URL does not match pattern
+        val unmatchedResult = ChapterParser.applyRulesAndSkips(
+            text = text,
+            pronunciationRules = rules,
+            skipWords = emptyList(),
+            folderPath = null,
+            novelUrl = "https://www.royalroad.com/fiction/1234/chapter-1"
+        )
+        assertEquals("Welcome to the Spirit Sect.", unmatchedResult)
+    }
+
+    @Test
+    fun testSkipWord_activeVsInactiveToggle() {
+        val skips = listOf(
+            SkipWord(
+                text = "spoiler",
+                exactMatch = true,
+                enabled = true
+            ),
+            SkipWord(
+                text = "warning",
+                exactMatch = true,
+                enabled = false
+            )
+        )
+
+        val text = "This is a spoiler and a warning here."
+        val result = ChapterParser.applyRulesAndSkips(
+            text = text,
+            pronunciationRules = emptyList(),
+            skipWords = skips
+        )
+        // "spoiler" is removed, "warning" remains because enabled = false
+        assertEquals("This is a and a warning here.", result)
+    }
 }
+

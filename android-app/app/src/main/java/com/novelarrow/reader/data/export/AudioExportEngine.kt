@@ -378,7 +378,9 @@ object AudioExportEngine {
             footerSkipString = settings.footerSkipString,
             footerSkipEnabled = settings.footerSkipEnabled,
             headerSkipRules = settings.headerSkipRules,
-            footerSkipRules = settings.footerSkipRules
+            footerSkipRules = settings.footerSkipRules,
+            folderPath = chapter.fileUri,
+            novelUrl = chapter.webSourceUrl
         )
         if (parsed.isEmpty()) return null
 

@@ -19,11 +19,13 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,6 +53,8 @@ fun GlobalSettingsScreen(
     onNavigateToToolbarSettings: () -> Unit,
     onNavigateToHardwareButtons: () -> Unit,
     onOpenAudioSettings: () -> Unit,
+    onNavigateToPronunciationRules: () -> Unit = {},
+    onNavigateToSkipWords: () -> Unit = {},
     onOpenCssSelector: () -> Unit,
     onNavigateToAbout: () -> Unit
 ) {
@@ -112,8 +116,22 @@ fun GlobalSettingsScreen(
                     SettingsNavigationItem(
                         icon = Icons.Default.RecordVoiceOver,
                         title = "Speech & TTS Filters",
-                        subtitle = "Speed, pitch, system voices, skip words & pronunciation rules",
+                        subtitle = "Speed, pitch, system voices, sleep timer & audio controls",
                         onClick = onOpenAudioSettings
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingsNavigationItem(
+                        icon = Icons.Default.Translate,
+                        title = "Pronunciation Rules",
+                        subtitle = "Phonetic overrides, whole-word/regex replacement & folder/URL scopes",
+                        onClick = onNavigateToPronunciationRules
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingsNavigationItem(
+                        icon = Icons.Default.FilterAlt,
+                        title = "Auto Skip Words",
+                        subtitle = "Silence and strip unwanted words, ads and translator notes",
+                        onClick = onNavigateToSkipWords
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     SettingsNavigationItem(

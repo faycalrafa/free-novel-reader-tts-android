@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.0.1"
+          DATE_TAG="v3.1.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.0.1"
-        run: ./gradlew assembleRelease -PappVersionName=3.0.1 --no-daemon
+          APP_VERSION_NAME: "3.1.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.1.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,29 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.0.1 (Stable)
+          name: NovelArrow Reader v3.1.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.0.1 (Stable) 📖✨
+            ### NovelArrow Reader v3.1.0 (Stable) 📖✨
 
-            **BookReader v3.0.1** delivers the brand new high-fidelity 3D claymorphic launcher and adaptive icon asset suite across all Android devices and densities!
+            **NovelArrow Reader v3.1.0** introduces granular pronunciation scoping, dedicated rule & skip word management hubs, and atomic settings storage persistence!
 
             #### Key Updates in this release:
+            - **Pronunciation Rules Scoping Engine**:
+              - Support for `GLOBAL`, `FOLDER`, and `URL_PATTERN` scopes.
+              - Match specific novel directories or web domains (e.g., `*wuxiaworld.com*`).
+              - Individual active/inactive toggles for rules without having to delete them.
+            - **Dedicated Pronunciation Rules & Auto Skip Words Screens**:
+              - Clean top bars, search filters, and active rule counters.
+              - Full-width responsive dialogs with `FlowRow` chips.
+              - Intuitive add/edit/delete/toggle controls.
+            - **Settings Hub Integration & FlowRow Dialogs**:
+              - Direct navigation from Global Settings into dedicated management screens.
+              - Quick links inside `UnifiedAudioSettingsDialog` to open full managers.
+              - Multi-row wrapped preset chips and action buttons to prevent button squashing.
+            - **Thread-Safe Atomic Persistence**:
+              - Zero-corruption atomic disk writes via `AtomicFile` and Kotlin `Mutex`.
+              - Near logging with `AppLogger` across all failure-prone sites.
             - **High-Fidelity 3D Claymorphic Launcher & Adaptive Icons**:
               - Master 3D tactile icon with an open book, acoustic equalizer waveform, and smooth depth shading.
               - Multi-density WebP mipmap coverage (`mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi`).

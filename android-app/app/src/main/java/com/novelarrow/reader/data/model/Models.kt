@@ -65,17 +65,47 @@ enum class ThemeMode {
 }
 
 @Serializable
+enum class PronunciationScopeType {
+    GLOBAL,
+    FOLDER,
+    URL_PATTERN
+}
+
+@Serializable
 data class PronunciationRule(
+    val id: String = java.util.UUID.randomUUID().toString(),
     val from: String,
     val to: String,
-    val exactMatch: Boolean = true
-)
+    val exactMatch: Boolean = true,
+    val enabled: Boolean = true,
+    val scopeType: PronunciationScopeType = PronunciationScopeType.GLOBAL,
+    val scopePattern: String = ""
+) {
+    constructor(from: String, to: String, exactMatch: Boolean = true) : this(
+        id = java.util.UUID.randomUUID().toString(),
+        from = from,
+        to = to,
+        exactMatch = exactMatch,
+        enabled = true,
+        scopeType = PronunciationScopeType.GLOBAL,
+        scopePattern = ""
+    )
+}
 
 @Serializable
 data class SkipWord(
+    val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
-    val exactMatch: Boolean = true
-)
+    val exactMatch: Boolean = true,
+    val enabled: Boolean = true
+) {
+    constructor(text: String, exactMatch: Boolean = true) : this(
+        id = java.util.UUID.randomUUID().toString(),
+        text = text,
+        exactMatch = exactMatch,
+        enabled = true
+    )
+}
 
 @Serializable
 data class SkipRule(

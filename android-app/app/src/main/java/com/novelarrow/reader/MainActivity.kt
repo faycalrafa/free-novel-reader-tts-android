@@ -90,6 +90,8 @@ import com.novelarrow.reader.ui.common.IncomingLinkShareDialog
 import com.novelarrow.reader.ui.common.IncomingTextShareDialog
 import com.novelarrow.reader.ui.settings.GlobalSettingsScreen
 import com.novelarrow.reader.ui.settings.HardwareButtonsScreen
+import com.novelarrow.reader.ui.settings.PronunciationRulesScreen
+import com.novelarrow.reader.ui.settings.SkipWordsScreen
 import com.novelarrow.reader.ui.settings.ToolbarSettingsScreen
 import com.novelarrow.reader.ui.studio.AudioStudioScreen
 import com.novelarrow.reader.util.AppLogger
@@ -104,6 +106,8 @@ enum class AppScreen {
     SETTINGS,
     TOOLBAR_SETTINGS,
     HARDWARE_BUTTON_SETTINGS,
+    SETTINGS_PRONUNCIATION,
+    SETTINGS_SKIP_WORDS,
     DEV_LOGS,
     ARCHIVE,
     CHANGELOG,
@@ -214,6 +218,14 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.HARDWARE_BUTTON_SETTINGS) {
+                currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_PRONUNCIATION) {
+                currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_SKIP_WORDS) {
                 currentScreen = AppScreen.SETTINGS
             }
 
@@ -362,7 +374,9 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = AppScreen.BROWSER
                                     },
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
-                                    onAddFolder = { folderPickerLauncher.launch(null) }
+                                    onAddFolder = { folderPickerLauncher.launch(null) },
+                                    onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
+                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS }
                                 )
                             }
                             AppScreen.ABOUT -> {
@@ -399,9 +413,35 @@ class MainActivity : ComponentActivity() {
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNavigateToToolbarSettings = { currentScreen = AppScreen.TOOLBAR_SETTINGS },
                                     onNavigateToHardwareButtons = { currentScreen = AppScreen.HARDWARE_BUTTON_SETTINGS },
+                                    onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
+                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
                                     onOpenAudioSettings = { showGlobalAudioSettings = true },
                                     onOpenCssSelector = { showCssSelectorDialog = true },
                                     onNavigateToAbout = { currentScreen = AppScreen.ABOUT }
+                                )
+                            }
+                            AppScreen.SETTINGS_PRONUNCIATION -> {
+                                PronunciationRulesScreen(
+                                    masterEnabled = uiState.settings.pronunciationRulesEnabled,
+                                    rules = uiState.settings.pronunciationRules,
+                                    onToggleMaster = { viewModel.updatePronunciationRulesEnabled(it) },
+                                    onAddRule = { rule -> viewModel.addPronunciationRule(rule) },
+                                    onUpdateRule = { rule -> viewModel.updatePronunciationRule(rule) },
+                                    onToggleRule = { id, enabled -> viewModel.togglePronunciationRule(id, enabled) },
+                                    onDeleteRule = { id -> viewModel.deletePronunciationRule(id) },
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                )
+                            }
+                            AppScreen.SETTINGS_SKIP_WORDS -> {
+                                SkipWordsScreen(
+                                    masterEnabled = uiState.settings.skipWordsEnabled,
+                                    skipWords = uiState.settings.skipWords,
+                                    onToggleMaster = { viewModel.updateSkipWordsEnabled(it) },
+                                    onAddSkipWord = { word -> viewModel.addSkipWord(word) },
+                                    onUpdateSkipWord = { word -> viewModel.updateSkipWord(word) },
+                                    onToggleSkipWord = { id, enabled -> viewModel.toggleSkipWord(id, enabled) },
+                                    onDeleteSkipWord = { id -> viewModel.deleteSkipWord(id) },
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
                                 )
                             }
                             AppScreen.TOOLBAR_SETTINGS -> {
@@ -431,7 +471,9 @@ class MainActivity : ComponentActivity() {
                                         viewModel.refreshLibrary(novelId)
                                         currentScreen = AppScreen.READER
                                     },
-                                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                                    onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
+                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS }
                                 )
                             }
                             AppScreen.ARCHIVE -> {
@@ -561,6 +603,14 @@ class MainActivity : ComponentActivity() {
                                 onRemoveFooterSkipRule = { viewModel.removeFooterSkipRule(it) },
                                 onContentSelectorEnabledChange = { viewModel.updateContentSelectorEnabled(it) },
                                 onContentSelectorChange = { viewModel.updateContentSelector(it) },
+                                onNavigateToPronunciationRules = {
+                                    showGlobalAudioSettings = false
+                                    currentScreen = AppScreen.SETTINGS_PRONUNCIATION
+                                },
+                                onNavigateToSkipWords = {
+                                    showGlobalAudioSettings = false
+                                    currentScreen = AppScreen.SETTINGS_SKIP_WORDS
+                                },
                                 onDismiss = { showGlobalAudioSettings = false }
                             )
                         }
@@ -776,7 +826,8 @@ class MainActivity : ComponentActivity() {
                                             val info = com.novelarrow.reader.data.browser.WebNovelDownloader.detectNovelInfo(url, pageTitle)
                                             val paragraphs = com.novelarrow.reader.data.parser.ChapterParser.parse(
                                                 content = html,
-                                                fileName = "${info.novelTitle}.html"
+                                                fileName = "${info.novelTitle}.html",
+                                                novelUrl = url
                                             )
                                             val fullText = paragraphs.joinToString("\n\n") { it.spokenText }
                                             if (fullText.isNotBlank()) {

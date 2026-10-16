@@ -2,6 +2,7 @@ package com.novelarrow.reader.data.parser
 
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
+import com.novelarrow.reader.data.model.PronunciationScopeType
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.SkipRule
 import org.jsoup.Jsoup
@@ -68,11 +69,17 @@ object ChapterParser {
         footerSkipString: String = "",
         footerSkipEnabled: Boolean = true,
         headerSkipRules: List<SkipRule> = emptyList(),
-        footerSkipRules: List<SkipRule> = emptyList()
+        footerSkipRules: List<SkipRule> = emptyList(),
+        folderPath: String? = null,
+        novelUrl: String? = null
     ): List<Paragraph> {
         val effectiveSelector = if (contentSelectorEnabled) contentSelector else ""
-        val effectiveRules = if (pronunciationRulesEnabled) pronunciationRules else emptyList()
-        val effectiveSkips = if (skipWordsEnabled) skipWords else emptyList()
+        val effectiveRules = if (pronunciationRulesEnabled) {
+            pronunciationRules.filter { isRuleInScope(it, folderPath, novelUrl) }
+        } else emptyList()
+        val effectiveSkips = if (skipWordsEnabled) {
+            skipWords.filter { it.enabled }
+        } else emptyList()
         val effectiveHeader = if (headerSkipEnabled) headerSkipString else ""
         val effectiveFooter = if (footerSkipEnabled) footerSkipString else ""
         val effectiveHeaderRules = if (headerSkipEnabled) headerSkipRules else emptyList()
@@ -117,7 +124,7 @@ object ChapterParser {
                 val trimmedChunk = chunk.trim()
                 if (trimmedChunk.length < 2 || isNonContentText(trimmedChunk)) continue
 
-                val spoken = applyRulesAndSkips(trimmedChunk, effectiveRules, effectiveSkips)
+                val spoken = applyRulesAndSkips(trimmedChunk, effectiveRules, effectiveSkips, folderPath, novelUrl)
                 result.add(
                     Paragraph(
                         index = counter++,
@@ -344,14 +351,58 @@ object ChapterParser {
         return if (sentences.isNotEmpty()) sentences else listOf(text)
     }
 
+    fun isRuleInScope(
+        rule: PronunciationRule,
+        folderPath: String? = null,
+        novelUrl: String? = null
+    ): Boolean {
+        if (!rule.enabled) return false
+        return when (rule.scopeType) {
+            PronunciationScopeType.GLOBAL -> true
+            PronunciationScopeType.FOLDER -> {
+                if (rule.scopePattern.isBlank()) false
+                else matchesScopePattern(folderPath, rule.scopePattern)
+            }
+            PronunciationScopeType.URL_PATTERN -> {
+                if (rule.scopePattern.isBlank()) false
+                else matchesScopePattern(novelUrl, rule.scopePattern)
+            }
+        }
+    }
+
+    fun matchesScopePattern(target: String?, pattern: String): Boolean {
+        if (target.isNullOrBlank() || pattern.isBlank()) return false
+        val trimmedPattern = pattern.trim()
+
+        // 1. Direct case-insensitive substring match
+        if (target.contains(trimmedPattern, ignoreCase = true)) return true
+
+        // 2. Direct match with wildcards stripped (e.g. *wuxiaworld.com*)
+        val stripped = trimmedPattern.replace("*", "").trim()
+        if (stripped.isNotBlank() && target.contains(stripped, ignoreCase = true)) return true
+
+        // 3. Glob / Wildcard Regex match
+        return try {
+            val regexString = "^" + trimmedPattern.split("*").joinToString(".*") { Regex.escape(it) } + "$"
+            Regex(regexString, RegexOption.IGNORE_CASE).matches(target)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun applyRulesAndSkips(
         text: String,
         pronunciationRules: List<PronunciationRule>,
-        skipWords: List<SkipWord>
+        skipWords: List<SkipWord>,
+        folderPath: String? = null,
+        novelUrl: String? = null
     ): String {
         var processed = text
 
-        for (rule in pronunciationRules) {
+        val activeRules = pronunciationRules.filter { isRuleInScope(it, folderPath, novelUrl) }
+        val activeSkips = skipWords.filter { it.enabled }
+
+        for (rule in activeRules) {
             if (rule.from.isBlank()) continue
             val escaped = Regex.escape(rule.from)
             processed = if (rule.exactMatch) {
@@ -362,7 +413,7 @@ object ChapterParser {
             }
         }
 
-        for (skip in skipWords) {
+        for (skip in activeSkips) {
             if (skip.text.isBlank()) continue
             val escaped = Regex.escape(skip.text)
             processed = if (skip.exactMatch) {

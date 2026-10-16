@@ -398,7 +398,9 @@ object AudioPlaybackCoordinator {
                 footerSkipString = settings.footerSkipString,
                 footerSkipEnabled = settings.footerSkipEnabled,
                 headerSkipRules = settings.headerSkipRules,
-                footerSkipRules = settings.footerSkipRules
+                footerSkipRules = settings.footerSkipRules,
+                folderPath = chap.fileUri.ifBlank { targetNovel.rootTreeUri },
+                novelUrl = chap.webSourceUrl ?: targetNovel.webUrl
             )
 
             val paraIdx = chap.lastReadParagraphIndex.coerceIn(0, (parsed.size - 1).coerceAtLeast(0))
@@ -483,7 +485,9 @@ object AudioPlaybackCoordinator {
                             footerSkipString = settings.footerSkipString,
                             footerSkipEnabled = settings.footerSkipEnabled,
                             headerSkipRules = settings.headerSkipRules,
-                            footerSkipRules = settings.footerSkipRules
+                            footerSkipRules = settings.footerSkipRules,
+                            folderPath = chap.fileUri,
+                            novelUrl = chap.webSourceUrl
                         )
                         withContext(Dispatchers.Main) {
                             currentParagraphs = parsed
@@ -812,7 +816,9 @@ object AudioPlaybackCoordinator {
                     footerSkipString = settings.footerSkipString,
                     footerSkipEnabled = settings.footerSkipEnabled,
                     headerSkipRules = settings.headerSkipRules,
-                    footerSkipRules = settings.footerSkipRules
+                    footerSkipRules = settings.footerSkipRules,
+                    folderPath = nextChap.fileUri,
+                    novelUrl = nextChap.webSourceUrl
                 )
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->
@@ -863,7 +869,9 @@ object AudioPlaybackCoordinator {
                     footerSkipString = settings.footerSkipString,
                     footerSkipEnabled = settings.footerSkipEnabled,
                     headerSkipRules = settings.headerSkipRules,
-                    footerSkipRules = settings.footerSkipRules
+                    footerSkipRules = settings.footerSkipRules,
+                    folderPath = prevChap.fileUri,
+                    novelUrl = prevChap.webSourceUrl
                 )
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->

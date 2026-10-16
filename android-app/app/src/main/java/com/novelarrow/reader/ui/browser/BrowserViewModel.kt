@@ -1133,34 +1133,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun applyRulesAndSkips(text: String): String {
-        var clean = text
         val settings = _uiState.value.settings
-
-        if (settings.pronunciationRulesEnabled) {
-            for (rule in settings.pronunciationRules) {
-                if (rule.from.isBlank()) continue
-                clean = if (rule.exactMatch) {
-                    val regex = Regex("""\b${Regex.escape(rule.from)}\b""", RegexOption.IGNORE_CASE)
-                    clean.replace(regex, rule.to)
-                } else {
-                    clean.replace(rule.from, rule.to, ignoreCase = true)
-                }
-            }
-        }
-
-        if (settings.skipWordsEnabled) {
-            for (skip in settings.skipWords) {
-                if (skip.text.isBlank()) continue
-                clean = if (skip.exactMatch) {
-                    val regex = Regex("""\b${Regex.escape(skip.text)}\b""", RegexOption.IGNORE_CASE)
-                    clean.replace(regex, "")
-                } else {
-                    clean.replace(skip.text, "", ignoreCase = true)
-                }
-            }
-        }
-
-        return clean.replace(Regex("""\s+"""), " ").trim()
+        val rules = if (settings.pronunciationRulesEnabled) settings.pronunciationRules else emptyList()
+        val skips = if (settings.skipWordsEnabled) settings.skipWords else emptyList()
+        val url = _uiState.value.currentUrl
+        return com.novelarrow.reader.data.parser.ChapterParser.applyRulesAndSkips(
+            text = text,
+            pronunciationRules = rules,
+            skipWords = skips,
+            folderPath = null,
+            novelUrl = url
+        )
     }
 
     private fun handleLiveChapterEnd() {
