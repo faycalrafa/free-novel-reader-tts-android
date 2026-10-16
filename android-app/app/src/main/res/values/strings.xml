@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">NovelArrow Reader</string>
+    <string name="app_name">BookReader</string>
     <string name="accessibility_service_label">NovelArrow Volume Button Shortcuts</string>
     <string name="accessibility_service_description">Enables NovelArrow Reader to detect volume button shortcuts (play/pause, chapter skips, speed adjustments) when outside the app or when the screen is locked/off.</string>
 </resources>

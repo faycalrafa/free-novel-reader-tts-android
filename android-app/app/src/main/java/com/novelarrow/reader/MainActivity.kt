@@ -83,10 +83,19 @@ import com.novelarrow.reader.ui.reader.ReaderScreen
 import com.novelarrow.reader.ui.reader.ReaderViewModel
 import com.novelarrow.reader.ui.reader.UpdateAvailableDialog
 import com.novelarrow.reader.ui.reader.UpdateDownloadingDialog
+import com.novelarrow.reader.playback.AudioExportService
+import com.novelarrow.reader.playback.AudioPlaybackCoordinator
+import com.novelarrow.reader.ui.about.ChangelogScreen
+import com.novelarrow.reader.ui.common.IncomingLinkShareDialog
+import com.novelarrow.reader.ui.common.IncomingTextShareDialog
 import com.novelarrow.reader.ui.settings.GlobalSettingsScreen
 import com.novelarrow.reader.ui.settings.HardwareButtonsScreen
 import com.novelarrow.reader.ui.settings.ToolbarSettingsScreen
+import com.novelarrow.reader.ui.studio.AudioStudioScreen
+import com.novelarrow.reader.util.AppLogger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class AppScreen {
     READER,
@@ -96,11 +105,43 @@ enum class AppScreen {
     TOOLBAR_SETTINGS,
     HARDWARE_BUTTON_SETTINGS,
     DEV_LOGS,
-    ARCHIVE
+    ARCHIVE,
+    CHANGELOG,
+    TEXT_TO_MP3
 }
 
 class MainActivity : ComponentActivity() {
     private val openCssSelectorEvent = mutableStateOf(false)
+    private val sharedUrlEvent = mutableStateOf<String?>(null)
+    private val sharedTextEvent = mutableStateOf<String?>(null)
+
+    companion object {
+        const val EXTRA_RESUME_PLAYBACK = "extra_resume_playback"
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        checkCssSelectorIntent(intent)
+        handleIncomingShareIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_RESUME_PLAYBACK, false)) {
+            AudioPlaybackCoordinator.restoreLastHearingSession(autoPlay = true)
+        }
+    }
+
+    private fun handleIncomingShareIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action == Intent.ACTION_SEND && intent.type?.startsWith("text/") == true) {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+            if (!text.isNullOrBlank()) {
+                if (text.startsWith("http://", ignoreCase = true) || text.startsWith("https://", ignoreCase = true)) {
+                    sharedUrlEvent.value = text
+                } else {
+                    sharedTextEvent.value = text
+                }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -116,6 +157,7 @@ class MainActivity : ComponentActivity() {
         }
 
         checkCssSelectorIntent(intent)
+        handleIncomingShareIntent(intent)
 
         setContent {
             val viewModel: ReaderViewModel = viewModel()
@@ -135,6 +177,9 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 // Pinned quick toolbar initialization on boot
                 QuickToolbarNotificationManager.updateToolbar(context)
+                if (intent?.getBooleanExtra(EXTRA_RESUME_PLAYBACK, false) == true) {
+                    AudioPlaybackCoordinator.restoreLastHearingSession(autoPlay = true)
+                }
             }
 
             LaunchedEffect(isOnboardingCompleted) {
@@ -176,7 +221,11 @@ class MainActivity : ComponentActivity() {
                 currentScreen = AppScreen.ABOUT
             }
 
-            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS || currentScreen == AppScreen.ARCHIVE)) {
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.CHANGELOG) {
+                currentScreen = AppScreen.ABOUT
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS || currentScreen == AppScreen.ARCHIVE || currentScreen == AppScreen.TEXT_TO_MP3)) {
                 currentScreen = AppScreen.READER
             }
 
@@ -284,6 +333,10 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = AppScreen.ABOUT
                                     scope.launch { drawerState.close() }
                                 },
+                                onOpenAudioStudio = {
+                                    currentScreen = AppScreen.TEXT_TO_MP3
+                                    scope.launch { drawerState.close() }
+                                },
                                 onOpenArchive = {
                                     currentScreen = AppScreen.ARCHIVE
                                     scope.launch { drawerState.close() }
@@ -329,6 +382,7 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = AppScreen.READER
                                     },
                                     onNavigateToDevLogs = { currentScreen = AppScreen.DEV_LOGS },
+                                    onNavigateToChangelog = { currentScreen = AppScreen.CHANGELOG },
                                     onNavigateBack = { currentScreen = AppScreen.READER },
                                     onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
@@ -398,6 +452,19 @@ class MainActivity : ComponentActivity() {
                                     onDeleteChapter = { novelId, chapter, deleteFromDisk ->
                                         viewModel.deleteArchivedChapter(novelId, chapter, deleteFromDisk)
                                     },
+                                    onNavigateBack = { currentScreen = AppScreen.READER },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                                )
+                            }
+                            AppScreen.CHANGELOG -> {
+                                ChangelogScreen(
+                                    onNavigateBack = { currentScreen = AppScreen.ABOUT }
+                                )
+                            }
+                            AppScreen.TEXT_TO_MP3 -> {
+                                AudioStudioScreen(
+                                    novels = uiState.novels,
+                                    currentNovel = uiState.currentNovel,
                                     onNavigateBack = { currentScreen = AppScreen.READER },
                                     onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
@@ -681,17 +748,80 @@ class MainActivity : ComponentActivity() {
                                 dismissButton = null
                             )
                         }
+
+                        val sharedUrl by sharedUrlEvent
+                        if (sharedUrl != null) {
+                            IncomingLinkShareDialog(
+                                url = sharedUrl!!,
+                                onDismiss = { sharedUrlEvent.value = null },
+                                onOpenInBrowser = { url ->
+                                    browserViewModel.openNewTab(url)
+                                    currentScreen = AppScreen.BROWSER
+                                },
+                                onSaveFrozenHtml = { url ->
+                                    browserViewModel.openNewTab(url)
+                                    currentScreen = AppScreen.BROWSER
+                                    Toast.makeText(context, "Opening page to save frozen HTML", Toast.LENGTH_SHORT).show()
+                                },
+                                onSaveAsMp3 = { url, speed ->
+                                    scope.launch(Dispatchers.IO) {
+                                        try {
+                                            val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                                            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile; rv:109.0) Gecko/109.0 Firefox/114.0")
+                                            conn.connectTimeout = 15000
+                                            conn.readTimeout = 15000
+                                            val html = conn.inputStream.bufferedReader().use { it.readText() }
+                                            val doc = org.jsoup.Jsoup.parse(html, url)
+                                            val pageTitle = doc.title().ifBlank { "WebPage" }
+                                            val info = com.novelarrow.reader.data.browser.WebNovelDownloader.detectNovelInfo(url, pageTitle)
+                                            val paragraphs = com.novelarrow.reader.data.parser.ChapterParser.parse(
+                                                content = html,
+                                                fileName = "${info.novelTitle}.html"
+                                            )
+                                            val fullText = paragraphs.joinToString("\n\n") { it.spokenText }
+                                            if (fullText.isNotBlank()) {
+                                                AudioExportService.startExportText(
+                                                    context = context,
+                                                    title = info.novelTitle.ifBlank { pageTitle },
+                                                    text = fullText,
+                                                    speed = speed
+                                                )
+                                            } else {
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(context, "Could not extract readable text from link", Toast.LENGTH_LONG).show()
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            AppLogger.e("MainActivity", "Failed to audify link: ${e.message}", e)
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Failed to download link: ${e.message}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        val sharedText by sharedTextEvent
+                        if (sharedText != null) {
+                            IncomingTextShareDialog(
+                                text = sharedText!!,
+                                onDismiss = { sharedTextEvent.value = null },
+                                onSaveAsMp3 = { text, speed ->
+                                    AudioExportService.startExportText(
+                                        context = context,
+                                        title = "Shared_Note",
+                                        text = text,
+                                        speed = speed
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
             }
         }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        checkCssSelectorIntent(intent)
     }
 
     private fun checkCssSelectorIntent(intent: Intent?) {

@@ -19,8 +19,10 @@ jsoup = "1.18.3"
 datastore = "1.1.2"
 kotlinxSerializationJson = "1.8.0"
 markwon = "4.6.2"
+jump3r = "1.0.5"
 
 [libraries]
+jump3r = { module = "de.sciss:jump3r", version.ref = "jump3r" }
 markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }

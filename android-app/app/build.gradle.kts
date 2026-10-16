@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("2.9.0")
+        .getOrElse("3.0.0")
 
     defaultConfig {
         applicationId = "com.novelarrow.reader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
+        versionCode = 19
         versionName = appVersionName
     }
 
@@ -130,4 +130,5 @@ dependencies {
   implementation(libs.jsoup)
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.markwon.core)
+  implementation(libs.jump3r)
 }

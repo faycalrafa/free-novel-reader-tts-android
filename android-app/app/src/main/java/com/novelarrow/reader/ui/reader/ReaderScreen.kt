@@ -34,6 +34,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import java.io.File
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Share
+import com.novelarrow.reader.data.export.AudioExportEngine
+import com.novelarrow.reader.data.export.FileFusionManager
+import com.novelarrow.reader.playback.AudioExportService
+import com.novelarrow.reader.ui.common.NovelFolderShareDialog
+import com.novelarrow.reader.ui.common.ChapterShareDialog
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Book
@@ -290,6 +304,8 @@ fun ReaderScreen(
                     fontSizeSp = uiState.settings.fontSizeSp,
                     themeMode = uiState.settings.theme,
                     autoScroll = uiState.settings.autoScroll,
+                    chapterTitle = uiState.currentChapter?.title ?: "Chapter",
+                    speechRate = uiState.settings.speechRate,
                     onParagraphClick = { index -> viewModel.speakAtParagraph(index) }
                 )
             }
@@ -491,12 +507,17 @@ fun ReaderContentView(
     fontSizeSp: Float,
     themeMode: ThemeMode,
     autoScroll: Boolean,
+    chapterTitle: String = "Chapter",
+    speechRate: Float = 1.0f,
     onParagraphClick: (Int) -> Unit
 ) {
+    val context = LocalContext.current
     val listState = rememberLazyListState()
+    var selectedIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    val isSelectionMode = selectedIndices.isNotEmpty()
 
     LaunchedEffect(currentIndex) {
-        if (autoScroll && currentIndex in paragraphs.indices) {
+        if (autoScroll && !isSelectionMode && currentIndex in paragraphs.indices) {
             listState.animateScrollToItem(
                 index = currentIndex,
                 scrollOffset = -150
@@ -510,62 +531,163 @@ fun ReaderContentView(
         ThemeMode.LIGHT -> LightHighlight
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-    ) {
-        itemsIndexed(paragraphs, key = { index, _ -> index }) { index, paragraph ->
-            val isCurrent = index == currentIndex
-            val backgroundColor by animateColorAsState(
-                targetValue = if (isCurrent) highlightColor else Color.Transparent,
-                label = "highlight_anim"
-            )
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            itemsIndexed(paragraphs, key = { index, _ -> index }) { index, paragraph ->
+                val isCurrent = index == currentIndex
+                val isSelected = selectedIndices.contains(index)
+                val backgroundColor by animateColorAsState(
+                    targetValue = when {
+                        isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                        isCurrent -> highlightColor
+                        else -> Color.Transparent
+                    },
+                    label = "highlight_anim"
+                )
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(backgroundColor)
-                    .clickable { onParagraphClick(index) }
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isCurrent) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(20.dp)
-                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(backgroundColor)
+                        .combinedClickable(
+                            onClick = {
+                                if (isSelectionMode) {
+                                    selectedIndices = if (isSelected) selectedIndices - index else selectedIndices + index
+                                } else {
+                                    onParagraphClick(index)
+                                }
+                            },
+                            onLongClick = {
+                                selectedIndices = if (isSelected) selectedIndices - index else selectedIndices + index
+                            }
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isCurrent && !isSelected) {
+                            Box(
+                                modifier = Modifier
+                                    .width(3.dp)
+                                    .height(20.dp)
+                                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
 
-                    Text(
-                        text = paragraph.rawText,
-                        style = if (paragraph.isHeading) {
-                            MaterialTheme.typography.titleMedium.copy(
-                                fontSize = (fontSizeSp + 4).sp,
-                                fontWeight = FontWeight.Bold,
-                                lineHeight = (fontSizeSp + 10).sp
+                        if (isSelected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(end = 4.dp)
                             )
-                        } else {
-                            MaterialTheme.typography.bodyLarge.copy(
-                                fontSize = fontSizeSp.sp,
-                                lineHeight = (fontSizeSp * 1.6f).sp
-                            )
-                        },
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
+                        }
+
+                        Text(
+                            text = paragraph.rawText,
+                            style = if (paragraph.isHeading) {
+                                MaterialTheme.typography.titleMedium.copy(
+                                    fontSize = (fontSizeSp + 4).sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = (fontSizeSp + 10).sp
+                                )
+                            } else {
+                                MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = fontSizeSp.sp,
+                                    lineHeight = (fontSizeSp * 1.6f).sp
+                                )
+                            },
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
                 }
+            }
+
+            // Bottom space so dock doesn't obscure last lines
+            item {
+                Spacer(modifier = Modifier.height(140.dp))
             }
         }
 
-        // Bottom space so dock doesn't obscure last lines
-        item {
-            Spacer(modifier = Modifier.height(140.dp))
+        // Floating Selection Bar
+        if (isSelectionMode) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 10.dp)
+                    .padding(horizontal = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${selectedIndices.size} selected",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.padding(horizontal = 6.dp)
+                    )
+                    TextButton(
+                        onClick = { selectedIndices = paragraphs.indices.toSet() }
+                    ) {
+                        Text("Select All", fontSize = 12.sp)
+                    }
+                    IconButton(
+                        onClick = {
+                            val text = selectedIndices.sorted()
+                                .mapNotNull { paragraphs.getOrNull(it)?.rawText }
+                                .joinToString("\n\n")
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Paragraphs", text))
+                            Toast.makeText(context, "${selectedIndices.size} paragraphs copied", Toast.LENGTH_SHORT).show()
+                            selectedIndices = emptySet()
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy text", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(
+                        onClick = {
+                            val text = selectedIndices.sorted()
+                                .mapNotNull { paragraphs.getOrNull(it)?.spokenText?.ifBlank { paragraphs[it].rawText } }
+                                .joinToString("\n\n")
+                            AudioExportService.startExportText(
+                                context = context,
+                                title = "${chapterTitle}_selection",
+                                text = text,
+                                speed = speechRate
+                            )
+                            Toast.makeText(context, "Audifying ${selectedIndices.size} paragraphs in background...", Toast.LENGTH_SHORT).show()
+                            selectedIndices = emptySet()
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Audiotrack,
+                            contentDescription = "Share as MP3",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = { selectedIndices = emptySet() },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
         }
     }
 }
@@ -982,13 +1104,17 @@ fun LibraryDrawerContent(
     onCloseTab: (String) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenAbout: () -> Unit,
+    onOpenAudioStudio: () -> Unit = {},
     onOpenArchive: () -> Unit = {},
     onArchiveNovel: (Novel) -> Unit = {},
     onCloseDrawer: () -> Unit
 ) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
     var activeActionNovelId by remember { mutableStateOf<String?>(null) }
     var activeActionChapterId by remember { mutableStateOf<String?>(null) }
+    var sharingNovel by remember { mutableStateOf<Novel?>(null) }
+    var sharingChapter by remember { mutableStateOf<Chapter?>(null) }
     var novelToDelete by remember { mutableStateOf<Novel?>(null) }
     var deleteFilesFromDisk by remember { mutableStateOf(false) }
     var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
@@ -1029,6 +1155,9 @@ fun LibraryDrawerContent(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Row {
+                IconButton(onClick = onOpenAudioStudio) {
+                    Icon(Icons.Default.Audiotrack, contentDescription = "Text to MP3")
+                }
                 IconButton(onClick = onOpenArchive) {
                     Icon(Icons.Default.Archive, contentDescription = "Archived Novels")
                 }
@@ -1149,6 +1278,20 @@ fun LibraryDrawerContent(
                                     )
                                 }
                                 if (isActionsVisible) {
+                                    IconButton(
+                                        onClick = {
+                                            activeActionNovelId = null
+                                            sharingNovel = novel
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Share,
+                                            contentDescription = "Share novel",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                     IconButton(
                                         onClick = {
                                             activeActionNovelId = null
@@ -1453,6 +1596,20 @@ fun LibraryDrawerContent(
                                 if (isChapterActionsVisible) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         IconButton(
+                                            onClick = {
+                                                activeActionChapterId = null
+                                                sharingChapter = chapter
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Share,
+                                                contentDescription = "Share Chapter",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(17.dp)
+                                            )
+                                        }
+                                        IconButton(
                                             onClick = { onToggleChapterReadStatus(chapter) },
                                             modifier = Modifier.size(32.dp)
                                         ) {
@@ -1549,22 +1706,10 @@ fun LibraryDrawerContent(
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "About App",
+                            text = "About BookReader",
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-                        ) {
-                            Text(
-                                text = "Stable",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
                     }
                     Text(
                         text = "v$installedVersionName",
@@ -1693,6 +1838,64 @@ fun LibraryDrawerContent(
                     TextButton(onClick = { chapterToDelete = null }) {
                         Text("Cancel")
                     }
+                }
+            )
+        }
+
+        if (sharingNovel != null) {
+            val novelToShare = sharingNovel!!
+            val novelChapters = if (novelToShare.id == currentNovel?.id) chapters else emptyList()
+            NovelFolderShareDialog(
+                novel = novelToShare,
+                chapters = novelChapters,
+                onDismiss = { sharingNovel = null },
+                onFuseAndShare = {
+                    Toast.makeText(context, "Fusing novel chapters in background...", Toast.LENGTH_SHORT).show()
+                    AudioExportService.startFuseNovel(context, novelToShare.id)
+                },
+                onZipAndShare = {
+                    Toast.makeText(context, "Zipping novel folder in background...", Toast.LENGTH_SHORT).show()
+                    AudioExportService.startZipNovel(context, novelToShare.id)
+                },
+                onAudifyAndShare = { start, end, speed, splitMode ->
+                    Toast.makeText(context, "Audifying novel in background...", Toast.LENGTH_SHORT).show()
+                    AudioExportService.startExportNovel(
+                        context = context,
+                        novelId = novelToShare.id,
+                        startChap = start,
+                        endChap = end,
+                        splitMode = splitMode,
+                        speed = speed
+                    )
+                }
+            )
+        }
+
+        if (sharingChapter != null) {
+            val chapToShare = sharingChapter!!
+            ChapterShareDialog(
+                chapter = chapToShare,
+                onDismiss = { sharingChapter = null },
+                onShareDirectly = {
+                    val rawFile = File(chapToShare.fileUri)
+                    if (rawFile.exists()) {
+                        val shareIntent = FileFusionManager.createShareIntent(context, rawFile, "text/*")
+                        context.startActivity(Intent.createChooser(shareIntent, "Share chapter"))
+                    } else {
+                        Toast.makeText(context, "Chapter file not found on disk", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onAudifyAndShare = { speed ->
+                    val novId = currentNovel?.id ?: chapToShare.novelId
+                    Toast.makeText(context, "Audifying chapter in background...", Toast.LENGTH_SHORT).show()
+                    AudioExportService.startExportNovel(
+                        context = context,
+                        novelId = novId,
+                        startChap = chapToShare.orderIndex,
+                        endChap = chapToShare.orderIndex,
+                        splitMode = AudioExportEngine.SplitMode.SINGLE_FILE,
+                        speed = speed
+                    )
                 }
             )
         }

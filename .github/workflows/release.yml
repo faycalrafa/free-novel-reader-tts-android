@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.9.0"
+          DATE_TAG="v3.0.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.9.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.9.0 --no-daemon
+          APP_VERSION_NAME: "3.0.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.0.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,27 +53,35 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.9.0 (Stable)
+          name: BookReader v3.0.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.9.0 (Stable) 📖✨
+            ### BookReader v3.0.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.9.0** brings **System-Wide and Screen-Off Hardware Volume Button Mapping**, allowing you to control novel TTS playback from outside the app, on the home screen, inside other apps, and when the screen is turned off!
+            **BookReader v3.0.0** introduces a refreshed identity, dedicated Text-to-MP3 studio, Quick Settings drawer button, comprehensive file fusion/zipping, and system-wide sharing receivers!
 
-            **100% Free and Open Source Software (FOSS)**
-
-            #### Changes in this release:
-            - **System-Wide Hardware Button Interception**:
-              - Added `NovelArrowAccessibilityService` with hardware key event filtering capability.
-              - Physical Volume Up and Volume Down gestures (Single, Double, and Long Press) are now recognized system-wide across all applications, home screen, and lock screen.
-            - **Screen-Off Active Playback Interception**:
-              - Enhanced `NovelAudioPlaybackService`'s MediaSession with consistent remote volume provider routing.
-              - Volume button gestures seamlessly control TTS playback while walking, running, or listening with the phone locked in your pocket.
-            - **Interactive Accessibility Permission Card**:
-              - Added a live status card in **Settings ➔ Hardware Buttons** displaying whether the accessibility service is active.
-              - Includes a direct one-tap button to open system accessibility settings and automatically updates when returning to the app.
-            - **Cross-Channel Deduplication**:
-              - Smart timestamp-based debounce prevents duplicate actions between accessibility key events and media session volume adjustments.
+            #### Key Features & Updates in this release:
+            - **App Rebranding & Warm Sepia Adaptive Icon**:
+              - Renamed application to **BookReader** while preserving package namespace integrity.
+              - Redesigned app icon to the warm sepia "Resonant Codex" theme with radiating acoustic waves.
+            - **About Screen Redesign & Chronological Changelog**:
+              - Concise feature breakdown without current status labels.
+              - Dedicated Version History screen detailing all architectural milestones from v3.0.0 down to v1.0.0.
+            - **Quick Settings Tile**:
+              - Added Quick Settings drawer tile (`BookReaderTileService`) to resume playback where you last left off.
+            - **System Sharing Receiver**:
+              - Share web links to BookReader with instant options: Open in Browser, Save Frozen HTML, or Audify to MP3.
+              - Share plain text to BookReader to audify directly to MP3 with a reading speed selector.
+            - **Library Folder & Chapter Sharing**:
+              - Fuse novel folders into a single HTML (with styling and table of contents), TXT, or MD file.
+              - Zip entire novel folders for seamless transfer.
+              - Audify chapters/novels to MP3 with chapter range, split modes (by chapter, by minutes, or single file), and reading speed selector.
+            - **Paragraph Multi-Selection**:
+              - Select multiple paragraphs in Reader mode with a floating action bar to copy text or share as MP3 using current voice settings.
+            - **Text-to-MP3 Studio**:
+              - Dedicated studio screen located next to the Archive button in the drawer header with chapter range sliders and split controls.
+            - **Background Export Service**:
+              - Foreground service with persistent progress notification and cancel support; files > 1MB automatically saved to `Downloads/BookReader/`.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

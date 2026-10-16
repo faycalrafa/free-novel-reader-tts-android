@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
@@ -71,6 +72,7 @@ fun AboutScreen(
     onSaveApkToPath: () -> Unit = {},
     onReplayOnboarding: () -> Unit = {},
     onNavigateToDevLogs: () -> Unit = {},
+    onNavigateToChangelog: () -> Unit = {},
     onNavigateBack: () -> Unit,
     onOpenDrawer: () -> Unit = onNavigateBack,
     modifier: Modifier = Modifier
@@ -100,7 +102,7 @@ fun AboutScreen(
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "About NovelArrow Reader",
+                        text = "About BookReader",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -152,54 +154,82 @@ fun AboutScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Text(
-                            text = "NovelArrow Reader Pro",
+                            text = "BookReader",
                             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer
-                            ) {
-                                Text(
-                                    text = "Version $installedVersionName",
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    ),
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                                )
-                            }
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer
-                            ) {
-                                Text(
-                                    text = "Stable",
-                                    style = MaterialTheme.typography.labelMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    ),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                            }
+                            Text(
+                                text = "Version $installedVersionName",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                ),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
-                            text = "Free & Open-Source offline novel reader and playlist audio player with system media notification, lockscreen seekbar sync, sleep timer, and flexible parsing filters.",
+                            text = "An offline novel reader and audio player featuring native text-to-speech, interactive web reading, customizable parsing filters, background playback, and quick toolbar controls.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                             lineHeight = 20.sp
                         )
+                    }
+                }
+            }
+
+            // Version History & Changelog Card
+            item {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Version History & Changes",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Explore the complete chronological changelog from the latest v3.0.0 release down to v1.0.0.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = onNavigateToChangelog,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("View Full Changelog")
+                        }
                     }
                 }
             }
@@ -489,13 +519,7 @@ fun AboutScreen(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
 
-                        Text(
-                            text = "100% Free and Open-Source Software (FOSS)",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
 
                         Spacer(modifier = Modifier.height(14.dp))
                         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
