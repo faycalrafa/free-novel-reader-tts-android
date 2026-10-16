@@ -10,6 +10,7 @@ import com.novelarrow.reader.browser.engine.RunAt
 import com.novelarrow.reader.browser.engine.WebContentExtractor
 import com.novelarrow.reader.browser.engine.WebScriptInjector
 import com.novelarrow.reader.data.browser.WebNovelDownloader
+import com.novelarrow.reader.data.browser.DomContentVerifier
 import com.novelarrow.reader.data.model.Novel
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
@@ -22,8 +23,10 @@ import com.novelarrow.reader.data.userscript.UserscriptMetadataParser
 import com.novelarrow.reader.data.userscript.UserscriptRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
+import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +36,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 import org.json.JSONObject
 import java.util.UUID
 
@@ -159,6 +165,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private var lastBatchDownloadedChapterNum: Int = -1
     private var duplicatePageRetryCount: Int = 0
 
+    private var lastExtractedHeading: String = ""
+    private var lastExtractedSample: String = ""
+    private var domVerificationJob: Job? = null
+
     companion object {
         private const val TAG = "BrowserViewModel"
         private const val DEFAULT_URL = "https://www.google.com"
@@ -170,6 +180,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun dispatchEvaluateJs(script: String, callback: ((String?) -> Unit)? = null) {
         _browserActions.trySend(BrowserAction.EvaluateJavascript(script, callback))
+    }
+
+    private suspend fun evaluateJsWithTimeout(script: String, timeoutMs: Long = 3000L): String? {
+        return try {
+            withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine { continuation ->
+                    dispatchEvaluateJs(script) { result ->
+                        if (continuation.isActive) {
+                            continuation.resume(result)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Error evaluating JS with timeout: ${e.message}", e)
+            null
+        }
     }
 
     fun playClickSound() {
@@ -465,9 +492,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         // Inject JS helper and document-end userscripts
         injectHelperScript(url)
 
-        // 1. If batch download is active, trigger sequence and NEVER trigger TTS
+        // 1. If batch download is active, trigger sequence/verification and NEVER trigger TTS
         if (_uiState.value.isDownloading) {
-            triggerBatchDownloadSequence()
+            if (lastExtractedHeading.isNotBlank() || lastExtractedSample.isNotBlank()) {
+                // Ensure we do not immediately extract stale DOM if content has not transitioned yet
+                if (domVerificationJob?.isActive != true) {
+                    startDomContentVerification()
+                }
+            } else {
+                triggerBatchDownloadSequence()
+            }
             return
         }
 
@@ -617,6 +651,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         lastBatchDownloadedUrl = ""
         lastBatchDownloadedChapterNum = -1
         duplicatePageRetryCount = 0
+        lastExtractedHeading = ""
+        lastExtractedSample = ""
+        domVerificationJob?.cancel()
+        domVerificationJob = null
 
         _uiState.update {
             it.copy(
@@ -647,6 +685,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun stopDownloadLoop() {
         downloadCountdownJob?.cancel()
         downloadCountdownJob = null
+        domVerificationJob?.cancel()
+        domVerificationJob = null
+        lastExtractedHeading = ""
+        lastExtractedSample = ""
         duplicatePageRetryCount = 0
         lastBatchDownloadedUrl = ""
         lastBatchDownloadedChapterNum = -1
@@ -668,9 +710,76 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun stopAutoLoop() = stopDownloadLoop()
 
+    private fun startDomContentVerification() {
+        domVerificationJob?.cancel()
+        domVerificationJob = viewModelScope.launch {
+            AppLogger.d(TAG, "Starting DOM content verification polling...")
+            _uiState.update { it.copy(downloadStatus = "Verifying DOM transition...") }
+
+            val timeoutMs = 15000L
+            val pollIntervalMs = 600L
+            val startTime = System.currentTimeMillis()
+            var contentTransitioned = false
+
+            while (isActive && (System.currentTimeMillis() - startTime) < timeoutMs) {
+                delay(pollIntervalMs)
+                if (!_uiState.value.isDownloading) return@launch
+
+                val settings = _uiState.value.settings
+                val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+                val rawResult = evaluateJsWithTimeout(script, 2000L)
+
+                if (rawResult != null && rawResult != "null") {
+                    val extracted = WebContentExtractor.extractChapterContent(rawResult, _uiState.value.pageTitle)
+                    val currentHeading = extracted.title
+                    val currentSample = DomContentVerifier.createSample(extracted.paragraphs)
+
+                    if (extracted.paragraphs.isNotEmpty() || currentHeading.isNotBlank()) {
+                        val headingChanged = currentHeading.isNotBlank() && currentHeading != lastExtractedHeading
+                        val bodyChanged = currentSample.isNotBlank() && currentSample != lastExtractedSample
+
+                        if (headingChanged || bodyChanged) {
+                            AppLogger.i(TAG, "DOM transition verified! headingChanged=$headingChanged, bodyChanged=$bodyChanged (heading='$currentHeading')")
+                            contentTransitioned = true
+                            break
+                        }
+                    }
+                }
+
+                val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000).toInt()
+                _uiState.update { it.copy(downloadStatus = "Waiting for DOM re-render (${elapsedSec}s)...") }
+            }
+
+            if (!_uiState.value.isDownloading) return@launch
+
+            if (contentTransitioned) {
+                _uiState.update { it.copy(downloadStatus = "New chapter detected, preparing download...") }
+                triggerBatchDownloadSequence()
+            } else {
+                AppLogger.w(TAG, "DOM transition verification timed out after 15s without content change. Last heading: '$lastExtractedHeading'")
+                if (duplicatePageRetryCount < 2) {
+                    duplicatePageRetryCount++
+                    _uiState.update { it.copy(downloadStatus = "Retrying next chapter navigation (attempt $duplicatePageRetryCount)...") }
+                    clickNextChapter()
+                    startDomContentVerification()
+                } else {
+                    AppLogger.w(TAG, "Stopping download loop cleanly: DOM content did not advance after 15s and retries.")
+                    stopDownloadLoop()
+                    _uiState.update {
+                        it.copy(
+                            downloadStatus = "Stopped: Content did not advance",
+                            toastMessage = "Batch download stopped: Page content did not transition."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private fun triggerBatchDownloadSequence() {
         if (!_uiState.value.isDownloading) return
         downloadCountdownJob?.cancel()
+        domVerificationJob?.cancel()
 
         downloadCountdownJob = viewModelScope.launch {
             val currentUrl = _uiState.value.currentUrl
@@ -684,7 +793,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 detected.chapterNumber
             }
 
-            val isDuplicateUrl = (lastBatchDownloadedUrl.isNotBlank() && lastBatchDownloadedUrl == currentUrl)
+            val isDuplicateUrl = (lastBatchDownloadedUrl.isNotBlank() && lastBatchDownloadedUrl == currentUrl &&
+                    (lastExtractedHeading.isBlank() || DomContentVerifier.isDuplicateContent(_uiState.value.pageTitle, "", lastExtractedHeading, lastExtractedSample)))
             val chapterAlreadyExists = WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, chapterNum, currentUrl) ||
                     (detected.chapterNumber > 0 && WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, detected.chapterNumber, currentUrl))
 
@@ -768,6 +878,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 } else {
                     delay(600)
                     clickNextChapter()
+                    startDomContentVerification()
                 }
                 return@launch
             }
@@ -862,10 +973,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val remaining = state.downloadRemainingCount
             val chapterTitle = title.ifBlank { "$novelTitle Chapter $chapterNum" }
 
+            // Dynamic duplicate capture prevention: check if extracted content matches previous chapter signature
+            if (lastExtractedHeading.isNotBlank() || lastExtractedSample.isNotBlank()) {
+                val currentSample = DomContentVerifier.createSample(paragraphs)
+                if (DomContentVerifier.isDuplicateContent(title, currentSample, lastExtractedHeading, lastExtractedSample)) {
+                    AppLogger.w(TAG, "Duplicate DOM content detected in handleExtractedChapter for Chapter $chapterNum. Heading='$title'. Content has not transitioned yet. Waiting for DOM update...")
+                    _uiState.update { it.copy(downloadStatus = "Waiting for DOM re-render...") }
+                    startDomContentVerification()
+                    return
+                }
+            }
+
             if (WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, chapterNum, currentUrl)) {
                 Log.d(TAG, "Batch download: Chapter $chapterNum already exists on disk. Skipping file write.")
                 val newRemaining = remaining - 1
                 val nextChapterNum = chapterNum + 1
+                lastExtractedHeading = title
+                lastExtractedSample = DomContentVerifier.createSample(paragraphs)
                 _uiState.update {
                     it.copy(
                         downloadRemainingCount = newRemaining,
@@ -886,6 +1010,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     }
                 } else {
                     clickNextChapter()
+                    startDomContentVerification()
                 }
                 return
             }
@@ -910,6 +1035,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     )
                     lastBatchDownloadedUrl = currentUrl
                     lastBatchDownloadedChapterNum = chapterNum
+                    lastExtractedHeading = title
+                    lastExtractedSample = DomContentVerifier.createSample(paragraphs)
 
                     val newRemaining = remaining - 1
                     val nextChapterNum = chapterNum + 1
@@ -935,9 +1062,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     } else {
                         _uiState.update { it.copy(downloadStatus = "Loading next chapter...") }
                         clickNextChapter()
+                        startDomContentVerification()
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to save downloaded chapter: ${e.message}")
+                    AppLogger.e(TAG, "Failed to save downloaded chapter: ${e.message}", e)
                     _uiState.update { it.copy(toastMessage = "Error saving chapter: ${e.message}") }
                 }
             }

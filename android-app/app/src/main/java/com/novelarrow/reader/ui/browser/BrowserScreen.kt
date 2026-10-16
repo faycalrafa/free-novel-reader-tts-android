@@ -25,6 +25,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -307,25 +308,33 @@ fun BrowserScreen(
             }
         }
 
-        // Floating Batch Download Banner
+        // Centered Batch Download Modal Overlay
         AnimatedVisibility(
             visible = uiState.isDownloading,
-            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 100.dp, start = 16.dp, end = 16.dp)
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
         ) {
-            DownloadProgressBanner(
-                novelTitle = uiState.downloadNovelTitle,
-                currentChapter = uiState.downloadCurrentChapter,
-                remaining = uiState.downloadRemainingCount,
-                total = uiState.downloadTotalCount,
-                countdown = uiState.downloadCountdownSeconds,
-                status = uiState.downloadStatus,
-                onStop = { viewModel.stopDownloadLoop() }
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {},
+                contentAlignment = Alignment.Center
+            ) {
+                CenteredDownloadProgressCard(
+                    novelTitle = uiState.downloadNovelTitle,
+                    currentChapter = uiState.downloadCurrentChapter,
+                    remaining = uiState.downloadRemainingCount,
+                    total = uiState.downloadTotalCount,
+                    countdown = uiState.downloadCountdownSeconds,
+                    status = uiState.downloadStatus,
+                    onStop = { viewModel.stopDownloadLoop() }
+                )
+            }
         }
 
         // TTS Player Dock - Reuses the exact same TtsDock component from ReaderScreen
@@ -932,10 +941,10 @@ private fun PageLoadingOverlay(
 }
 
 /**
- * Floating banner for batch downloading
+ * Centered modal card for web novel multi-chapter downloads.
  */
 @Composable
-private fun DownloadProgressBanner(
+private fun CenteredDownloadProgressCard(
     novelTitle: String,
     currentChapter: Int,
     remaining: Int,
@@ -944,49 +953,109 @@ private fun DownloadProgressBanner(
     status: String,
     onStop: () -> Unit
 ) {
+    val completed = (total - remaining).coerceAtLeast(0)
+    val progressFraction = if (total > 0) (completed.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+    val percent = (progressFraction * 100).toInt()
+
     Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        elevation = CardDefaults.cardElevation(8.dp),
-        modifier = Modifier.fillMaxWidth()
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(24.dp),
-                strokeWidth = 2.5.dp,
-                color = MaterialTheme.colorScheme.primary
+            Text(
+                text = "Downloading Novel",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = novelTitle.ifBlank { "Web Novel" },
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MaterialTheme.colorScheme.onSurface
+            )
 
-            Column(modifier = Modifier.weight(1f)) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Chapter Badge
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
                 Text(
-                    text = "Downloading: $novelTitle",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "Chapter $currentChapter • Remaining: $remaining / $total • $status",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    text = "Chapter $currentChapter",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            // Progress Display
+            LinearProgressIndicator(
+                progress = { progressFraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "$completed / $total Chapters ($percent%)",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Detailed status text
+            Text(
+                text = status.ifBlank { "Processing..." },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Prominent "Stop Download" Button
             Button(
                 onClick = onStop,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                modifier = Modifier.height(32.dp)
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
             ) {
-                Text("Stop", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold))
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onError
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Stop Download",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onError
+                )
             }
         }
     }
