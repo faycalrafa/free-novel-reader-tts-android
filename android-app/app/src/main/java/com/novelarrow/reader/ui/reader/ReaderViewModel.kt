@@ -1076,6 +1076,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateHardwareButtonSettings(hardwareButtonSettings: com.novelarrow.reader.data.model.HardwareButtonSettings) {
+        viewModelScope.launch {
+            settingsRepository.updateHardwareButtonSettings(hardwareButtonSettings)
+        }
+    }
+
     fun updateContentSelector(selector: String) {
         viewModelScope.launch {
             settingsRepository.setContentSelector(selector)

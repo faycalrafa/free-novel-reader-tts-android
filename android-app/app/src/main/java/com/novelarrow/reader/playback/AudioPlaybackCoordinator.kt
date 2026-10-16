@@ -36,7 +36,8 @@ object AudioPlaybackCoordinator {
     private val coordinatorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var appContext: Context? = null
     private var libraryRepository: LibraryRepository? = null
-    private var settingsRepository: SettingsRepository? = null
+    var settingsRepository: SettingsRepository? = null
+        private set
 
     private var ttsManager: TtsManager? = null
     private var attachedService: NovelAudioPlaybackService? = null
@@ -631,6 +632,35 @@ object AudioPlaybackCoordinator {
         }
         coordinatorScope.launch(Dispatchers.IO) {
             settingsRepository?.setSpeechRate(rate)
+        }
+    }
+
+    fun adjustSpeechRate(delta: Float) {
+        val next = kotlin.math.round((currentSpeechRate + delta) * 10f) / 10f
+        updateSpeechRate(next.coerceIn(0.5f, 3.0f))
+    }
+
+    fun skipParagraphs(offset: Int) {
+        if (currentParagraphs.isEmpty()) return
+        val target = (currentParagraphIndex + offset).coerceIn(0, currentParagraphs.size - 1)
+        seekToParagraph(target)
+    }
+
+    fun executeHardwareAction(action: com.novelarrow.reader.data.model.HardwareButtonAction, context: Context? = null) {
+        when (action) {
+            com.novelarrow.reader.data.model.HardwareButtonAction.NONE -> {}
+            com.novelarrow.reader.data.model.HardwareButtonAction.DEFAULT_VOLUME -> {
+                // Handled by volume stream caller
+            }
+            com.novelarrow.reader.data.model.HardwareButtonAction.PLAY_PAUSE -> togglePlayPause()
+            com.novelarrow.reader.data.model.HardwareButtonAction.NEXT_PARAGRAPH -> nextParagraph()
+            com.novelarrow.reader.data.model.HardwareButtonAction.PREV_PARAGRAPH -> previousParagraph()
+            com.novelarrow.reader.data.model.HardwareButtonAction.NEXT_CHAPTER -> nextChapter()
+            com.novelarrow.reader.data.model.HardwareButtonAction.PREV_CHAPTER -> previousChapter()
+            com.novelarrow.reader.data.model.HardwareButtonAction.INCREASE_SPEED -> adjustSpeechRate(0.1f)
+            com.novelarrow.reader.data.model.HardwareButtonAction.DECREASE_SPEED -> adjustSpeechRate(-0.1f)
+            com.novelarrow.reader.data.model.HardwareButtonAction.SKIP_FORWARD_5 -> skipParagraphs(5)
+            com.novelarrow.reader.data.model.HardwareButtonAction.SKIP_BACKWARD_5 -> skipParagraphs(-5)
         }
     }
 

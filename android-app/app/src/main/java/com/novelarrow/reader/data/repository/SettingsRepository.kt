@@ -370,6 +370,13 @@ class SettingsRepository(private val context: Context) {
         _settingsFlow.value = updated
     }
 
+    suspend fun updateHardwareButtonSettings(hardwareButtonSettings: com.novelarrow.reader.data.model.HardwareButtonSettings) = withContext(Dispatchers.IO) {
+        val current = _settingsFlow.value
+        val updated = current.copy(hardwareButtonSettings = hardwareButtonSettings)
+        saveSettings(updated)
+        _settingsFlow.value = updated
+    }
+
     suspend fun setQuickToolbarEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
         val current = _settingsFlow.value
         val updated = current.copy(

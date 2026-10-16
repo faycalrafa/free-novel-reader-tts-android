@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.sp
 fun GlobalSettingsScreen(
     onOpenDrawer: () -> Unit,
     onNavigateToToolbarSettings: () -> Unit,
+    onNavigateToHardwareButtons: () -> Unit,
     onOpenAudioSettings: () -> Unit,
     onOpenCssSelector: () -> Unit,
     onNavigateToAbout: () -> Unit
@@ -98,6 +100,13 @@ fun GlobalSettingsScreen(
                         title = "Toolbar (Notification)",
                         subtitle = "Persistent notification toolbar, speed toggle & quick resume",
                         onClick = onNavigateToToolbarSettings
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingsNavigationItem(
+                        icon = Icons.AutoMirrored.Filled.VolumeUp,
+                        title = "Hardware Buttons",
+                        subtitle = "Map volume keys, double press, long press & screen on/off actions",
+                        onClick = onNavigateToHardwareButtons
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     SettingsNavigationItem(

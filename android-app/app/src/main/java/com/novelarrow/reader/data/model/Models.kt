@@ -95,6 +95,43 @@ data class QuickToolbarSettings(
 )
 
 @Serializable
+enum class HardwareButtonAction(val label: String) {
+    NONE("None / Disabled"),
+    DEFAULT_VOLUME("Default Volume Control"),
+    PLAY_PAUSE("Play / Pause"),
+    NEXT_PARAGRAPH("Next Paragraph"),
+    PREV_PARAGRAPH("Previous Paragraph"),
+    NEXT_CHAPTER("Next Chapter"),
+    PREV_CHAPTER("Previous Chapter"),
+    INCREASE_SPEED("Increase Speed (+0.1x)"),
+    DECREASE_SPEED("Decrease Speed (-0.1x)"),
+    SKIP_FORWARD_5("Forward 5 Paragraphs"),
+    SKIP_BACKWARD_5("Rewind 5 Paragraphs")
+}
+
+@Serializable
+enum class HardwareButtonScreenCondition(val label: String) {
+    ALWAYS("Always (Screen On & Off)"),
+    SCREEN_OFF_ONLY("Only when screen is OFF"),
+    SCREEN_ON_ONLY("Only when screen is ON")
+}
+
+@Serializable
+data class HardwareButtonSettings(
+    val enabled: Boolean = false,
+    val screenCondition: HardwareButtonScreenCondition = HardwareButtonScreenCondition.ALWAYS,
+    val hapticFeedback: Boolean = true,
+    // Volume Up (+)
+    val volUpSinglePress: HardwareButtonAction = HardwareButtonAction.DEFAULT_VOLUME,
+    val volUpDoublePress: HardwareButtonAction = HardwareButtonAction.NEXT_PARAGRAPH,
+    val volUpLongPress: HardwareButtonAction = HardwareButtonAction.NEXT_CHAPTER,
+    // Volume Down (-)
+    val volDownSinglePress: HardwareButtonAction = HardwareButtonAction.DEFAULT_VOLUME,
+    val volDownDoublePress: HardwareButtonAction = HardwareButtonAction.PREV_PARAGRAPH,
+    val volDownLongPress: HardwareButtonAction = HardwareButtonAction.PREV_CHAPTER
+)
+
+@Serializable
 data class ReaderSettings(
     val theme: ThemeMode = ThemeMode.SEPIA,
     val fontSizeSp: Float = 16f,
@@ -120,7 +157,8 @@ data class ReaderSettings(
     val pronunciationRules: List<PronunciationRule> = emptyList(),
     val pronunciationRulesEnabled: Boolean = true,
     val sleepTimerMinutes: Int = 0,
-    val quickToolbarSettings: QuickToolbarSettings = QuickToolbarSettings()
+    val quickToolbarSettings: QuickToolbarSettings = QuickToolbarSettings(),
+    val hardwareButtonSettings: HardwareButtonSettings = HardwareButtonSettings()
 )
 
 @Serializable

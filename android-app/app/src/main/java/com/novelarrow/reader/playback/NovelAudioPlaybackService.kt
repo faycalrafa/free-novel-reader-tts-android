@@ -367,6 +367,42 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 dispatchStop()
             }
 
+            override fun getDeviceInfo(): androidx.media3.common.DeviceInfo {
+                val hwSettings = AudioPlaybackCoordinator.settingsRepository?.getSettings()?.hardwareButtonSettings
+                if (hwSettings != null && hwSettings.enabled) {
+                    val isInteractive = HardwareButtonCoordinator.isScreenInteractive(this@NovelAudioPlaybackService)
+                    if (HardwareButtonCoordinator.isConditionSatisfied(hwSettings, isInteractive)) {
+                        return androidx.media3.common.DeviceInfo.Builder(androidx.media3.common.DeviceInfo.PLAYBACK_TYPE_REMOTE)
+                            .setMinVolume(0)
+                            .setMaxVolume(15)
+                            .build()
+                    }
+                }
+                return super.getDeviceInfo()
+            }
+
+            @Suppress("DEPRECATION")
+            override fun increaseDeviceVolume() {
+                val hwSettings = AudioPlaybackCoordinator.settingsRepository?.getSettings()?.hardwareButtonSettings
+                    ?: com.novelarrow.reader.data.model.HardwareButtonSettings()
+                HardwareButtonCoordinator.onDeviceVolumeAdjusted(this@NovelAudioPlaybackService, isUp = true, hwSettings)
+            }
+
+            override fun increaseDeviceVolume(flags: Int) {
+                increaseDeviceVolume()
+            }
+
+            @Suppress("DEPRECATION")
+            override fun decreaseDeviceVolume() {
+                val hwSettings = AudioPlaybackCoordinator.settingsRepository?.getSettings()?.hardwareButtonSettings
+                    ?: com.novelarrow.reader.data.model.HardwareButtonSettings()
+                HardwareButtonCoordinator.onDeviceVolumeAdjusted(this@NovelAudioPlaybackService, isUp = false, hwSettings)
+            }
+
+            override fun decreaseDeviceVolume(flags: Int) {
+                decreaseDeviceVolume()
+            }
+
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
                     .add(Player.COMMAND_PLAY_PAUSE)
@@ -377,6 +413,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     .add(Player.COMMAND_SEEK_FORWARD)
                     .add(Player.COMMAND_SEEK_BACK)
                     .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(Player.COMMAND_ADJUST_DEVICE_VOLUME)
+                    .add(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)
+                    .add(Player.COMMAND_SET_DEVICE_VOLUME)
+                    .add(Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS)
                     .add(Player.COMMAND_STOP)
                     .build()
             }
@@ -391,6 +431,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     Player.COMMAND_SEEK_FORWARD,
                     Player.COMMAND_SEEK_BACK,
                     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_ADJUST_DEVICE_VOLUME,
+                    Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
+                    Player.COMMAND_SET_DEVICE_VOLUME,
+                    Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS,
                     Player.COMMAND_STOP -> true
                     else -> super.isCommandAvailable(command)
                 }
@@ -429,9 +473,31 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     .build()
             }
 
+            override fun onMediaButtonEvent(
+                session: MediaSession,
+                controllerInfo: MediaSession.ControllerInfo,
+                intent: Intent
+            ): Boolean {
+                val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+                }
+                if (keyEvent != null) {
+                    val hwSettings = AudioPlaybackCoordinator.settingsRepository?.getSettings()?.hardwareButtonSettings
+                    if (hwSettings != null && hwSettings.enabled) {
+                        if (HardwareButtonCoordinator.handleActivityKeyEvent(this@NovelAudioPlaybackService, keyEvent, hwSettings)) {
+                            return true
+                        }
+                    }
+                }
+                return super.onMediaButtonEvent(session, controllerInfo, intent)
+            }
+
             override fun onCustomCommand(
                 session: MediaSession,
-                controller: MediaSession.ControllerInfo,
+                controllerInfo: MediaSession.ControllerInfo,
                 customCommand: SessionCommand,
                 args: android.os.Bundle
             ): ListenableFuture<SessionResult> {

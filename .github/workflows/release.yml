@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.6.0"
+          DATE_TAG="v2.7.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.6.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.6.0 --no-daemon
+          APP_VERSION_NAME: "2.7.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.7.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,32 +53,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.6.0 (Stable)
+          name: NovelArrow Reader v2.7.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.6.0 (Stable) 📖✨
+            ### NovelArrow Reader v2.7.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.6.0** brings bundled offline Monaco code editing, streamlined toolbar progress, universal library drawer navigation, and clean reading enhancements.
+            **NovelArrow Reader v2.7.0** introduces customizable **Hardware Button Mapping**, allowing you to control novel TTS playback using your device's physical Volume Up and Volume Down buttons!
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Changes in this release:
-            - **Bundled Full Monaco Editor**:
-              - Bundled the official VS Code web editor (Monaco Editor 0.45.0) directly into the app assets.
-              - 100% offline functionality with zero external CDN dependencies or network latency.
-              - Full IDE features: syntax highlighting, brackets matching, find/replace, multi-cursor, and code formatting for JavaScript and HTML.
-            - **Script Editor Bug Fix**:
-              - Fixed the bug where the userscript creation page displayed 3 stacked duplicate code editor boxes.
-              - Migrated userscript creation and editing to the unified, robust Monaco Editor.
-            - **Default Demo Userscript (Clean Novel Reader)**:
-              - Automatically seeds an out-of-the-box userscript: *Clean Novel Reader (Ad & Clutter Remover)*.
-              - Declutters web novel pages by removing floating ads, sticky banners, and sidebars before reading or TTS.
-            - **Browser Next Chapter Mouse Icon**:
-              - Updated the in-browser Next Chapter action button to a computer mouse icon (`Icons.Default.Mouse`).
-            - **Streamlined Toolbar Progress**:
-              - Both the in-app Reader top bar and the notification quick reading toolbar now strictly display clean `currentchap/total` progress (e.g. `12/85`) without redundant novel and chapter title clutter.
-            - **Universal Drawer Navigation**:
-              - Replaced back arrows in General Settings, About, Toolbar Settings, and Developer Logs with the Library Drawer burger menu (`Icons.Default.Menu`) to allow seamless navigation across books and tabs from any screen.
+            - **Hardware Button Mapping (Volume Keys)**:
+              - Map physical **Volume Up (+)** and **Volume Down (-)** keys to novel TTS playback controls.
+              - Multi-gesture detection: customize **Single Press**, **Double Press** (<320ms), and **Long Press** (>450ms) independently.
+              - Supported actions: **Play / Pause**, **Next / Previous Paragraph**, **Next / Previous Chapter**, **Speed Adjustment (±0.1x)**, **Skip 5 Paragraphs**, and **Default Volume Control**.
+              - By default, Single Press preserves standard volume adjustments, allowing seamless volume control alongside double-tap and hold gestures.
+            - **Screen On & Screen Off Conditions**:
+              - Configure hardware button shortcuts to work **Always (Screen On & Off)**, **Only when Screen is OFF** (lock screen / pocket listening), or **Only when Screen is ON** (active app use).
+            - **Tactile Vibration Feedback**:
+              - Optional subtle haptic vibration click confirms when a shortcut is recognized without needing to look at your screen.
+            - **Dedicated Hardware Buttons Settings Screen**:
+              - Clean Material 3 interface located under General Settings with burger menu navigation and interactive action pickers.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

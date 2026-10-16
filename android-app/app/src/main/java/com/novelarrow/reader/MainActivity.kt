@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -82,6 +83,7 @@ import com.novelarrow.reader.ui.reader.ReaderViewModel
 import com.novelarrow.reader.ui.reader.UpdateAvailableDialog
 import com.novelarrow.reader.ui.reader.UpdateDownloadingDialog
 import com.novelarrow.reader.ui.settings.GlobalSettingsScreen
+import com.novelarrow.reader.ui.settings.HardwareButtonsScreen
 import com.novelarrow.reader.ui.settings.ToolbarSettingsScreen
 import kotlinx.coroutines.launch
 
@@ -91,6 +93,7 @@ enum class AppScreen {
     BROWSER,
     SETTINGS,
     TOOLBAR_SETTINGS,
+    HARDWARE_BUTTON_SETTINGS,
     DEV_LOGS
 }
 
@@ -160,6 +163,10 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.TOOLBAR_SETTINGS) {
+                currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.HARDWARE_BUTTON_SETTINGS) {
                 currentScreen = AppScreen.SETTINGS
             }
 
@@ -328,6 +335,7 @@ class MainActivity : ComponentActivity() {
                                 GlobalSettingsScreen(
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNavigateToToolbarSettings = { currentScreen = AppScreen.TOOLBAR_SETTINGS },
+                                    onNavigateToHardwareButtons = { currentScreen = AppScreen.HARDWARE_BUTTON_SETTINGS },
                                     onOpenAudioSettings = { showGlobalAudioSettings = true },
                                     onOpenCssSelector = { showCssSelectorDialog = true },
                                     onNavigateToAbout = { currentScreen = AppScreen.ABOUT }
@@ -337,6 +345,14 @@ class MainActivity : ComponentActivity() {
                                 ToolbarSettingsScreen(
                                     toolbarSettings = uiState.settings.quickToolbarSettings,
                                     onUpdateSettings = { viewModel.updateQuickToolbarSettings(it) },
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                                )
+                            }
+                            AppScreen.HARDWARE_BUTTON_SETTINGS -> {
+                                HardwareButtonsScreen(
+                                    settings = uiState.settings.hardwareButtonSettings,
+                                    onUpdateSettings = { viewModel.updateHardwareButtonSettings(it) },
                                     onNavigateBack = { currentScreen = AppScreen.SETTINGS },
                                     onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
@@ -652,6 +668,16 @@ class MainActivity : ComponentActivity() {
             intent?.getBooleanExtra(NovelAudioPlaybackService.EXTRA_OPEN_CSS_SELECTOR, false) == true) {
             openCssSelectorEvent.value = true
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val hwSettings = com.novelarrow.reader.playback.AudioPlaybackCoordinator.settingsRepository?.getSettings()?.hardwareButtonSettings
+        if (hwSettings != null && hwSettings.enabled) {
+            if (com.novelarrow.reader.playback.HardwareButtonCoordinator.handleActivityKeyEvent(this, event, hwSettings)) {
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 }
 
