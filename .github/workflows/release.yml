@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.0.0"
+          DATE_TAG="v3.0.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.0.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.0.0 --no-daemon
+          APP_VERSION_NAME: "3.0.1"
+        run: ./gradlew assembleRelease -PappVersionName=3.0.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,17 +53,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.0.0 (Stable)
+          name: BookReader v3.0.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.0.0 (Stable) 📖✨
+            ### BookReader v3.0.1 (Stable) 📖✨
 
-            **BookReader v3.0.0** introduces a refreshed identity, dedicated Text-to-MP3 studio, Quick Settings drawer button, comprehensive file fusion/zipping, and system-wide sharing receivers!
+            **BookReader v3.0.1** delivers the brand new high-fidelity 3D claymorphic launcher and adaptive icon asset suite across all Android devices and densities!
 
-            #### Key Features & Updates in this release:
-            - **App Rebranding & Warm Sepia Adaptive Icon**:
-              - Renamed application to **BookReader** while preserving package namespace integrity.
-              - Redesigned app icon to the warm sepia "Resonant Codex" theme with radiating acoustic waves.
+            #### Key Updates in this release:
+            - **High-Fidelity 3D Claymorphic Launcher & Adaptive Icons**:
+              - Master 3D tactile icon with an open book, acoustic equalizer waveform, and smooth depth shading.
+              - Multi-density WebP mipmap coverage (`mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi`).
+              - Adaptive icon calibration for Google Pixel (circle), Samsung One UI (squircle), Xiaomi, and standard launchers.
+              - High-resolution 512×512 Google Play Store asset included.
             - **About Screen Redesign & Chronological Changelog**:
               - Concise feature breakdown without current status labels.
               - Dedicated Version History screen detailing all architectural milestones from v3.0.0 down to v1.0.0.

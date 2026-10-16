@@ -48,8 +48,19 @@ data class ReleaseItem(
 
 val FullReleaseHistory = listOf(
     ReleaseItem(
-        version = "v3.0.0",
+        version = "v3.0.1",
         date = "Latest Release",
+        title = "3D Claymorphic Launcher & Adaptive Icon Asset Suite",
+        changes = listOf(
+            "Upgraded application launcher and adaptive icons with high-fidelity 3D claymorphic artwork",
+            "Added full density WebP mipmap coverage (mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)",
+            "Configured multi-launcher adaptive viewport masking for Google Pixel, Samsung One UI, and Xiaomi",
+            "Added high-resolution 512x512 Play Store master asset"
+        )
+    ),
+    ReleaseItem(
+        version = "v3.0.0",
+        date = "2026-10-16",
         title = "BookReader Evolution, Text-to-MP3 Studio & Quick Settings Tile",
         changes = listOf(
             "Renamed application to BookReader and introduced the Sepia 'Resonant Codex' adaptive icon",
@@ -327,13 +338,13 @@ fun ChangelogScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = if (release.version == "v3.0.0") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+                                    color = if (release.version == "v3.0.1") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
                                 ) {
                                     Text(
                                         text = release.version,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = if (release.version == "v3.0.0") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                                            color = if (release.version == "v3.0.1") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                                         ),
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                                     )
@@ -345,7 +356,7 @@ fun ChangelogScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (release.version == "v3.0.0") {
+                            if (release.version == "v3.0.1") {
                                 Surface(
                                     shape = CircleShape,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
