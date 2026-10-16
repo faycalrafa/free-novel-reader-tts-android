@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.2.0"
+          DATE_TAG="v3.2.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.2.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.2.0 --no-daemon
+          APP_VERSION_NAME: "3.2.1"
+        run: ./gradlew assembleRelease -PappVersionName=3.2.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v3.2.0 (Stable)
+          name: BookReader v3.2.1 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v3.2.0 (Stable) 📖✨
+            ### BookReader v3.2.1 (Stable) 📖✨
+
+            **BookReader v3.2.1** fixes the About screen icon crash, brings the circular 3D icon to the About page, and updates the standard squircle launcher icon with high-contrast terracotta claymorphic styling!
+
+            #### Key Updates in this release:
+            - **About Screen Crash Fix & Circular 3D Icon**:
+              - Fixed `IllegalArgumentException` in `AboutScreen` caused by `painterResource` encountering an adaptive-icon XML.
+              - Integrated dedicated rasterized `ic_app_icon_round.webp` in `res/drawable/` ensuring safe loading and authentic circular 3D depth in the About hero card.
+            - **Square/Squircle Launcher Asset (`ic_launcher.webp`)**:
+              - Upgraded all density buckets (`mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi`) to the 3D terracotta cushion container with centered ivory book+equalizer disc.
+              - Verified drop shadow integrity with zero light halos over dark and light home screens.
 
             **NovelArrow Reader v3.2.0** is a comprehensive UX overhaul: dedicated settings routes, voice engine & selection screens, audio studio library with granular MP3 generation progress, smarter web downloads, and branding refinements.
 

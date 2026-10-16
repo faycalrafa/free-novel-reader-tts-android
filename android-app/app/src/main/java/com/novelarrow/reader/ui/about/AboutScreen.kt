@@ -136,11 +136,9 @@ fun AboutScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Image(
-                            painter = painterResource(id = R.mipmap.ic_launcher),
+                            painter = painterResource(id = R.drawable.ic_app_icon_round),
                             contentDescription = "BookReader Icon",
-                            modifier = Modifier
-                                .size(76.dp)
-                                .clip(RoundedCornerShape(18.dp))
+                            modifier = Modifier.size(80.dp)
                         )
 
                         Spacer(modifier = Modifier.height(14.dp))
@@ -204,7 +202,7 @@ fun AboutScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Explore the complete chronological changelog from the latest v3.0.1 release down to v1.0.0.",
+                            text = "Explore the complete chronological changelog from the latest v3.2.1 release down to v1.0.0.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

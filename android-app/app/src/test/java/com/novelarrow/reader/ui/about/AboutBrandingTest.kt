@@ -25,6 +25,7 @@ class AboutBrandingTest {
     fun testLauncherIconResourceExists() {
         assertTrue("Launcher icon mipmap resource ID must be non-zero", R.mipmap.ic_launcher != 0)
         assertTrue("Launcher round icon mipmap resource ID must be non-zero", R.mipmap.ic_launcher_round != 0)
+        assertTrue("About screen app icon resource ID must be non-zero", R.drawable.ic_app_icon_round != 0)
     }
 
     @Test
