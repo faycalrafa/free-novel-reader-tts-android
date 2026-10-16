@@ -74,6 +74,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.novelarrow.reader.playback.NovelAudioPlaybackService
 import com.novelarrow.reader.theme.NovelArrowReaderTheme
 import com.novelarrow.reader.ui.about.AboutScreen
+import com.novelarrow.reader.ui.archive.ArchiveScreen
 import com.novelarrow.reader.ui.browser.BrowserScreen
 import com.novelarrow.reader.ui.browser.BrowserViewModel
 import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
@@ -94,7 +95,8 @@ enum class AppScreen {
     SETTINGS,
     TOOLBAR_SETTINGS,
     HARDWARE_BUTTON_SETTINGS,
-    DEV_LOGS
+    DEV_LOGS,
+    ARCHIVE
 }
 
 class MainActivity : ComponentActivity() {
@@ -174,7 +176,7 @@ class MainActivity : ComponentActivity() {
                 currentScreen = AppScreen.ABOUT
             }
 
-            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS)) {
+            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS || currentScreen == AppScreen.ARCHIVE)) {
                 currentScreen = AppScreen.READER
             }
 
@@ -282,6 +284,13 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = AppScreen.ABOUT
                                     scope.launch { drawerState.close() }
                                 },
+                                onOpenArchive = {
+                                    currentScreen = AppScreen.ARCHIVE
+                                    scope.launch { drawerState.close() }
+                                },
+                                onArchiveNovel = { novel ->
+                                    viewModel.archiveNovel(novel)
+                                },
                                 onCloseDrawer = { scope.launch { drawerState.close() } }
                             )
                         }
@@ -368,6 +377,28 @@ class MainActivity : ComponentActivity() {
                                         viewModel.refreshLibrary(novelId)
                                         currentScreen = AppScreen.READER
                                     },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                                )
+                            }
+                            AppScreen.ARCHIVE -> {
+                                ArchiveScreen(
+                                    archivedNovels = uiState.archivedNovels,
+                                    onRestoreNovel = { novel ->
+                                        viewModel.restoreNovel(novel)
+                                    },
+                                    onDeleteNovel = { novel, deleteFromDisk ->
+                                        viewModel.deleteNovel(novel.id, deleteFromDisk)
+                                    },
+                                    onUpdateNovelTitle = { novelId, newTitle ->
+                                        viewModel.updateNovelTitle(novelId, newTitle)
+                                    },
+                                    onGetChapters = { novelId ->
+                                        viewModel.getArchivedChapters(novelId)
+                                    },
+                                    onDeleteChapter = { novelId, chapter, deleteFromDisk ->
+                                        viewModel.deleteArchivedChapter(novelId, chapter, deleteFromDisk)
+                                    },
+                                    onNavigateBack = { currentScreen = AppScreen.READER },
                                     onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
                             }

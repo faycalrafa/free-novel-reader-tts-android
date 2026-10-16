@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.7.0"
+          DATE_TAG="v2.8.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.7.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.7.0 --no-daemon
+          APP_VERSION_NAME: "2.8.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.8.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,27 +53,30 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.7.0 (Stable)
+          name: NovelArrow Reader v2.8.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.7.0 (Stable) 📖✨
+            ### NovelArrow Reader v2.8.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.7.0** introduces customizable **Hardware Button Mapping**, allowing you to control novel TTS playback using your device's physical Volume Up and Volume Down buttons!
+            **NovelArrow Reader v2.8.0** introduces a decluttered **Library Drawer** with contextual long-press reveals, an intuitive **Novel Archiving System**, and a dedicated **Archived Novels Management Area**!
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Changes in this release:
-            - **Hardware Button Mapping (Volume Keys)**:
-              - Map physical **Volume Up (+)** and **Volume Down (-)** keys to novel TTS playback controls.
-              - Multi-gesture detection: customize **Single Press**, **Double Press** (<320ms), and **Long Press** (>450ms) independently.
-              - Supported actions: **Play / Pause**, **Next / Previous Paragraph**, **Next / Previous Chapter**, **Speed Adjustment (±0.1x)**, **Skip 5 Paragraphs**, and **Default Volume Control**.
-              - By default, Single Press preserves standard volume adjustments, allowing seamless volume control alongside double-tap and hold gestures.
-            - **Screen On & Screen Off Conditions**:
-              - Configure hardware button shortcuts to work **Always (Screen On & Off)**, **Only when Screen is OFF** (lock screen / pocket listening), or **Only when Screen is ON** (active app use).
-            - **Tactile Vibration Feedback**:
-              - Optional subtle haptic vibration click confirms when a shortcut is recognized without needing to look at your screen.
-            - **Dedicated Hardware Buttons Settings Screen**:
-              - Clean Material 3 interface located under General Settings with burger menu navigation and interactive action pickers.
+            - **Decluttered Library Drawer with Long-Press Action Reveals**:
+              - Novel folders and chapter lists now hide action buttons and drag handles by default, providing maximum readability and zero visual clutter.
+              - **Long-Press on Novel Folder**: Reveals the **Archive** button and **Delete** button directly inline on that novel.
+              - **Long-Press on Chapter**: Reveals the **6-Dots Drag & Drop Handle** on the far left (allowing full drag-to-reorder) and the **Read Status Toggle** and **Delete** buttons on the right.
+              - Normal single taps continue to seamlessly select and switch novels/chapters.
+            - **Novel Archiving & Storage Safety**:
+              - Added an **Archive** action that immediately removes the novel from the active library drawer without deleting downloaded files or reading progress.
+            - **Dedicated Archived Novels Management Screen**:
+              - Replaced the redundant top header icon in the Library Drawer with a direct **Archive button** (`Icons.Default.Archive`) taking users to the archive management area.
+              - Easily view all archived novels, their progress, and chapter counts.
+              - **Restore Novels**: Instantly move archived novels back into the active library with preserved reading progress.
+              - **View & Manage Archived Chapters**: Inspect individual chapters and selectively delete chapters.
+              - **Rename Novels**: Rename archived novel titles with an interactive edit dialog.
+              - **Permanent Deletion**: Permanently delete novels or chapters with optional checkbox to clean up storage files.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

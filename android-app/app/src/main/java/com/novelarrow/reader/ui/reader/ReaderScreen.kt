@@ -8,8 +8,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -954,6 +957,7 @@ fun EmptyState(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryDrawerContent(
     novels: List<Novel>,
@@ -978,9 +982,13 @@ fun LibraryDrawerContent(
     onCloseTab: (String) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenAbout: () -> Unit,
+    onOpenArchive: () -> Unit = {},
+    onArchiveNovel: (Novel) -> Unit = {},
     onCloseDrawer: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var activeActionNovelId by remember { mutableStateOf<String?>(null) }
+    var activeActionChapterId by remember { mutableStateOf<String?>(null) }
     var novelToDelete by remember { mutableStateOf<Novel?>(null) }
     var deleteFilesFromDisk by remember { mutableStateOf(false) }
     var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
@@ -995,6 +1003,8 @@ fun LibraryDrawerContent(
         if (idx >= 0) idx else (currentNovel?.currentChapterIndex ?: 0)
     }
     LaunchedEffect(selectedTab, activeChapterIndex) {
+        activeActionNovelId = null
+        activeActionChapterId = null
         if (selectedTab == 1 && activeChapterIndex in chapters.indices) {
             chapterListState.animateScrollToItem((activeChapterIndex - 2).coerceAtLeast(0))
         }
@@ -1019,8 +1029,8 @@ fun LibraryDrawerContent(
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Row {
-                IconButton(onClick = { onOpenBrowser(false) }) {
-                    Icon(Icons.Default.Language, contentDescription = "Open Web Browser")
+                IconButton(onClick = onOpenArchive) {
+                    Icon(Icons.Default.Archive, contentDescription = "Archived Novels")
                 }
                 IconButton(onClick = onAddFolder) {
                     Icon(Icons.Default.FolderOpen, contentDescription = "Import Folder")
@@ -1094,13 +1104,24 @@ fun LibraryDrawerContent(
                             val novel = novels[i]
                             val isCurrent = novel.id == currentNovel?.id
 
+                            val isActionsVisible = activeActionNovelId == novel.id
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        onSelectNovel(novel)
-                                        selectedTab = 1
-                                    }
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (activeActionNovelId != null) {
+                                                activeActionNovelId = null
+                                            } else {
+                                                onSelectNovel(novel)
+                                                selectedTab = 1
+                                            }
+                                        },
+                                        onLongClick = {
+                                            activeActionNovelId = if (activeActionNovelId == novel.id) null else novel.id
+                                        }
+                                    )
                                     .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -1127,11 +1148,35 @@ fun LibraryDrawerContent(
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
-                                IconButton(onClick = {
-                                    novelToDelete = novel
-                                    deleteFilesFromDisk = false
-                                }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                                if (isActionsVisible) {
+                                    IconButton(
+                                        onClick = {
+                                            activeActionNovelId = null
+                                            onArchiveNovel(novel)
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Archive,
+                                            contentDescription = "Archive novel",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            novelToDelete = novel
+                                            deleteFilesFromDisk = false
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Remove",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
@@ -1303,6 +1348,8 @@ fun LibraryDrawerContent(
                             val isDraggingThis = draggingIndex == i
                             val isTargeted = dragOverIndex == i && !isDraggingThis
 
+                            val isChapterActionsVisible = activeActionChapterId == chapter.id || isDraggingThis
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1321,53 +1368,71 @@ fun LibraryDrawerContent(
                                             else -> Color.Transparent
                                         }
                                     )
-                                    .clickable { onSelectChapter(i) }
-                                    .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                                    .combinedClickable(
+                                        onClick = {
+                                            if (activeActionChapterId != null && activeActionChapterId != chapter.id) {
+                                                activeActionChapterId = null
+                                            } else {
+                                                onSelectChapter(i)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            activeActionChapterId = if (activeActionChapterId == chapter.id) null else chapter.id
+                                        }
+                                    )
+                                    .padding(
+                                        start = if (isChapterActionsVisible) 6.dp else 16.dp,
+                                        end = if (isChapterActionsVisible) 6.dp else 16.dp,
+                                        top = 8.dp,
+                                        bottom = 8.dp
+                                    ),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // 6 Dots Drag & Drop Reordering Handle on the FAR LEFT
-                                Icon(
-                                    imageVector = Icons.Default.DragIndicator,
-                                    contentDescription = "Hold and drag to reorder",
-                                    tint = if (isDraggingThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .pointerInput(i) {
-                                            detectDragGestures(
-                                                onDragStart = {
-                                                    draggingIndex = i
-                                                    dragOverIndex = i
-                                                    dragOffsetY = 0f
-                                                },
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    dragOffsetY += dragAmount.y
-                                                    val approxItemHeightPx = 135f
-                                                    val diff = (dragOffsetY / approxItemHeightPx).toInt()
-                                                    val target = (i + diff).coerceIn(0, chapters.size - 1)
-                                                    if (target != dragOverIndex) {
-                                                        dragOverIndex = target
+                                // 6 Dots Drag & Drop Reordering Handle on the FAR LEFT (only when long-pressed)
+                                if (isChapterActionsVisible) {
+                                    Icon(
+                                        imageVector = Icons.Default.DragIndicator,
+                                        contentDescription = "Hold and drag to reorder",
+                                        tint = if (isDraggingThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .pointerInput(i) {
+                                                detectDragGestures(
+                                                    onDragStart = {
+                                                        draggingIndex = i
+                                                        dragOverIndex = i
+                                                        dragOffsetY = 0f
+                                                    },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        dragOffsetY += dragAmount.y
+                                                        val approxItemHeightPx = 135f
+                                                        val diff = (dragOffsetY / approxItemHeightPx).toInt()
+                                                        val target = (i + diff).coerceIn(0, chapters.size - 1)
+                                                        if (target != dragOverIndex) {
+                                                            dragOverIndex = target
+                                                        }
+                                                    },
+                                                    onDragEnd = {
+                                                        val from = draggingIndex
+                                                        val to = dragOverIndex
+                                                        if (from != null && to != null && from != to) {
+                                                            onMoveChapter(from, to)
+                                                        }
+                                                        draggingIndex = null
+                                                        dragOverIndex = null
+                                                        dragOffsetY = 0f
+                                                    },
+                                                    onDragCancel = {
+                                                        draggingIndex = null
+                                                        dragOverIndex = null
+                                                        dragOffsetY = 0f
                                                     }
-                                                },
-                                                onDragEnd = {
-                                                    val from = draggingIndex
-                                                    val to = dragOverIndex
-                                                    if (from != null && to != null && from != to) {
-                                                        onMoveChapter(from, to)
-                                                    }
-                                                    draggingIndex = null
-                                                    dragOverIndex = null
-                                                    dragOffsetY = 0f
-                                                },
-                                                onDragCancel = {
-                                                    draggingIndex = null
-                                                    dragOverIndex = null
-                                                    dragOffsetY = 0f
-                                                }
-                                            )
-                                        }
-                                        .padding(end = 4.dp)
-                                )
+                                                )
+                                            }
+                                            .padding(end = 4.dp)
+                                    )
+                                }
 
                                 Text(
                                     text = "${i + 1}",
@@ -1384,32 +1449,34 @@ fun LibraryDrawerContent(
                                     )
                                 }
 
-                                // Actions: Read status toggle & Delete Chapter
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = { onToggleChapterReadStatus(chapter) },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            if (chapter.isCompleted) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                            contentDescription = if (chapter.isCompleted) "Mark as unread" else "Mark as read",
-                                            tint = if (chapter.isCompleted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            chapterToDelete = chapter
-                                            deleteChapterFromDisk = false
-                                        },
-                                        modifier = Modifier.size(30.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = "Delete Chapter",
-                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                // Actions: Read status toggle & Delete Chapter (only when long-pressed)
+                                if (isChapterActionsVisible) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = { onToggleChapterReadStatus(chapter) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                if (chapter.isCompleted) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                                contentDescription = if (chapter.isCompleted) "Mark as unread" else "Mark as read",
+                                                tint = if (chapter.isCompleted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                chapterToDelete = chapter
+                                                deleteChapterFromDisk = false
+                                            },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Delete Chapter",
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }

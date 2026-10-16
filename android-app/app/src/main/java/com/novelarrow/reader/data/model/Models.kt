@@ -6,13 +6,14 @@ import kotlinx.serialization.Serializable
 data class Novel(
     val id: String,
     val title: String,
-    val rootTreeUri: String,
-    val chapterCount: Int,
+    val rootTreeUri: String = "",
+    val chapterCount: Int = 0,
     val completedCount: Int = 0,
     val currentChapterIndex: Int = 0,
     val lastUpdated: Long = System.currentTimeMillis(),
     val isWebNovel: Boolean = false,
-    val webUrl: String? = null
+    val webUrl: String? = null,
+    val isArchived: Boolean = false
 )
 
 @Serializable

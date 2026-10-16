@@ -39,6 +39,7 @@ import java.io.File
 
 data class ReaderUiState(
     val novels: List<Novel> = emptyList(),
+    val archivedNovels: List<Novel> = emptyList(),
     val currentNovel: Novel? = null,
     val chapters: List<Chapter> = emptyList(),
     val currentChapter: Chapter? = null,
@@ -67,7 +68,7 @@ data class ReaderUiState(
     val updateDownloadedBytes: Long = 0L,
     val updateTotalBytes: Long = 0L,
     val downloadedApk: File? = null,
-    val installedVersionName: String = "2.4.1",
+    val installedVersionName: String = "2.8.0",
     val showRawEditor: Boolean = false,
     val rawChapterContent: String? = null,
     val showSignatureMismatchDialog: Boolean = false,
@@ -232,10 +233,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             val novels = libraryRepository.scanDownloadedWebNovels()
+            val archivedNovels = libraryRepository.getArchivedNovels()
             val lastActiveId = libraryRepository.getLastActiveNovelId()
             val targetNovel = novels.firstOrNull { it.id == lastActiveId } ?: novels.firstOrNull()
 
-            _uiState.update { it.copy(novels = novels, isLoading = false) }
+            _uiState.update { it.copy(novels = novels, archivedNovels = archivedNovels, isLoading = false) }
 
             if (targetNovel != null) {
                 selectNovel(targetNovel)
@@ -327,12 +329,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun refreshLibrary(targetNovelId: String? = null) {
         viewModelScope.launch {
             val novels = libraryRepository.scanDownloadedWebNovels()
+            val archivedNovels = libraryRepository.getArchivedNovels()
             val target = if (targetNovelId != null) {
                 novels.firstOrNull { it.id == targetNovelId }
             } else {
                 _uiState.value.currentNovel ?: novels.firstOrNull()
             }
-            _uiState.update { it.copy(novels = novels) }
+            _uiState.update { it.copy(novels = novels, archivedNovels = archivedNovels) }
             if (target != null) {
                 selectNovel(target)
             }
@@ -815,10 +818,57 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteNovel(novelId: String, deleteFilesFromDisk: Boolean = false) {
+        val wasPlaying = _uiState.value.isPlaying
+        val isCurrent = _uiState.value.currentNovel?.id == novelId
+        if (isCurrent && wasPlaying) {
+            AudioPlaybackCoordinator.pause()
+        }
         viewModelScope.launch {
             libraryRepository.deleteNovel(novelId, deleteFilesFromDisk)
             loadInitialLibrary()
         }
+    }
+
+    fun archiveNovel(novel: Novel) {
+        val wasPlaying = _uiState.value.isPlaying
+        val isCurrent = _uiState.value.currentNovel?.id == novel.id
+        if (isCurrent && wasPlaying) {
+            AudioPlaybackCoordinator.pause()
+        }
+        viewModelScope.launch {
+            libraryRepository.archiveNovel(novel.id)
+            refreshLibrary()
+            _uiState.update { it.copy(toastMessage = "Archived '${novel.title}'") }
+        }
+    }
+
+    fun restoreNovel(novel: Novel) {
+        viewModelScope.launch {
+            libraryRepository.restoreNovel(novel.id)
+            refreshLibrary(targetNovelId = novel.id)
+            _uiState.update { it.copy(toastMessage = "Restored '${novel.title}' to library") }
+        }
+    }
+
+    fun updateNovelTitle(novelId: String, newTitle: String) {
+        viewModelScope.launch {
+            libraryRepository.updateNovelTitle(novelId, newTitle)
+            refreshLibrary()
+        }
+    }
+
+    suspend fun getArchivedChapters(novelId: String): List<Chapter> {
+        return libraryRepository.getChapters(novelId)
+    }
+
+    suspend fun deleteArchivedChapter(novelId: String, chapter: Chapter, deleteFromDisk: Boolean = false): List<Chapter> {
+        val (_, updatedChapters) = libraryRepository.deleteChapter(
+            novelId = novelId,
+            chapterId = chapter.id,
+            deleteFromDisk = deleteFromDisk
+        )
+        refreshLibrary()
+        return updatedChapters
     }
 
     fun deleteChapter(chapter: Chapter, deleteFromDisk: Boolean = false) {

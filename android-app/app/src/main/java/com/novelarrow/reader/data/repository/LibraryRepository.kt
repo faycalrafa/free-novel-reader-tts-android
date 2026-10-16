@@ -185,14 +185,74 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
-    suspend fun getNovels(): List<Novel> = withContext(Dispatchers.IO) {
+    suspend fun getNovels(includeArchived: Boolean = false): List<Novel> = withContext(Dispatchers.IO) {
         dbMutex.withLock {
             val currentDb = loadDatabaseLocked()
             val deduplicated = deduplicateNovels(currentDb.novels, currentDb.chapters)
             if (deduplicated.size != currentDb.novels.size) {
                 saveDatabaseLocked(currentDb.copy(novels = deduplicated))
             }
-            deduplicated
+            if (includeArchived) deduplicated else deduplicated.filter { !it.isArchived }
+        }
+    }
+
+    suspend fun getArchivedNovels(): List<Novel> = withContext(Dispatchers.IO) {
+        dbMutex.withLock {
+            val currentDb = loadDatabaseLocked()
+            val deduplicated = deduplicateNovels(currentDb.novels, currentDb.chapters)
+            deduplicated.filter { it.isArchived }
+        }
+    }
+
+    suspend fun archiveNovel(novelId: String) = withContext(Dispatchers.IO) {
+        dbMutex.withLock {
+            val currentDb = loadDatabaseLocked()
+            val targetNovel = currentDb.novels.find { it.id == novelId }
+            val normTargetTitle = targetNovel?.title?.trim()?.lowercase(java.util.Locale.ROOT)
+            val updatedNovels = currentDb.novels.map { novel ->
+                if (novel.id == novelId || (normTargetTitle != null && novel.title.trim().lowercase(java.util.Locale.ROOT) == normTargetTitle)) {
+                    novel.copy(isArchived = true)
+                } else {
+                    novel
+                }
+            }
+            val lastActive = if (currentDb.lastActiveNovelId == novelId) {
+                updatedNovels.firstOrNull { !it.isArchived }?.id
+            } else {
+                currentDb.lastActiveNovelId
+            }
+            saveDatabaseLocked(currentDb.copy(novels = updatedNovels, lastActiveNovelId = lastActive))
+        }
+    }
+
+    suspend fun restoreNovel(novelId: String) = withContext(Dispatchers.IO) {
+        dbMutex.withLock {
+            val currentDb = loadDatabaseLocked()
+            val targetNovel = currentDb.novels.find { it.id == novelId }
+            val normTargetTitle = targetNovel?.title?.trim()?.lowercase(java.util.Locale.ROOT)
+            val updatedNovels = currentDb.novels.map { novel ->
+                if (novel.id == novelId || (normTargetTitle != null && novel.title.trim().lowercase(java.util.Locale.ROOT) == normTargetTitle)) {
+                    novel.copy(isArchived = false)
+                } else {
+                    novel
+                }
+            }
+            saveDatabaseLocked(currentDb.copy(novels = updatedNovels))
+        }
+    }
+
+    suspend fun updateNovelTitle(novelId: String, newTitle: String) = withContext(Dispatchers.IO) {
+        if (newTitle.isBlank()) return@withContext
+        dbMutex.withLock {
+            val currentDb = loadDatabaseLocked()
+            val updatedNovels = currentDb.novels.map { novel ->
+                if (novel.id == novelId) {
+                    novel.copy(title = newTitle.trim())
+                } else {
+                    novel
+                }
+            }
+            saveDatabaseLocked(currentDb.copy(novels = updatedNovels))
         }
     }
 
@@ -474,7 +534,8 @@ class LibraryRepository(private val context: Context) {
                         currentChapterIndex = folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0,
                         lastUpdated = existingDbNovel?.lastUpdated ?: System.currentTimeMillis(),
                         isWebNovel = false,
-                        webUrl = existingDbNovel?.webUrl
+                        webUrl = existingDbNovel?.webUrl,
+                        isArchived = existingDbNovel?.isArchived ?: false
                     )
                     novelsByNormTitle[normKey] = novel
                     chaptersByNovelId[novel.id] = chapters
@@ -525,13 +586,13 @@ class LibraryRepository(private val context: Context) {
                     putAll(chaptersByNovelId)
                 }
                 saveDatabaseLocked(currentDb.copy(novels = mergedNovels, chapters = mergedChapters))
-                mergedNovels
+                mergedNovels.filter { !it.isArchived }
             } else {
                 val deduplicated = deduplicateNovels(currentDb.novels, currentDb.chapters)
                 if (deduplicated.size != currentDb.novels.size) {
                     saveDatabaseLocked(currentDb.copy(novels = deduplicated))
                 }
-                deduplicated
+                deduplicated.filter { !it.isArchived }
             }
         }
     }
