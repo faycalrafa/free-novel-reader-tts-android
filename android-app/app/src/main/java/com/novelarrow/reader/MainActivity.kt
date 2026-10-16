@@ -88,8 +88,10 @@ import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.ui.about.ChangelogScreen
 import com.novelarrow.reader.ui.common.IncomingLinkShareDialog
 import com.novelarrow.reader.ui.common.IncomingTextShareDialog
+import com.novelarrow.reader.ui.settings.ContentSelectorScreen
 import com.novelarrow.reader.ui.settings.GlobalSettingsScreen
 import com.novelarrow.reader.ui.settings.HardwareButtonsScreen
+import com.novelarrow.reader.ui.settings.HeaderFooterSkipsScreen
 import com.novelarrow.reader.ui.settings.PronunciationRulesScreen
 import com.novelarrow.reader.ui.settings.SkipWordsScreen
 import com.novelarrow.reader.ui.settings.ToolbarSettingsScreen
@@ -109,6 +111,8 @@ enum class AppScreen {
     HARDWARE_BUTTON_SETTINGS,
     SETTINGS_PRONUNCIATION,
     SETTINGS_SKIP_WORDS,
+    SETTINGS_HEADER_FOOTER_SKIPS,
+    SETTINGS_CONTENT_SELECTOR,
     VOICE_ENGINE,
     DEV_LOGS,
     ARCHIVE,
@@ -228,6 +232,14 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_SKIP_WORDS) {
+                currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) {
+                currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_CONTENT_SELECTOR) {
                 currentScreen = AppScreen.SETTINGS
             }
 
@@ -383,7 +395,9 @@ class MainActivity : ComponentActivity() {
                                     onAddFolder = { folderPickerLauncher.launch(null) },
                                     onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
-                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS }
+                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
+                                    onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
+                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR }
                                 )
                             }
                             AppScreen.ABOUT -> {
@@ -423,8 +437,10 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
                                     onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
+                                    onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
+                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR },
+                                    onClearAllData = { viewModel.clearAllData() },
                                     onOpenAudioSettings = { showGlobalAudioSettings = true },
-                                    onOpenCssSelector = { showCssSelectorDialog = true },
                                     onNavigateToAbout = { currentScreen = AppScreen.ABOUT }
                                 )
                             }
@@ -454,6 +470,37 @@ class MainActivity : ComponentActivity() {
                                     onUpdateSkipWord = { word -> viewModel.updateSkipWord(word) },
                                     onToggleSkipWord = { id, enabled -> viewModel.toggleSkipWord(id, enabled) },
                                     onDeleteSkipWord = { id -> viewModel.deleteSkipWord(id) },
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                )
+                            }
+                            AppScreen.SETTINGS_HEADER_FOOTER_SKIPS -> {
+                                HeaderFooterSkipsScreen(
+                                    headerSkipEnabled = uiState.settings.headerSkipEnabled,
+                                    footerSkipEnabled = uiState.settings.footerSkipEnabled,
+                                    headerRules = uiState.settings.headerSkipRules,
+                                    footerRules = uiState.settings.footerSkipRules,
+                                    onToggleHeaderMaster = { viewModel.updateHeaderSkipEnabled(it) },
+                                    onToggleFooterMaster = { viewModel.updateFooterSkipEnabled(it) },
+                                    onAddHeaderRule = { rule -> viewModel.addHeaderSkipRule(rule) },
+                                    onUpdateHeaderRule = { rule -> viewModel.updateHeaderSkipRule(rule) },
+                                    onToggleHeaderRule = { id, enabled -> viewModel.toggleHeaderSkipRule(id, enabled) },
+                                    onDeleteHeaderRule = { id -> viewModel.deleteHeaderSkipRule(id) },
+                                    onAddFooterRule = { rule -> viewModel.addFooterSkipRule(rule) },
+                                    onUpdateFooterRule = { rule -> viewModel.updateFooterSkipRule(rule) },
+                                    onToggleFooterRule = { id, enabled -> viewModel.toggleFooterSkipRule(id, enabled) },
+                                    onDeleteFooterRule = { id -> viewModel.deleteFooterSkipRule(id) },
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                )
+                            }
+                            AppScreen.SETTINGS_CONTENT_SELECTOR -> {
+                                ContentSelectorScreen(
+                                    masterEnabled = uiState.settings.contentSelectorEnabled,
+                                    selectors = uiState.settings.contentSelectors,
+                                    onToggleMaster = { viewModel.updateContentSelectorEnabled(it) },
+                                    onAddSelector = { rule -> viewModel.addContentSelector(rule) },
+                                    onUpdateSelector = { rule -> viewModel.updateContentSelector(rule) },
+                                    onToggleSelector = { id, enabled -> viewModel.toggleContentSelector(id, enabled) },
+                                    onDeleteSelector = { id -> viewModel.deleteContentSelector(id) },
                                     onNavigateBack = { currentScreen = AppScreen.SETTINGS }
                                 )
                             }
@@ -487,7 +534,9 @@ class MainActivity : ComponentActivity() {
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
                                     onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
-                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE }
+                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
+                                    onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
+                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR }
                                 )
                             }
                             AppScreen.ARCHIVE -> {
@@ -628,6 +677,14 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToVoiceEngine = {
                                     showGlobalAudioSettings = false
                                     currentScreen = AppScreen.VOICE_ENGINE
+                                },
+                                onNavigateToHeaderFooterSkips = {
+                                    showGlobalAudioSettings = false
+                                    currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS
+                                },
+                                onNavigateToContentSelector = {
+                                    showGlobalAudioSettings = false
+                                    currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR
                                 },
                                 onDismiss = { showGlobalAudioSettings = false }
                             )

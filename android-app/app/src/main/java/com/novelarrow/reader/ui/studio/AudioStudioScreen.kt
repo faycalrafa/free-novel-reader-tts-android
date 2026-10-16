@@ -280,7 +280,12 @@ fun AudioStudioScreen(
                     onSpeedClick = { AudioPlaybackCoordinator.cycleSpeechRate() },
                     onSeekParagraph = { target -> AudioPlaybackCoordinator.seekToParagraph(target) },
                     isBrowserMode = (playbackProgress.source == PlaybackSource.BROWSER),
-                    onOpenAudioSettings = { showAudioSettingsDialog = true }
+                    onOpenAudioSettings = { showAudioSettingsDialog = true },
+                    isAudioFileMode = (playbackProgress.source == PlaybackSource.AUDIO_FILE),
+                    audioFilePositionMs = playbackProgress.audioFilePositionMs,
+                    audioFileDurationMs = playbackProgress.audioFileDurationMs,
+                    onSeekAudioPosition = { posMs -> AudioPlaybackCoordinator.seekAudioFile(posMs) },
+                    onCloseClick = { AudioPlaybackCoordinator.stop() }
                 )
             }
         },
@@ -343,6 +348,21 @@ fun AudioStudioScreen(
                         }
                     }
                 } else {
+                    // Folders Category ordered based on parent folder in the library
+                    val orderedFolders = remember(libraryContent.folders, novels) {
+                        val novelTitleOrder = novels.map { it.title.trim().lowercase() }
+                        libraryContent.folders.sortedWith { f1, f2 ->
+                            val idx1 = novelTitleOrder.indexOf(f1.name.trim().lowercase())
+                            val idx2 = novelTitleOrder.indexOf(f2.name.trim().lowercase())
+                            when {
+                                idx1 != -1 && idx2 != -1 -> idx1.compareTo(idx2)
+                                idx1 != -1 -> -1
+                                idx2 != -1 -> 1
+                                else -> com.novelarrow.reader.data.util.NaturalOrderComparator.compare(f1.name, f2.name)
+                            }
+                        }
+                    }
+
                     // Audio Library List
                     LazyColumn(
                         modifier = Modifier
@@ -362,8 +382,7 @@ fun AudioStudioScreen(
                             }
                         }
 
-                        // Folders Category
-                        if (libraryContent.folders.isNotEmpty()) {
+                        if (orderedFolders.isNotEmpty()) {
                             item {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -377,14 +396,14 @@ fun AudioStudioScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Audio Folders (${libraryContent.folders.size})",
+                                        text = "Audio Folders (${orderedFolders.size})",
                                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
 
-                            items(libraryContent.folders, key = { it.folder.absolutePath }) { folderItem ->
+                            items(orderedFolders, key = { it.folder.absolutePath }) { folderItem ->
                                 FolderAudioCard(
                                     folder = folderItem,
                                     isPlayingThis = (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.novelTitle == folderItem.name && playbackProgress.isPlaying),

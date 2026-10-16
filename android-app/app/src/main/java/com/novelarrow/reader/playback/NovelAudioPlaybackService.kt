@@ -58,7 +58,9 @@ data class PlaybackProgress(
     val currentParagraphIndex: Int = 0,
     val totalParagraphs: Int = 0,
     val currentParagraphText: String = "",
-    val availableVoices: List<Voice> = emptyList()
+    val availableVoices: List<Voice> = emptyList(),
+    val audioFilePositionMs: Long = 0L,
+    val audioFileDurationMs: Long = 0L
 )
 
 class NovelAudioPlaybackService : MediaSessionService() {
@@ -913,6 +915,25 @@ class NovelAudioPlaybackService : MediaSessionService() {
             AppLogger.d("NovelAudioPlaybackService", "Stopped audio file playback and restored silence source")
         } catch (e: Exception) {
             AppLogger.e("NovelAudioPlaybackService", "Error stopping audio file", e)
+        }
+    }
+
+    fun getAudioFilePositionMs(): Long {
+        return exoPlayer?.currentPosition ?: 0L
+    }
+
+    fun getAudioFileDurationMs(): Long {
+        val dur = exoPlayer?.duration ?: 0L
+        return if (dur > 0L) dur else 0L
+    }
+
+    fun seekAudioFile(positionMs: Long) {
+        val player = exoPlayer ?: return
+        try {
+            player.seekTo(positionMs.coerceAtLeast(0L))
+            AppLogger.d("NovelAudioPlaybackService", "Seeked audio file to $positionMs ms")
+        } catch (e: Exception) {
+            AppLogger.e("NovelAudioPlaybackService", "Error seeking audio file to $positionMs ms", e)
         }
     }
 

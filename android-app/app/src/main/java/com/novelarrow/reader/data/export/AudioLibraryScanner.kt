@@ -109,7 +109,7 @@ object AudioLibraryScanner {
 
         val folderItems = foldersMap.map { (name, files) ->
             val uniqueFiles = files.distinctBy { it.file.canonicalPath }
-                .sortedBy { it.file.name.lowercase() }
+                .sortedWith { a, b -> com.novelarrow.reader.data.util.NaturalOrderComparator.compare(a.file.name, b.file.name) }
             AudioFolderItem(
                 folder = folderFilesMap[name] ?: File(name),
                 name = name,
@@ -120,7 +120,7 @@ object AudioLibraryScanner {
         }.sortedByDescending { it.lastModified }
 
         val uniqueStandalone = standaloneFiles.distinctBy { it.file.canonicalPath }
-            .sortedByDescending { it.lastModified }
+            .sortedWith { a, b -> com.novelarrow.reader.data.util.NaturalOrderComparator.compare(a.file.name, b.file.name) }
 
         return AudioLibraryContent(
             folders = folderItems,

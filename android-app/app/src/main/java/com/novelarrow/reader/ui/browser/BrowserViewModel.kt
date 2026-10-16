@@ -571,6 +571,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
         }
+        isNavigatingNextChapter = true
         val nextSelector = _uiState.value.settings.nextSelector
         dispatchEvaluateJs(WebScriptInjector.buildNextChapterScript(nextSelector))
     }
@@ -710,20 +711,31 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun stopAutoLoop() = stopDownloadLoop()
 
+    private var isNavigatingNextChapter = false
+
     private fun startDomContentVerification() {
         domVerificationJob?.cancel()
         domVerificationJob = viewModelScope.launch {
             AppLogger.d(TAG, "Starting DOM content verification polling...")
             _uiState.update { it.copy(downloadStatus = "Verifying DOM transition...") }
 
-            val timeoutMs = 15000L
-            val pollIntervalMs = 600L
+            val timeoutMs = 20000L
+            val pollIntervalMs = 700L
             val startTime = System.currentTimeMillis()
             var contentTransitioned = false
 
             while (isActive && (System.currentTimeMillis() - startTime) < timeoutMs) {
                 delay(pollIntervalMs)
                 if (!_uiState.value.isDownloading) return@launch
+
+                // If WebView is still actively loading network resources, keep waiting and do not time out
+                if (_uiState.value.isLoading) {
+                    _uiState.update { it.copy(downloadStatus = "Loading page...") }
+                    continue
+                }
+
+                val currentUrl = _uiState.value.currentUrl
+                val urlChanged = lastBatchDownloadedUrl.isNotBlank() && currentUrl != lastBatchDownloadedUrl
 
                 val settings = _uiState.value.settings
                 val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
@@ -738,16 +750,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         val headingChanged = currentHeading.isNotBlank() && currentHeading != lastExtractedHeading
                         val bodyChanged = currentSample.isNotBlank() && currentSample != lastExtractedSample
 
-                        if (headingChanged || bodyChanged) {
-                            AppLogger.i(TAG, "DOM transition verified! headingChanged=$headingChanged, bodyChanged=$bodyChanged (heading='$currentHeading')")
+                        if (urlChanged || headingChanged || bodyChanged) {
+                            AppLogger.i(TAG, "DOM transition verified! urlChanged=$urlChanged, headingChanged=$headingChanged, bodyChanged=$bodyChanged (heading='$currentHeading')")
                             contentTransitioned = true
+                            isNavigatingNextChapter = false
                             break
                         }
                     }
                 }
 
                 val elapsedSec = ((System.currentTimeMillis() - startTime) / 1000).toInt()
-                _uiState.update { it.copy(downloadStatus = "Waiting for DOM re-render (${elapsedSec}s)...") }
+                _uiState.update { it.copy(downloadStatus = "Waiting for chapter content (${elapsedSec}s)...") }
             }
 
             if (!_uiState.value.isDownloading) return@launch
@@ -756,14 +769,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.update { it.copy(downloadStatus = "New chapter detected, preparing download...") }
                 triggerBatchDownloadSequence()
             } else {
-                AppLogger.w(TAG, "DOM transition verification timed out after 15s without content change. Last heading: '$lastExtractedHeading'")
+                AppLogger.w(TAG, "DOM transition verification timed out after 20s without content change. Last heading: '$lastExtractedHeading'")
                 if (duplicatePageRetryCount < 2) {
                     duplicatePageRetryCount++
                     _uiState.update { it.copy(downloadStatus = "Retrying next chapter navigation (attempt $duplicatePageRetryCount)...") }
                     clickNextChapter()
                     startDomContentVerification()
                 } else {
-                    AppLogger.w(TAG, "Stopping download loop cleanly: DOM content did not advance after 15s and retries.")
+                    AppLogger.w(TAG, "Stopping download loop cleanly: DOM content did not advance after retries.")
                     stopDownloadLoop()
                     _uiState.update {
                         it.copy(
@@ -784,74 +797,32 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         downloadCountdownJob = viewModelScope.launch {
             val currentUrl = _uiState.value.currentUrl
             val pageTitle = _uiState.value.pageTitle
+
+            // If we are still on the exact same URL as the chapter we just downloaded, do NOT skip or re-download!
+            if (lastBatchDownloadedUrl.isNotBlank() && currentUrl == lastBatchDownloadedUrl) {
+                AppLogger.d(TAG, "Page is still on last downloaded URL ($currentUrl). Waiting for navigation...")
+                _uiState.update { it.copy(downloadStatus = "Waiting for next chapter...") }
+                startDomContentVerification()
+                return@launch
+            }
+
             val detected = WebNovelDownloader.detectNovelInfo(currentUrl, pageTitle)
             val novelTitle = _uiState.value.downloadNovelTitle.ifBlank { detected.novelTitle }
 
-            val chapterNum = if (_uiState.value.downloadCurrentChapter > 0) {
+            // Sync chapter number from detected URL/DOM if available to avoid skipping
+            val chapterNum = if (detected.chapterNumber > 0) {
+                detected.chapterNumber
+            } else if (_uiState.value.downloadCurrentChapter > 0) {
                 _uiState.value.downloadCurrentChapter
             } else {
-                detected.chapterNumber
+                1
             }
+            _uiState.update { it.copy(downloadCurrentChapter = chapterNum) }
 
-            val isDuplicateUrl = (lastBatchDownloadedUrl.isNotBlank() && lastBatchDownloadedUrl == currentUrl &&
-                    (lastExtractedHeading.isBlank() || DomContentVerifier.isDuplicateContent(_uiState.value.pageTitle, "", lastExtractedHeading, lastExtractedSample)))
-            val chapterAlreadyExists = WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, chapterNum, currentUrl) ||
-                    (detected.chapterNumber > 0 && WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, detected.chapterNumber, currentUrl))
-
-            if (isDuplicateUrl) {
-                duplicatePageRetryCount++
-                if (duplicatePageRetryCount == 1) {
-                    for (sec in 5 downTo 1) {
-                        if (!_uiState.value.isDownloading) return@launch
-                        _uiState.update {
-                            it.copy(
-                                downloadCountdownSeconds = sec,
-                                downloadStatus = "Page URL unchanged. Retrying next chapter in ${sec}s..."
-                            )
-                        }
-                        delay(1000)
-                    }
-                    if (!_uiState.value.isDownloading) return@launch
-                    _uiState.update { it.copy(downloadStatus = "Retrying next chapter...") }
-                    clickNextChapter()
-                    delay(3000)
-                    if (_uiState.value.isDownloading && _uiState.value.currentUrl == currentUrl) {
-                        triggerBatchDownloadSequence()
-                    }
-                    return@launch
-                } else if (duplicatePageRetryCount == 2) {
-                    for (sec in 10 downTo 1) {
-                        if (!_uiState.value.isDownloading) return@launch
-                        _uiState.update {
-                            it.copy(
-                                downloadCountdownSeconds = sec,
-                                downloadStatus = "Page still unchanged. Waiting ${sec}s before 2nd retry..."
-                            )
-                        }
-                        delay(1000)
-                    }
-                    if (!_uiState.value.isDownloading) return@launch
-                    _uiState.update { it.copy(downloadStatus = "Retrying next chapter (attempt 2)...") }
-                    clickNextChapter()
-                    delay(3000)
-                    if (_uiState.value.isDownloading && _uiState.value.currentUrl == currentUrl) {
-                        triggerBatchDownloadSequence()
-                    }
-                    return@launch
-                } else {
-                    stopDownloadLoop()
-                    _uiState.update {
-                        it.copy(
-                            downloadStatus = "Stopped: Chapter did not advance",
-                            toastMessage = "Batch download stopped: end of chapters reached or page did not advance."
-                        )
-                    }
-                    return@launch
-                }
-            }
+            val chapterAlreadyExists = WebNovelDownloader.chapterAlreadyExists(getApplication(), novelTitle, chapterNum, currentUrl)
 
             if (chapterAlreadyExists) {
-                Log.d(TAG, "Chapter $chapterNum already exists on disk. Skipping download to avoid duplicates.")
+                Log.d(TAG, "Chapter $chapterNum already exists on disk. Skipping file write and advancing.")
                 duplicatePageRetryCount = 0
                 val remaining = _uiState.value.downloadRemainingCount
                 val newRemaining = remaining - 1

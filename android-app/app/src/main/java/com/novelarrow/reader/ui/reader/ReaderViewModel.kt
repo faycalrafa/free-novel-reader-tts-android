@@ -235,13 +235,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val novels = libraryRepository.scanDownloadedWebNovels()
             val archivedNovels = libraryRepository.getArchivedNovels()
             val lastActiveId = libraryRepository.getLastActiveNovelId()
-            val targetNovel = novels.firstOrNull { it.id == lastActiveId } ?: novels.firstOrNull()
+            val sortedNovels = if (lastActiveId != null) {
+                val active = novels.firstOrNull { it.id == lastActiveId }
+                if (active != null) {
+                    listOf(active) + novels.filterNot { it.id == lastActiveId }
+                } else novels
+            } else novels
 
-            _uiState.update { it.copy(novels = novels, archivedNovels = archivedNovels, isLoading = false) }
-
-            if (targetNovel != null) {
-                selectNovel(targetNovel)
-            }
+            _uiState.update { it.copy(novels = sortedNovels, archivedNovels = archivedNovels, isLoading = false) }
         }
     }
 
@@ -604,7 +605,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     headerSkipRules = settings.headerSkipRules,
                     footerSkipRules = settings.footerSkipRules,
                     folderPath = chapter.fileUri.ifBlank { _uiState.value.currentNovel?.rootTreeUri },
-                    novelUrl = chapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl
+                    novelUrl = chapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl,
+                    contentSelectors = settings.contentSelectors
                 )
             }
 
@@ -1296,11 +1298,92 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun addFooterSkipRule(text: String, exact: Boolean) {
+    fun addContentSelector(rule: com.novelarrow.reader.data.model.ContentSelectorRule) {
         viewModelScope.launch {
-            settingsRepository.addFooterSkipRule(com.novelarrow.reader.data.model.SkipRule(text = text, exactMatch = exact))
+            settingsRepository.addContentSelector(rule)
             _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
         }
+    }
+
+    fun updateContentSelector(rule: com.novelarrow.reader.data.model.ContentSelectorRule) {
+        viewModelScope.launch {
+            settingsRepository.updateContentSelector(rule)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun toggleContentSelector(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.toggleContentSelector(id, enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun deleteContentSelector(id: String) {
+        viewModelScope.launch {
+            settingsRepository.removeContentSelector(id)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addHeaderSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
+        viewModelScope.launch {
+            settingsRepository.addHeaderSkipRule(rule)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updateHeaderSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
+        viewModelScope.launch {
+            settingsRepository.updateHeaderSkipRule(rule)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun toggleHeaderSkipRule(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.toggleHeaderSkipRule(id, enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun deleteHeaderSkipRule(id: String) {
+        viewModelScope.launch {
+            settingsRepository.deleteHeaderSkipRule(id)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addFooterSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
+        viewModelScope.launch {
+            settingsRepository.addFooterSkipRule(rule)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun updateFooterSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
+        viewModelScope.launch {
+            settingsRepository.updateFooterSkipRule(rule)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun toggleFooterSkipRule(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.toggleFooterSkipRule(id, enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun deleteFooterSkipRule(id: String) {
+        viewModelScope.launch {
+            settingsRepository.deleteFooterSkipRule(id)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
+    }
+
+    fun addFooterSkipRule(text: String, exact: Boolean) {
+        addFooterSkipRule(com.novelarrow.reader.data.model.SkipRule(text = text, exactMatch = exact))
     }
 
     fun removeFooterSkipRule(index: Int) {

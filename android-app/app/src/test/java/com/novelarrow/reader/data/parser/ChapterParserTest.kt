@@ -505,5 +505,97 @@ class ChapterParserTest {
         // "spoiler" is removed, "warning" remains because enabled = false
         assertEquals("This is a and a warning here.", result)
     }
+
+    @Test
+    fun testMultipleContentSelectors_evaluatesInPriorityOrder() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <div class="priority-low">
+                    <p>Low priority chapter content that should only be picked if high priority fails.</p>
+                    <p>Second paragraph in low priority block with plenty of characters to pass length threshold.</p>
+                </div>
+                <div class="priority-high">
+                    <p>High priority main chapter content parsed correctly from the primary selector.</p>
+                    <p>Second paragraph in primary content block with sufficient text length.</p>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val rules = listOf(
+            com.novelarrow.reader.data.model.ContentSelectorRule(
+                selector = ".priority-high",
+                enabled = true
+            ),
+            com.novelarrow.reader.data.model.ContentSelectorRule(
+                selector = ".priority-low",
+                enabled = true
+            )
+        )
+
+        val paragraphs = ChapterParser.parse(
+            content = html,
+            fileName = "chap1.html",
+            contentSelectors = rules
+        )
+
+        val texts = paragraphs.map { it.rawText }
+        assertTrue(texts.any { it.contains("High priority main chapter content") })
+        assertFalse(texts.any { it.contains("Low priority chapter content") })
+    }
+
+    @Test
+    fun testMultipleContentSelectors_respectsFolderAndSiteScope() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <div class="site-specific">
+                    <p>This content belongs specifically to royalroad.com novel chapters.</p>
+                    <p>Additional paragraph providing enough content to be valid text block.</p>
+                </div>
+                <div class="generic-fallback">
+                    <p>This is generic fallback text when site specific rule does not match.</p>
+                    <p>Second fallback paragraph ensuring sufficient length.</p>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val rules = listOf(
+            com.novelarrow.reader.data.model.ContentSelectorRule(
+                selector = ".site-specific",
+                enabled = true,
+                scopeType = PronunciationScopeType.URL_PATTERN,
+                scopePattern = "royalroad.com"
+            ),
+            com.novelarrow.reader.data.model.ContentSelectorRule(
+                selector = ".generic-fallback",
+                enabled = true,
+                scopeType = PronunciationScopeType.GLOBAL
+            )
+        )
+
+        // Case 1: URL matches royalroad.com -> should pick .site-specific
+        val matchedParas = ChapterParser.parse(
+            content = html,
+            fileName = "chap1.html",
+            novelUrl = "https://www.royalroad.com/fiction/123/chapter/1",
+            contentSelectors = rules
+        )
+        assertTrue(matchedParas.map { it.rawText }.any { it.contains("royalroad.com") })
+
+        // Case 2: URL does NOT match royalroad.com -> should fallback to .generic-fallback
+        val unmatchedParas = ChapterParser.parse(
+            content = html,
+            fileName = "chap1.html",
+            novelUrl = "https://www.wuxiaworld.com/novel/123/chapter/1",
+            contentSelectors = rules
+        )
+        assertTrue(unmatchedParas.map { it.rawText }.any { it.contains("generic fallback text") })
+        assertFalse(unmatchedParas.map { it.rawText }.any { it.contains("royalroad.com") })
+    }
 }
 

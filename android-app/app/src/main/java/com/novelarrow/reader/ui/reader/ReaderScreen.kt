@@ -187,6 +187,8 @@ fun ReaderScreen(
     onNavigateToVoiceEngine: (() -> Unit)? = null,
     onNavigateToPronunciationRules: (() -> Unit)? = null,
     onNavigateToSkipWords: (() -> Unit)? = null,
+    onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
+    onNavigateToContentSelector: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -238,13 +240,38 @@ fun ReaderScreen(
         bottomBar = {
             val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
             val isBrowserPlaying = playbackProgress.source == PlaybackSource.BROWSER
+            val isAudioFilePlaying = playbackProgress.source == PlaybackSource.AUDIO_FILE
 
             AnimatedVisibility(
-                visible = uiState.isTtsDockVisible || isBrowserPlaying,
+                visible = uiState.isTtsDockVisible || isBrowserPlaying || isAudioFilePlaying,
                 enter = slideInVertically(initialOffsetY = { it }),
                 exit = slideOutVertically(targetOffsetY = { it })
             ) {
-                if (isBrowserPlaying) {
+                if (isAudioFilePlaying) {
+                    TtsDock(
+                        currentParagraph = playbackProgress.currentParagraphIndex,
+                        totalParagraphs = playbackProgress.totalParagraphs,
+                        currentChapterIndex = 0,
+                        totalChapters = 1,
+                        isPlaying = playbackProgress.isPlaying,
+                        speechRate = uiState.settings.speechRate,
+                        sleepTimerMinutes = uiState.sleepTimerMinutes,
+                        sleepTimerRemainingSeconds = uiState.sleepTimerRemainingSeconds,
+                        onPlayPauseClick = { AudioPlaybackCoordinator.togglePlayPause() },
+                        onPrevChapterClick = { AudioPlaybackCoordinator.previousParagraph() },
+                        onNextChapterClick = { AudioPlaybackCoordinator.nextParagraph() },
+                        onSleepTimerClick = { showSleepTimerDialog = true },
+                        onSpeedClick = { AudioPlaybackCoordinator.cycleSpeechRate() },
+                        onSeekParagraph = { paraIdx -> AudioPlaybackCoordinator.seekToParagraph(paraIdx) },
+                        isBrowserMode = false,
+                        onOpenAudioSettings = { showUnifiedAudioSettings = true },
+                        isAudioFileMode = true,
+                        audioFilePositionMs = playbackProgress.audioFilePositionMs,
+                        audioFileDurationMs = playbackProgress.audioFileDurationMs,
+                        onSeekAudioPosition = { posMs -> AudioPlaybackCoordinator.seekAudioFile(posMs) },
+                        onCloseClick = { AudioPlaybackCoordinator.stop() }
+                    )
+                } else if (isBrowserPlaying) {
                     TtsDock(
                         currentParagraph = playbackProgress.currentParagraphIndex,
                         totalParagraphs = playbackProgress.totalParagraphs,
@@ -261,7 +288,8 @@ fun ReaderScreen(
                         onSpeedClick = { AudioPlaybackCoordinator.cycleSpeechRate() },
                         onSeekParagraph = { paraIdx -> AudioPlaybackCoordinator.seekToParagraph(paraIdx) },
                         isBrowserMode = true,
-                        onOpenAudioSettings = { showUnifiedAudioSettings = true }
+                        onOpenAudioSettings = { showUnifiedAudioSettings = true },
+                        onCloseClick = { AudioPlaybackCoordinator.stop() }
                     )
                 } else {
                     TtsDock(
@@ -280,7 +308,8 @@ fun ReaderScreen(
                         onSpeedClick = { viewModel.cycleSpeechRate() },
                         onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) },
                         isBrowserMode = false,
-                        onOpenAudioSettings = { showUnifiedAudioSettings = true }
+                        onOpenAudioSettings = { showUnifiedAudioSettings = true },
+                        onCloseClick = { viewModel.stopTts() }
                     )
                 }
             }
@@ -423,6 +452,18 @@ fun ReaderScreen(
                 }
             },
             onNavigateToVoiceEngine = onNavigateToVoiceEngine?.let { nav ->
+                {
+                    showUnifiedAudioSettings = false
+                    nav()
+                }
+            },
+            onNavigateToHeaderFooterSkips = onNavigateToHeaderFooterSkips?.let { nav ->
+                {
+                    showUnifiedAudioSettings = false
+                    nav()
+                }
+            },
+            onNavigateToContentSelector = onNavigateToContentSelector?.let { nav ->
                 {
                     showUnifiedAudioSettings = false
                     nav()
@@ -717,6 +758,20 @@ fun ReaderContentView(
 }
 
 @Composable
+private fun formatTimeSeconds(millis: Long): String {
+    val totalSec = (millis / 1000).coerceAtLeast(0)
+    val minutes = totalSec / 60
+    val seconds = totalSec % 60
+    return if (minutes >= 60) {
+        val hours = minutes / 60
+        val remMins = minutes % 60
+        "%d:%02d:%02d".format(hours, remMins, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
+    }
+}
+
+@Composable
 fun TtsDock(
     currentParagraph: Int,
     totalParagraphs: Int,
@@ -733,10 +788,18 @@ fun TtsDock(
     onSpeedClick: () -> Unit,
     onSeekParagraph: (Int) -> Unit,
     isBrowserMode: Boolean = false,
-    onOpenAudioSettings: () -> Unit = {}
+    onOpenAudioSettings: () -> Unit = {},
+    isAudioFileMode: Boolean = false,
+    audioFilePositionMs: Long = 0L,
+    audioFileDurationMs: Long = 0L,
+    onSeekAudioPosition: (Long) -> Unit = {},
+    onCloseClick: () -> Unit = {}
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var dragParaIndex by remember(currentParagraph) { mutableFloatStateOf(currentParagraph.toFloat()) }
+    var dragAudioMs by remember(audioFilePositionMs) { mutableFloatStateOf(audioFilePositionMs.toFloat()) }
+
+    val maxAudioDuration = audioFileDurationMs.coerceAtLeast(1000L).toFloat()
 
     val displayPara = if (isDragging) {
         dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
@@ -757,23 +820,35 @@ fun TtsDock(
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            // Slider strictly controls progress within the current chapter, with centralized options button to the right
+            // Slider controls progress within current chapter/audio, with settings gear & close button to right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Slider(
-                    value = if (isDragging) dragParaIndex else currentParagraph.toFloat().coerceIn(0f, (totalParagraphs - 1).coerceAtLeast(1).toFloat()),
+                    value = if (isAudioFileMode) {
+                        if (isDragging) dragAudioMs else audioFilePositionMs.toFloat().coerceIn(0f, maxAudioDuration)
+                    } else {
+                        if (isDragging) dragParaIndex else currentParagraph.toFloat().coerceIn(0f, (totalParagraphs - 1).coerceAtLeast(1).toFloat())
+                    },
                     onValueChange = { newVal ->
                         isDragging = true
-                        dragParaIndex = newVal
+                        if (isAudioFileMode) {
+                            dragAudioMs = newVal
+                        } else {
+                            dragParaIndex = newVal
+                        }
                     },
                     onValueChangeFinished = {
                         isDragging = false
-                        val target = dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
-                        onSeekParagraph(target)
+                        if (isAudioFileMode) {
+                            onSeekAudioPosition(dragAudioMs.toLong().coerceIn(0L, audioFileDurationMs.coerceAtLeast(0L)))
+                        } else {
+                            val target = dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
+                            onSeekParagraph(target)
+                        }
                     },
-                    valueRange = 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
+                    valueRange = if (isAudioFileMode) 0f .. maxAudioDuration else 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
                     modifier = Modifier
                         .weight(1f)
                         .height(30.dp),
@@ -786,14 +861,30 @@ fun TtsDock(
 
                 Spacer(modifier = Modifier.width(6.dp))
 
+                // Settings gear button
                 IconButton(
                     onClick = onOpenAudioSettings,
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Tune,
+                        imageVector = Icons.Default.Settings,
                         contentDescription = "TTS and Audio Settings",
                         tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                // Close button to close media bar and stop ongoing playback
+                IconButton(
+                    onClick = onCloseClick,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close and stop playback",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -801,35 +892,61 @@ fun TtsDock(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Metadata row: Chapter number/total and paragraph number/total (chapter title removed)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f, fill = false)) {
+            // Metadata row
+            if (isAudioFileMode) {
+                val curMs = if (isDragging) dragAudioMs.toLong() else audioFilePositionMs
+                val curFormatted = formatTimeSeconds(curMs)
+                val totalFormatted = formatTimeSeconds(audioFileDurationMs)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = if (isBrowserMode) "Live Web TTS" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                        text = if (isDragging) "Release to jump to $curFormatted" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "Audio Studio",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (isDragging) {
-                        Text(
-                            text = "Release to jump to ¶ ${displayPara + 1} ($progressPercent%)",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-                    }
+                    Text(
+                        text = "$curFormatted / $totalFormatted",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = if (isBrowserMode) "Live Web TTS" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (isDragging) {
+                            Text(
+                                text = "Release to jump to ¶ ${displayPara + 1} ($progressPercent%)",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                    }
 
-                Text(
-                    text = "¶ ${displayPara + 1} / $totalParagraphs ($progressPercent%)",
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                )
+                    Text(
+                        text = "¶ ${displayPara + 1} / $totalParagraphs ($progressPercent%)",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -2000,19 +2117,6 @@ fun SettingsDialog(
                             checked = settings.autoNextChapter,
                             onCheckedChange = onAutoNextChange
                         )
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // Clear all button
-                    OutlinedButton(
-                        onClick = onClearAllData,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Clear All Library & Progress")
                     }
                 }
             }

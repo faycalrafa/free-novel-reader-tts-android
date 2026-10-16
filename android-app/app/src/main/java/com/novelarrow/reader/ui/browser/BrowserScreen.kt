@@ -155,7 +155,9 @@ fun BrowserScreen(
     onOpenDrawer: () -> Unit = {},
     onNavigateToPronunciationRules: (() -> Unit)? = null,
     onNavigateToSkipWords: (() -> Unit)? = null,
-    onNavigateToVoiceEngine: (() -> Unit)? = null
+    onNavigateToVoiceEngine: (() -> Unit)? = null,
+    onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
+    onNavigateToContentSelector: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
@@ -361,7 +363,11 @@ fun BrowserScreen(
                     onSpeedClick = { viewModel.cycleSpeechRate() },
                     onSeekParagraph = { viewModel.seekToParagraph(it) },
                     isBrowserMode = true,
-                    onOpenAudioSettings = { showAudioSettingsDialog = true }
+                    onOpenAudioSettings = { showAudioSettingsDialog = true },
+                    onCloseClick = {
+                        viewModel.stopLiveReading()
+                        AudioPlaybackCoordinator.stop()
+                    }
                 )
             } else if (isReaderActive) {
                 TtsDock(
@@ -383,7 +389,8 @@ fun BrowserScreen(
                     onSpeedClick = { viewModel.cycleSpeechRate() },
                     onSeekParagraph = { AudioPlaybackCoordinator.seekToParagraph(it) },
                     isBrowserMode = false,
-                    onOpenAudioSettings = { showAudioSettingsDialog = true }
+                    onOpenAudioSettings = { showAudioSettingsDialog = true },
+                    onCloseClick = { AudioPlaybackCoordinator.stop() }
                 )
             }
         }
@@ -471,6 +478,18 @@ fun BrowserScreen(
                     }
                 },
                 onNavigateToVoiceEngine = onNavigateToVoiceEngine?.let { nav ->
+                    {
+                        showAudioSettingsDialog = false
+                        nav()
+                    }
+                },
+                onNavigateToHeaderFooterSkips = onNavigateToHeaderFooterSkips?.let { nav ->
+                    {
+                        showAudioSettingsDialog = false
+                        nav()
+                    }
+                },
+                onNavigateToContentSelector = onNavigateToContentSelector?.let { nav ->
                     {
                         showAudioSettingsDialog = false
                         nav()

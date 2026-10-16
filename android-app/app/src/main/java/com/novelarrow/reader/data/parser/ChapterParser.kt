@@ -1,5 +1,6 @@
 package com.novelarrow.reader.data.parser
 
+import com.novelarrow.reader.data.model.ContentSelectorRule
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.PronunciationScopeType
@@ -71,7 +72,8 @@ object ChapterParser {
         headerSkipRules: List<SkipRule> = emptyList(),
         footerSkipRules: List<SkipRule> = emptyList(),
         folderPath: String? = null,
-        novelUrl: String? = null
+        novelUrl: String? = null,
+        contentSelectors: List<ContentSelectorRule> = emptyList()
     ): List<Paragraph> {
         val effectiveSelector = if (contentSelectorEnabled) contentSelector else ""
         val effectiveRules = if (pronunciationRulesEnabled) {
@@ -92,7 +94,7 @@ object ChapterParser {
                 content.contains("<p>", ignoreCase = true)
 
         val rawParagraphs = if (isHtml) {
-            parseHtml(content, effectiveSelector)
+            parseHtml(content, effectiveSelector, contentSelectors, folderPath, novelUrl)
         } else {
             parsePlainText(content)
         }
@@ -263,7 +265,13 @@ object ChapterParser {
         return workingList
     }
 
-    private fun parseHtml(html: String, contentSelector: String): List<Pair<String, Boolean>> {
+    private fun parseHtml(
+        html: String,
+        contentSelector: String,
+        contentSelectors: List<ContentSelectorRule> = emptyList(),
+        folderPath: String? = null,
+        novelUrl: String? = null
+    ): List<Pair<String, Boolean>> {
         val doc = Jsoup.parse(html)
         for (selector in IGNORE_SELECTORS) {
             try {
@@ -272,11 +280,35 @@ object ChapterParser {
         }
         doc.select("[style*='display: none'], [style*='display:none'], [hidden]").remove()
 
-        val rootElement: Element = if (contentSelector.isNotBlank()) {
-            doc.selectFirst(contentSelector) ?: doc.body()
-        } else {
-            doc.body()
+        var selectedElement: Element? = null
+
+        // 1. Evaluate multiple content selectors in priority order
+        val activeRules = contentSelectors.filter { it.enabled }
+        for (rule in activeRules) {
+            val inScope = when (rule.scopeType) {
+                com.novelarrow.reader.data.model.PronunciationScopeType.URL_PATTERN -> novelUrl?.contains(rule.scopePattern, ignoreCase = true) == true
+                com.novelarrow.reader.data.model.PronunciationScopeType.FOLDER -> folderPath?.contains(rule.scopePattern, ignoreCase = true) == true
+                else -> true
+            }
+            if (inScope && rule.selector.isNotBlank()) {
+                try {
+                    val cand = doc.selectFirst(rule.selector)
+                    if (cand != null && (cand.text().trim().length >= 50 || cand.select("p").size >= 2)) {
+                        selectedElement = cand
+                        break
+                    }
+                } catch (_: Exception) {}
+            }
         }
+
+        // 2. Fallback to legacy single contentSelector if specified
+        if (selectedElement == null && contentSelector.isNotBlank()) {
+            try {
+                selectedElement = doc.selectFirst(contentSelector)
+            } catch (_: Exception) {}
+        }
+
+        val rootElement: Element = selectedElement ?: doc.body()
 
         val elements = rootElement.select("p, h1, h2, h3, h4, h5, h6, li, blockquote, div")
         val pairs = mutableListOf<Pair<String, Boolean>>()

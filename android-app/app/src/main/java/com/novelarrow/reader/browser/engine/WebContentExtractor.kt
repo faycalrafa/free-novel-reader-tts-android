@@ -14,13 +14,33 @@ object WebContentExtractor {
 
     private const val TAG = "WebContentExtractor"
 
-    fun buildContentExtractionScript(contentSelector: String, ignoredSelectors: List<String>): String {
-        val safeContentSelector = JSONObject.quote(contentSelector.trim())
+    fun buildContentExtractionScript(
+        contentSelector: String,
+        ignoredSelectors: List<String>,
+        contentSelectorRules: List<com.novelarrow.reader.data.model.ContentSelectorRule> = emptyList(),
+        currentUrl: String = ""
+    ): String {
+        val activeSelectors = mutableListOf<String>()
+        if (contentSelector.isNotBlank()) {
+            activeSelectors.add(contentSelector.trim())
+        }
+        for (rule in contentSelectorRules) {
+            if (rule.enabled && rule.selector.isNotBlank()) {
+                val inScope = when (rule.scopeType) {
+                    com.novelarrow.reader.data.model.PronunciationScopeType.URL_PATTERN -> currentUrl.contains(rule.scopePattern, ignoreCase = true)
+                    else -> true
+                }
+                if (inScope && !activeSelectors.contains(rule.selector.trim())) {
+                    activeSelectors.add(rule.selector.trim())
+                }
+            }
+        }
+        val safeSelectorsArray = JSONArray(activeSelectors).toString()
         val safeIgnoredArray = JSONArray(ignoredSelectors).toString()
         return """
             (function() {
                 try {
-                    var customSelector = $safeContentSelector;
+                    var candidateSelectors = $safeSelectorsArray;
                     var userIgnored = $safeIgnoredArray;
                     var defaultIgnore = [
                         'a', 'button', 'input', 'select', 'textarea', 'form',
@@ -78,12 +98,22 @@ object WebContentExtractor {
                         return { paras: paras, elements: elements };
                     }
 
-                    // 1. Container selection
+                    // 1. Container selection from multiple prioritized selectors
                     var container = null;
-                    if (customSelector && customSelector.length > 0) {
-                        try {
-                            container = document.querySelector(customSelector);
-                        } catch(e) {}
+                    for (var s = 0; s < candidateSelectors.length; s++) {
+                        var sel = candidateSelectors[s];
+                        if (sel && sel.length > 0) {
+                            try {
+                                var cand = document.querySelector(sel);
+                                if (cand) {
+                                    var testRes = extractFrom(cand, true);
+                                    if (testRes.paras.length >= 2 || (testRes.paras.length >= 1 && testRes.paras[0].length >= 50)) {
+                                        container = cand;
+                                        break;
+                                    }
+                                }
+                            } catch(e) {}
+                        }
                     }
                     if (!container) {
                         var candidates = [

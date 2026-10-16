@@ -88,11 +88,33 @@ object AudioPlaybackCoordinator {
     private var languageOverride: Locale? = null
 
     private var sleepTimerJob: Job? = null
+    private var audioFileProgressJob: Job? = null
     private val _sleepTimerMinutesState = MutableStateFlow(0)
     val sleepTimerMinutesState: StateFlow<Int> = _sleepTimerMinutesState.asStateFlow()
 
     private val _sleepTimerRemainingSecondsState = MutableStateFlow(0)
     val sleepTimerRemainingSecondsState: StateFlow<Int> = _sleepTimerRemainingSecondsState.asStateFlow()
+
+    private fun startAudioFileProgressTicker() {
+        audioFileProgressJob?.cancel()
+        if (attachedService == null) return
+        audioFileProgressJob = coordinatorScope.launch(Dispatchers.Default) {
+            while (currentSource == PlaybackSource.AUDIO_FILE && _isPlayingState.value && attachedService != null) {
+                val service = attachedService
+                if (service != null) {
+                    val pos = service.getAudioFilePositionMs()
+                    val dur = service.getAudioFileDurationMs()
+                    _playbackProgressState.update {
+                        it.copy(
+                            audioFilePositionMs = pos,
+                            audioFileDurationMs = dur
+                        )
+                    }
+                }
+                delay(250)
+            }
+        }
+    }
 
     fun initialize(context: Context) {
         if (appContext != null) return
@@ -399,6 +421,8 @@ object AudioPlaybackCoordinator {
             startSleepTimerCountdown()
         }
 
+        startAudioFileProgressTicker()
+
         AppLogger.i(TAG, "playAudioFile: Playing '${activeFile.name}' (track ${validIndex + 1}/${currentPlaylist.size})")
     }
 
@@ -518,7 +542,8 @@ object AudioPlaybackCoordinator {
                 headerSkipRules = settings.headerSkipRules,
                 footerSkipRules = settings.footerSkipRules,
                 folderPath = chap.fileUri.ifBlank { targetNovel.rootTreeUri },
-                novelUrl = chap.webSourceUrl ?: targetNovel.webUrl
+                novelUrl = chap.webSourceUrl ?: targetNovel.webUrl,
+                contentSelectors = settings.contentSelectors
             )
 
             val paraIdx = chap.lastReadParagraphIndex.coerceIn(0, (parsed.size - 1).coerceAtLeast(0))
@@ -582,6 +607,7 @@ object AudioPlaybackCoordinator {
 
             if (currentSource == PlaybackSource.AUDIO_FILE) {
                 attachedService?.resumeAudioFile()
+                startAudioFileProgressTicker()
                 return
             }
 
@@ -610,7 +636,8 @@ object AudioPlaybackCoordinator {
                             headerSkipRules = settings.headerSkipRules,
                             footerSkipRules = settings.footerSkipRules,
                             folderPath = chap.fileUri,
-                            novelUrl = chap.webSourceUrl
+                            novelUrl = chap.webSourceUrl,
+                            contentSelectors = settings.contentSelectors
                         )
                         withContext(Dispatchers.Main) {
                             currentParagraphs = parsed
@@ -630,6 +657,7 @@ object AudioPlaybackCoordinator {
     fun pause() {
         ttsManager?.stop()
         sleepTimerJob?.cancel()
+        audioFileProgressJob?.cancel()
         _isPlayingState.value = false
         _playbackProgressState.update { it.copy(isPlaying = false) }
         if (currentSource == PlaybackSource.AUDIO_FILE) {
@@ -645,6 +673,7 @@ object AudioPlaybackCoordinator {
     fun stop() {
         pause()
         sleepTimerJob?.cancel()
+        audioFileProgressJob?.cancel()
         _sleepTimerRemainingSecondsState.value = 0
         if (currentSource == PlaybackSource.AUDIO_FILE) {
             attachedService?.stopAudioFile()
@@ -653,8 +682,22 @@ object AudioPlaybackCoordinator {
         currentPlaylist = emptyList()
         currentAudioFile = null
         pendingAudioFile = null
-        _playbackProgressState.update { it.copy(isPlaying = false, source = PlaybackSource.NONE) }
+        _playbackProgressState.update {
+            it.copy(
+                isPlaying = false,
+                source = PlaybackSource.NONE,
+                audioFilePositionMs = 0L,
+                audioFileDurationMs = 0L
+            )
+        }
         attachedService?.stopServicePlayback()
+    }
+
+    fun seekAudioFile(positionMs: Long) {
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            attachedService?.seekAudioFile(positionMs)
+            _playbackProgressState.update { it.copy(audioFilePositionMs = positionMs) }
+        }
     }
 
     fun nextParagraph() {
@@ -906,6 +949,21 @@ object AudioPlaybackCoordinator {
             return
         }
 
+        val detectedLang = LanguageDetectionEngine.detectLanguage(spoken)
+        val settings = settingsRepository?.getSettings()
+        val voiceForLang = when (detectedLang) {
+            SupportedLanguage.ARABIC -> settings?.favoriteVoiceArabic ?: currentVoiceName
+            SupportedLanguage.FRENCH -> settings?.favoriteVoiceFrench ?: currentVoiceName
+            SupportedLanguage.ENGLISH -> settings?.favoriteVoiceEnglish ?: currentVoiceName
+        }
+        if (voiceForLang != null) {
+            ttsManager?.setVoiceByName(voiceForLang)
+        } else if (currentVoiceName != null) {
+            ttsManager?.setVoiceByName(currentVoiceName)
+        } else {
+            ttsManager?.setVoiceByName(null)
+        }
+
         ttsManager?.speak(
             index = idx,
             text = spoken,
@@ -1010,7 +1068,8 @@ object AudioPlaybackCoordinator {
                     headerSkipRules = settings.headerSkipRules,
                     footerSkipRules = settings.footerSkipRules,
                     folderPath = nextChap.fileUri,
-                    novelUrl = nextChap.webSourceUrl
+                    novelUrl = nextChap.webSourceUrl,
+                    contentSelectors = settings.contentSelectors
                 )
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->
@@ -1063,7 +1122,8 @@ object AudioPlaybackCoordinator {
                     headerSkipRules = settings.headerSkipRules,
                     footerSkipRules = settings.footerSkipRules,
                     folderPath = prevChap.fileUri,
-                    novelUrl = prevChap.webSourceUrl
+                    novelUrl = prevChap.webSourceUrl,
+                    contentSelectors = settings.contentSelectors
                 )
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->

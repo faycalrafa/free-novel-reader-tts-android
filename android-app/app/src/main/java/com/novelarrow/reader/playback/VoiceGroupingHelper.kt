@@ -7,10 +7,24 @@ import android.speech.tts.Voice
  */
 object VoiceGroupingHelper {
 
-    /**
-     * Neatly groups voices by language/locale using `voice.locale.displayLanguage.ifBlank { "Other" }`.
-     * Returns a map sorted alphabetically by language name.
-     */
+    val SUPPORTED_LANG_CODES = setOf("en", "ar", "fr")
+
+    fun isSupportedLanguage(locale: java.util.Locale?): Boolean {
+        if (locale == null) return false
+        val lang = locale.language.lowercase()
+        return lang in SUPPORTED_LANG_CODES
+    }
+
+    fun filterSupportedVoices(voices: List<Voice>): List<Voice> {
+        return voices.filter { isSupportedLanguage(it.locale) }
+    }
+
+    fun getVoicesForLanguage(voices: List<Voice>, supportedLanguage: SupportedLanguage): List<Voice> {
+        return voices.filter { voice ->
+            voice.locale?.language?.lowercase() == supportedLanguage.code
+        }.sortedBy { it.name }
+    }
+
     fun groupVoicesByLanguage(voices: List<Voice>): Map<String, List<Voice>> {
         return voices.groupBy { voice ->
             val lang = voice.locale?.displayLanguage?.trim().orEmpty()

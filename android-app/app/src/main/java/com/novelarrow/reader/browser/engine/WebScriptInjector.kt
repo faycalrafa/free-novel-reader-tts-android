@@ -221,6 +221,10 @@ object WebScriptInjector {
         val safeSelector = JSONObject.quote(customSelector.trim())
         return """
             (function() {
+                if (window.__na_next_clicking) return;
+                window.__na_next_clicking = true;
+                setTimeout(function() { window.__na_next_clicking = false; }, 2000);
+
                 var customSel = $safeSelector;
                 function getNextEl() {
                     if (customSel && customSel.length > 0) {
@@ -289,7 +293,7 @@ object WebScriptInjector {
                                 window.location.href = aTag.href;
                             }
                         }
-                    }, 500);
+                    }, 2500);
                 } else {
                     incrementUrl();
                 }
@@ -300,6 +304,10 @@ object WebScriptInjector {
     fun buildPrevChapterScript(): String {
         return """
             (function() {
+                if (window.__na_prev_clicking) return;
+                window.__na_prev_clicking = true;
+                setTimeout(function() { window.__na_prev_clicking = false; }, 2000);
+
                 function getPrevEl() {
                     var selectors = [
                         'button[title*="Prev Chapter" i]', 'a[title*="Prev Chapter" i]',
@@ -362,7 +370,7 @@ object WebScriptInjector {
                                 window.location.href = aTag.href;
                             }
                         }
-                    }, 500);
+                    }, 2500);
                 } else {
                     if (!decrementUrl()) {
                         window.history.back();

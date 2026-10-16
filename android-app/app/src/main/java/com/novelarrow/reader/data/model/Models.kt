@@ -109,9 +109,35 @@ data class SkipWord(
 
 @Serializable
 data class SkipRule(
+    val id: String = java.util.UUID.randomUUID().toString(),
     val text: String,
-    val exactMatch: Boolean = false
-)
+    val exactMatch: Boolean = false,
+    val enabled: Boolean = true
+) {
+    constructor(text: String, exactMatch: Boolean = false) : this(
+        id = java.util.UUID.randomUUID().toString(),
+        text = text,
+        exactMatch = exactMatch,
+        enabled = true
+    )
+}
+
+@Serializable
+data class ContentSelectorRule(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val selector: String,
+    val enabled: Boolean = true,
+    val scopeType: PronunciationScopeType = PronunciationScopeType.GLOBAL,
+    val scopePattern: String = ""
+) {
+    constructor(selector: String, enabled: Boolean = true) : this(
+        id = java.util.UUID.randomUUID().toString(),
+        selector = selector,
+        enabled = enabled,
+        scopeType = PronunciationScopeType.GLOBAL,
+        scopePattern = ""
+    )
+}
 
 @Serializable
 data class QuickToolbarSettings(
@@ -169,6 +195,10 @@ data class ReaderSettings(
     val speechRate: Float = 1.0f,
     val speechPitch: Float = 1.0f,
     val selectedVoiceName: String? = null,
+    val favoriteVoiceEnglish: String? = null,
+    val favoriteVoiceArabic: String? = null,
+    val favoriteVoiceFrench: String? = null,
+    val selectedEngineType: String = "ANDROID_SYSTEM",
     val autoNextChapter: Boolean = true,
     val autoScroll: Boolean = true,
     val rememberProgress: Boolean = true,
@@ -177,6 +207,7 @@ data class ReaderSettings(
     val autoNextOnScrollBottom: Boolean = false,
     val contentSelector: String = "",
     val contentSelectorEnabled: Boolean = true,
+    val contentSelectors: List<ContentSelectorRule> = emptyList(),
     val headerSkipString: String = "",
     val headerSkipEnabled: Boolean = true,
     val footerSkipString: String = "",

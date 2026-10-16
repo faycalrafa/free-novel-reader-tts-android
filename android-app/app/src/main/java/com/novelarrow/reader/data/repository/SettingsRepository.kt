@@ -1,6 +1,7 @@
 package com.novelarrow.reader.data.repository
 
 import android.content.Context
+import com.novelarrow.reader.data.model.ContentSelectorRule
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.SkipWord
@@ -34,7 +35,12 @@ data class SharedTtsSettings(
     val pronunciationRules: List<PronunciationRule> = emptyList(),
     val pronunciationRulesEnabled: Boolean = true,
     val headerSkipRules: List<SkipRule> = emptyList(),
-    val footerSkipRules: List<SkipRule> = emptyList()
+    val footerSkipRules: List<SkipRule> = emptyList(),
+    val favoriteVoiceEnglish: String? = null,
+    val favoriteVoiceArabic: String? = null,
+    val favoriteVoiceFrench: String? = null,
+    val selectedEngineType: String = "SYSTEM",
+    val contentSelectors: List<ContentSelectorRule> = emptyList()
 )
 
 @Serializable
@@ -101,7 +107,12 @@ class SettingsRepository(private val context: Context) {
             pronunciationRules = shared.pronunciationRules,
             pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
             headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
-            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules
+            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules,
+            favoriteVoiceEnglish = shared.favoriteVoiceEnglish ?: loadedReader.favoriteVoiceEnglish,
+            favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
+            favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
+            selectedEngineType = shared.selectedEngineType,
+            contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
         )
         val mergedBrowser = loadedBrowser.copy(
             ttsRate = shared.speechRate,
@@ -255,7 +266,12 @@ class SettingsRepository(private val context: Context) {
                 pronunciationRules = _settingsFlow.value.pronunciationRules,
                 pronunciationRulesEnabled = _settingsFlow.value.pronunciationRulesEnabled,
                 headerSkipRules = _settingsFlow.value.headerSkipRules,
-                footerSkipRules = _settingsFlow.value.footerSkipRules
+                footerSkipRules = _settingsFlow.value.footerSkipRules,
+                favoriteVoiceEnglish = _settingsFlow.value.favoriteVoiceEnglish,
+                favoriteVoiceArabic = _settingsFlow.value.favoriteVoiceArabic,
+                favoriteVoiceFrench = _settingsFlow.value.favoriteVoiceFrench,
+                selectedEngineType = _settingsFlow.value.selectedEngineType,
+                contentSelectors = _settingsFlow.value.contentSelectors
             )
             val newShared = transform(currentShared)
             saveSharedTts(newShared)
@@ -270,7 +286,12 @@ class SettingsRepository(private val context: Context) {
                 pronunciationRules = newShared.pronunciationRules,
                 pronunciationRulesEnabled = newShared.pronunciationRulesEnabled,
                 headerSkipRules = newShared.headerSkipRules,
-                footerSkipRules = newShared.footerSkipRules
+                footerSkipRules = newShared.footerSkipRules,
+                favoriteVoiceEnglish = newShared.favoriteVoiceEnglish,
+                favoriteVoiceArabic = newShared.favoriteVoiceArabic,
+                favoriteVoiceFrench = newShared.favoriteVoiceFrench,
+                selectedEngineType = newShared.selectedEngineType,
+                contentSelectors = newShared.contentSelectors
             )
             val updatedBrowser = _browserSettingsFlow.value.copy(
                 ttsRate = newShared.speechRate,
@@ -433,6 +454,100 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun setFavoriteVoice(language: String, voiceName: String?) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            when (language.lowercase().take(2)) {
+                "ar" -> it.copy(favoriteVoiceArabic = voiceName)
+                "fr" -> it.copy(favoriteVoiceFrench = voiceName)
+                else -> it.copy(favoriteVoiceEnglish = voiceName)
+            }
+        }
+    }
+
+    suspend fun setSelectedEngineType(engineType: String) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(selectedEngineType = engineType) }
+    }
+
+    suspend fun setContentSelectors(selectors: List<ContentSelectorRule>) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(contentSelectors = selectors) }
+    }
+
+    suspend fun addContentSelector(rule: ContentSelectorRule) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val filtered = it.contentSelectors.filterNot { r -> r.id == rule.id }
+            it.copy(contentSelectors = filtered + rule)
+        }
+    }
+
+    suspend fun updateContentSelector(rule: ContentSelectorRule) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val updated = it.contentSelectors.map { r -> if (r.id == rule.id) rule else r }
+            it.copy(contentSelectors = updated)
+        }
+    }
+
+    suspend fun toggleContentSelector(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val updated = it.contentSelectors.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
+            it.copy(contentSelectors = updated)
+        }
+    }
+
+    suspend fun removeContentSelector(id: String) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val filtered = it.contentSelectors.filterNot { r -> r.id == id }
+            it.copy(contentSelectors = filtered)
+        }
+    }
+
+    suspend fun setHeaderSkipRules(rules: List<SkipRule>) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(headerSkipRules = rules) }
+    }
+
+    suspend fun setFooterSkipRules(rules: List<SkipRule>) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(footerSkipRules = rules) }
+    }
+
+    suspend fun updateHeaderSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val updated = it.headerSkipRules.map { r -> if (r.id == rule.id) rule else r }
+            it.copy(headerSkipRules = updated)
+        }
+    }
+
+    suspend fun deleteHeaderSkipRule(id: String) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            it.copy(headerSkipRules = it.headerSkipRules.filterNot { r -> r.id == id })
+        }
+    }
+
+    suspend fun toggleHeaderSkipRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val updated = it.headerSkipRules.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
+            it.copy(headerSkipRules = updated)
+        }
+    }
+
+    suspend fun updateFooterSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val updated = it.footerSkipRules.map { r -> if (r.id == rule.id) rule else r }
+            it.copy(footerSkipRules = updated)
+        }
+    }
+
+    suspend fun deleteFooterSkipRule(id: String) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            it.copy(footerSkipRules = it.footerSkipRules.filterNot { r -> r.id == id })
+        }
+    }
+
+    suspend fun toggleFooterSkipRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
+        updateSharedTts {
+            val updated = it.footerSkipRules.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
+            it.copy(footerSkipRules = updated)
+        }
+    }
+
     suspend fun updateQuickToolbarSettings(toolbarSettings: com.novelarrow.reader.data.model.QuickToolbarSettings) = withContext(Dispatchers.IO) {
         val current = _settingsFlow.value
         val updated = current.copy(quickToolbarSettings = toolbarSettings)
@@ -564,7 +679,12 @@ class SettingsRepository(private val context: Context) {
             pronunciationRules = mergedRules,
             pronunciationRulesEnabled = reader.pronunciationRulesEnabled,
             headerSkipRules = reader.headerSkipRules,
-            footerSkipRules = reader.footerSkipRules
+            footerSkipRules = reader.footerSkipRules,
+            favoriteVoiceEnglish = reader.favoriteVoiceEnglish,
+            favoriteVoiceArabic = reader.favoriteVoiceArabic,
+            favoriteVoiceFrench = reader.favoriteVoiceFrench,
+            selectedEngineType = reader.selectedEngineType,
+            contentSelectors = reader.contentSelectors
         )
         saveSharedTts(initial)
         return initial
@@ -595,7 +715,12 @@ class SettingsRepository(private val context: Context) {
             pronunciationRules = shared.pronunciationRules,
             pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
             headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
-            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules
+            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules,
+            favoriteVoiceEnglish = shared.favoriteVoiceEnglish ?: loadedReader.favoriteVoiceEnglish,
+            favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
+            favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
+            selectedEngineType = shared.selectedEngineType,
+            contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
         )
         val mergedBrowser = loadedBrowser.copy(
             ttsRate = shared.speechRate,
@@ -632,7 +757,14 @@ class SettingsRepository(private val context: Context) {
                 skipWords = currentReader.skipWords,
                 skipWordsEnabled = currentReader.skipWordsEnabled,
                 pronunciationRules = currentReader.pronunciationRules,
-                pronunciationRulesEnabled = currentReader.pronunciationRulesEnabled
+                pronunciationRulesEnabled = currentReader.pronunciationRulesEnabled,
+                headerSkipRules = currentReader.headerSkipRules,
+                footerSkipRules = currentReader.footerSkipRules,
+                favoriteVoiceEnglish = currentReader.favoriteVoiceEnglish,
+                favoriteVoiceArabic = currentReader.favoriteVoiceArabic,
+                favoriteVoiceFrench = currentReader.favoriteVoiceFrench,
+                selectedEngineType = currentReader.selectedEngineType,
+                contentSelectors = currentReader.contentSelectors
             )
 
             val backup = UserPreferencesBackup(

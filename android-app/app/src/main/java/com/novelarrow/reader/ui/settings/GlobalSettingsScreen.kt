@@ -9,23 +9,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,9 +37,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -56,9 +62,13 @@ fun GlobalSettingsScreen(
     onNavigateToVoiceEngine: () -> Unit = {},
     onNavigateToPronunciationRules: () -> Unit = {},
     onNavigateToSkipWords: () -> Unit = {},
-    onOpenCssSelector: () -> Unit,
+    onNavigateToHeaderFooterSkips: () -> Unit = {},
+    onNavigateToContentSelector: () -> Unit = {},
+    onClearAllData: () -> Unit = {},
     onNavigateToAbout: () -> Unit
 ) {
+    var showClearConfirmation by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -87,7 +97,7 @@ fun GlobalSettingsScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Text(
-                text = "GENERAL",
+                text = "AUDIO & HARDWARE",
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -113,20 +123,39 @@ fun GlobalSettingsScreen(
                         subtitle = "Map volume keys, double press, long press & screen on/off actions",
                         onClick = onNavigateToHardwareButtons
                     )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     SettingsNavigationItem(
                         icon = Icons.Default.RecordVoiceOver,
                         title = "Voice Engine & Voices",
-                        subtitle = "Select speech engine, browse voices by language & preview samples",
+                        subtitle = "Select speech engine, favorite voices for EN, AR, FR & preview samples",
                         onClick = onNavigateToVoiceEngine
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     SettingsNavigationItem(
                         icon = Icons.AutoMirrored.Filled.VolumeUp,
-                        title = "Speech & TTS Filters",
+                        title = "Speech & TTS Quick Settings",
                         subtitle = "Speed, pitch, system voices, sleep timer & audio controls",
                         onClick = onOpenAudioSettings
                     )
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "READING & TEXT FILTERS",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Column {
                     SettingsNavigationItem(
                         icon = Icons.Default.Translate,
                         title = "Pronunciation Rules",
@@ -137,20 +166,52 @@ fun GlobalSettingsScreen(
                     SettingsNavigationItem(
                         icon = Icons.Default.FilterAlt,
                         title = "Auto Skip Words",
-                        subtitle = "Silence and strip unwanted words, ads and translator notes",
+                        subtitle = "Silence and strip unwanted words, emojis and symbols",
                         onClick = onNavigateToSkipWords
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     SettingsNavigationItem(
+                        icon = Icons.Default.FilterList,
+                        title = "Header & Footer Skips",
+                        subtitle = "Automatically skip author notes, translator messages, and boilerplate",
+                        onClick = onNavigateToHeaderFooterSkips
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingsNavigationItem(
                         icon = Icons.Default.Code,
-                        title = "CSS Content Selector",
-                        subtitle = "Customize HTML story container queries and ad filters",
-                        onClick = onOpenCssSelector
+                        title = "CSS Content Selectors",
+                        subtitle = "Configure prioritized multiple CSS selectors per site or folder",
+                        onClick = onNavigateToContentSelector
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "DATA MANAGEMENT",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
+            ) {
+                SettingsNavigationItem(
+                    icon = Icons.Default.Delete,
+                    title = "Clear All Library & Progress",
+                    subtitle = "Delete all stored novels, chapters, reading history and audio files",
+                    tint = MaterialTheme.colorScheme.error,
+                    onClick = { showClearConfirmation = true }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             Text(
                 text = "ABOUT & UPDATES",
@@ -172,7 +233,37 @@ fun GlobalSettingsScreen(
                     onClick = onNavigateToAbout
                 )
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = {
+                Text("Clear Entire Library?")
+            },
+            text = {
+                Text("Are you sure you want to delete all novels, chapters, downloaded files, and reading progress? This action is permanent and cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearConfirmation = false
+                        onClearAllData()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Clear All Data", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -181,6 +272,7 @@ private fun SettingsNavigationItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    tint: androidx.compose.ui.graphics.Color? = null,
     onClick: () -> Unit
 ) {
     Surface(
@@ -197,14 +289,17 @@ private fun SettingsNavigationItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = tint ?: MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        color = tint ?: MaterialTheme.colorScheme.onSurface
+                    )
                 )
                 Text(
                     text = subtitle,

@@ -89,23 +89,11 @@ class TtsManager(
                 }
             }
 
-            // 1. If text is provided, check for CJK script characters
+            // 1. If text is provided, detect language dynamically
             if (!targetText.isNullOrBlank()) {
-                val hasHiraganaOrKatakana = targetText.any {
-                    val script = Character.UnicodeScript.of(it.code)
-                    script == Character.UnicodeScript.HIRAGANA || script == Character.UnicodeScript.KATAKANA
-                }
-                val hasHangul = targetText.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HANGUL }
-                val hasCjk = targetText.any { Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN }
-
-                val detectedLocale = when {
-                    hasHiraganaOrKatakana -> Locale.JAPANESE
-                    hasHangul -> Locale.KOREAN
-                    hasCjk -> Locale.CHINESE
-                    else -> null
-                }
-                if (detectedLocale != null && t.isLanguageAvailable(detectedLocale) >= TextToSpeech.LANG_AVAILABLE) {
-                    t.language = detectedLocale
+                val detected = LanguageDetectionEngine.detectLanguage(targetText)
+                if (t.isLanguageAvailable(detected.locale) >= TextToSpeech.LANG_AVAILABLE) {
+                    t.language = detected.locale
                     return
                 }
             }
@@ -288,10 +276,19 @@ class TtsManager(
     }
 
     fun setVoiceByName(voiceName: String?) {
-        if (voiceName == null) return
+        if (voiceName == null) {
+            try {
+                tts?.defaultVoice?.let { tts?.voice = it }
+                configureLanguageSafely()
+                AppLogger.d(TAG, "Reset voice to system default voice")
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to reset voice to default: ${e.message}", e)
+            }
+            return
+        }
         val voice = getAvailableVoices().firstOrNull { it.name == voiceName }
         if (voice != null) {
-            tts?.voice = voice
+            // Apply locale first, then set explicit voice so setLanguage does not reset voice
             try {
                 voice.locale?.let { loc ->
                     if ((tts?.isLanguageAvailable(loc) ?: -1) >= TextToSpeech.LANG_AVAILABLE) {
@@ -300,6 +297,11 @@ class TtsManager(
                 }
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Failed to apply locale for voice ${voice.name}: ${e.message}", e)
+            }
+            try {
+                tts?.voice = voice
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to apply voice ${voice.name}: ${e.message}", e)
             }
         }
     }
@@ -314,14 +316,7 @@ class TtsManager(
             // Stop current speech cleanly with QUEUE_FLUSH
             tts?.stop()
 
-            // Safely set the preview voice
-            try {
-                tts?.voice = voice
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Failed to apply voice ${voice.name} for preview: ${e.message}", e)
-            }
-
-            // Safely set locale
+            // 1. Safely set locale FIRST so setLanguage does not overwrite voice
             try {
                 voice.locale?.let { loc ->
                     if ((tts?.isLanguageAvailable(loc) ?: -1) >= TextToSpeech.LANG_AVAILABLE) {
@@ -330,6 +325,13 @@ class TtsManager(
                 }
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Failed to apply locale ${voice.locale} for preview: ${e.message}", e)
+            }
+
+            // 2. Safely set the preview voice AFTER setting language
+            try {
+                tts?.voice = voice
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed to apply voice ${voice.name} for preview: ${e.message}", e)
             }
 
             val utteranceId = "preview_${voice.name}"
