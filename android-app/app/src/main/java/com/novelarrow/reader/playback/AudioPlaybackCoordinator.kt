@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 /**
@@ -71,6 +72,8 @@ object AudioPlaybackCoordinator {
     private var totalParagraphsCount: Int = 0
     private var currentParagraphs: List<Paragraph> = emptyList()
     private var autoNextChapterEnabled: Boolean = true
+    private var currentPlaylist: List<File> = emptyList()
+    private var currentAudioFile: File? = null
 
     var currentSpeechRate: Float = 1.0f
         private set
@@ -191,6 +194,10 @@ object AudioPlaybackCoordinator {
         initialize(context)
         ensureServiceRunning(context)
 
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            attachedService?.stopAudioFile()
+        }
+
         currentSource = PlaybackSource.READER
         currentNovelId = novelId
         currentNovelTitle = novelTitle
@@ -252,6 +259,10 @@ object AudioPlaybackCoordinator {
     ) {
         initialize(context)
         ensureServiceRunning(context)
+
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            attachedService?.stopAudioFile()
+        }
 
         // Audio focus handoff: if switching away from Reader, persist reader progress to library folder
         if (currentSource == PlaybackSource.READER) {
@@ -318,6 +329,93 @@ object AudioPlaybackCoordinator {
                 scrollOffset = 0,
                 isCompleted = total > 0 && paraIdx >= total - 1
             )
+        }
+    }
+
+    fun playAudioFile(file: File, playlist: List<File> = listOf(file), index: Int = 0) {
+        ttsManager?.stop()
+
+        if (currentSource == PlaybackSource.READER) {
+            saveCurrentReaderProgress()
+        }
+
+        currentSource = PlaybackSource.AUDIO_FILE
+        currentPlaylist = if (playlist.isNotEmpty()) playlist else listOf(file)
+        val validIndex = index.coerceIn(0, currentPlaylist.size - 1)
+        val activeFile = currentPlaylist.getOrNull(validIndex) ?: file
+        currentAudioFile = activeFile
+
+        val albumName = activeFile.parentFile?.name ?: "Audio Studio"
+        currentNovelId = null
+        currentNovelTitle = albumName
+        currentChapterId = null
+        currentChapterTitle = activeFile.nameWithoutExtension
+        currentChapterIndex = 0
+        totalChaptersCount = 1
+        currentParagraphs = emptyList()
+        currentParagraphIndex = validIndex
+        totalParagraphsCount = currentPlaylist.size
+        currentProgressText = "Track ${validIndex + 1}/${currentPlaylist.size} • ${activeFile.name}"
+
+        _playbackProgressState.update {
+            it.copy(
+                isPlaying = true,
+                source = PlaybackSource.AUDIO_FILE,
+                novelId = null,
+                novelTitle = albumName,
+                chapterId = null,
+                chapterTitle = activeFile.nameWithoutExtension,
+                chapterIndex = 0,
+                totalChapters = 1,
+                currentParagraphIndex = validIndex,
+                totalParagraphs = currentPlaylist.size,
+                currentParagraphText = activeFile.name
+            )
+        }
+        _isPlayingState.value = true
+
+        appContext?.let { ctx ->
+            ensureServiceRunning(ctx)
+        }
+        attachedService?.playAudioFile(activeFile)
+        updateServiceState()
+
+        if (_sleepTimerMinutesState.value > 0) {
+            if (_sleepTimerRemainingSecondsState.value <= 0) {
+                _sleepTimerRemainingSecondsState.value = _sleepTimerMinutesState.value * 60
+            }
+            startSleepTimerCountdown()
+        }
+
+        AppLogger.i(TAG, "playAudioFile: Playing '${activeFile.name}' (track ${validIndex + 1}/${currentPlaylist.size})")
+    }
+
+    fun playAudioFolder(folder: File) {
+        if (!folder.exists() || !folder.isDirectory) {
+            AppLogger.w(TAG, "playAudioFolder: Directory does not exist or is not a directory: ${folder.absolutePath}")
+            return
+        }
+        val mp3Files = folder.listFiles { f -> f.isFile && f.extension.equals("mp3", ignoreCase = true) }
+            ?.sortedBy { it.name.lowercase() }
+            ?.toList() ?: emptyList()
+
+        if (mp3Files.isNotEmpty()) {
+            playAudioFile(file = mp3Files.first(), playlist = mp3Files, index = 0)
+        } else {
+            AppLogger.w(TAG, "playAudioFolder: No MP3 files found in folder: ${folder.absolutePath}")
+        }
+    }
+
+    fun onAudioFileCompleted() {
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            val nextIndex = currentParagraphIndex + 1
+            if (nextIndex < currentPlaylist.size) {
+                AppLogger.i(TAG, "Track completed, advancing to track ${nextIndex + 1}/${currentPlaylist.size}")
+                playAudioFile(currentPlaylist[nextIndex], currentPlaylist, nextIndex)
+            } else {
+                AppLogger.i(TAG, "Playlist finished")
+                pause()
+            }
         }
     }
 
@@ -470,6 +568,11 @@ object AudioPlaybackCoordinator {
                 startSleepTimerCountdown()
             }
 
+            if (currentSource == PlaybackSource.AUDIO_FILE) {
+                attachedService?.resumeAudioFile()
+                return
+            }
+
             // If empty paragraphs, restore from last paused hearing session or reload
             if (currentParagraphs.isEmpty()) {
                 if (currentSource == PlaybackSource.READER && currentNovelId != null) {
@@ -517,6 +620,9 @@ object AudioPlaybackCoordinator {
         sleepTimerJob?.cancel()
         _isPlayingState.value = false
         _playbackProgressState.update { it.copy(isPlaying = false) }
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            attachedService?.pauseAudioFile()
+        }
         updateServiceState()
     }
 
@@ -528,12 +634,26 @@ object AudioPlaybackCoordinator {
         pause()
         sleepTimerJob?.cancel()
         _sleepTimerRemainingSecondsState.value = 0
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            attachedService?.stopAudioFile()
+        }
         currentSource = PlaybackSource.NONE
+        currentPlaylist = emptyList()
+        currentAudioFile = null
         _playbackProgressState.update { it.copy(isPlaying = false, source = PlaybackSource.NONE) }
         attachedService?.stopServicePlayback()
     }
 
     fun nextParagraph() {
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            val nextIdx = currentParagraphIndex + 1
+            if (nextIdx < currentPlaylist.size) {
+                playAudioFile(currentPlaylist[nextIdx], currentPlaylist, nextIdx)
+            } else {
+                pause()
+            }
+            return
+        }
         if (currentParagraphs.isEmpty()) {
             restoreLastHearingSession(autoPlay = false) {
                 nextParagraph()
@@ -550,6 +670,13 @@ object AudioPlaybackCoordinator {
     }
 
     fun previousParagraph() {
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            val prevIdx = currentParagraphIndex - 1
+            if (prevIdx >= 0 && prevIdx < currentPlaylist.size) {
+                playAudioFile(currentPlaylist[prevIdx], currentPlaylist, prevIdx)
+            }
+            return
+        }
         if (currentParagraphIndex - 1 >= 0) {
             currentParagraphIndex--
             _playbackProgressState.update { it.copy(currentParagraphIndex = currentParagraphIndex) }
@@ -558,6 +685,12 @@ object AudioPlaybackCoordinator {
     }
 
     fun seekToParagraph(targetPara: Int) {
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            if (targetPara in currentPlaylist.indices) {
+                playAudioFile(currentPlaylist[targetPara], currentPlaylist, targetPara)
+            }
+            return
+        }
         if (targetPara in currentParagraphs.indices) {
             currentParagraphIndex = targetPara
             _playbackProgressState.update { it.copy(currentParagraphIndex = targetPara) }
@@ -569,6 +702,10 @@ object AudioPlaybackCoordinator {
     var browserPrevChapterCallback: (() -> Unit)? = null
 
     fun nextChapter() {
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            nextParagraph()
+            return
+        }
         if (currentSource == PlaybackSource.READER) {
             advanceToNextChapter()
         } else if (currentSource == PlaybackSource.BROWSER) {
@@ -580,6 +717,10 @@ object AudioPlaybackCoordinator {
     }
 
     fun previousChapter() {
+        if (currentSource == PlaybackSource.AUDIO_FILE) {
+            previousParagraph()
+            return
+        }
         if (currentSource == PlaybackSource.READER) {
             advanceToPreviousChapter()
         } else if (currentSource == PlaybackSource.BROWSER) {

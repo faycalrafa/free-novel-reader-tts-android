@@ -34,12 +34,15 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.novelarrow.reader.MainActivity
 import com.novelarrow.reader.R
 import com.novelarrow.reader.data.model.Paragraph
+import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.flow.StateFlow
+import java.io.File
 
 enum class PlaybackSource {
     NONE,
     READER,
-    BROWSER
+    BROWSER,
+    AUDIO_FILE
 }
 
 data class PlaybackProgress(
@@ -69,6 +72,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var isForegroundServiceStarted = false
     private var currentMediaMetadata: MediaMetadata = MediaMetadata.EMPTY
+    private var currentAudioFile: File? = null
+    private var silenceMediaSource: SilenceMediaSource? = null
 
     private var currentNovelTitle: String = "NovelArrow Reader"
     private var currentChapterTitle: String = "No chapter loaded"
@@ -316,18 +321,43 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     }
                 }
             }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                        AudioPlaybackCoordinator.onAudioFileCompleted()
+                    }
+                }
+            }
         })
 
         // Silence loop maintains the media audio pipeline for notification and lockscreen controls
         val silenceSource = SilenceMediaSource(3_600_000_000L) // 1 hour silence loop
+        silenceMediaSource = silenceSource
         basePlayer.setMediaSource(silenceSource)
         basePlayer.repeatMode = Player.REPEAT_MODE_ALL
         basePlayer.prepare()
 
         val forwardingPlayer = object : ForwardingPlayer(basePlayer) {
-            override fun isPlaying(): Boolean = AudioPlaybackCoordinator.isPlayingState.value
-            override fun getPlayWhenReady(): Boolean = AudioPlaybackCoordinator.isPlayingState.value
-            override fun getPlaybackState(): Int = if (AudioPlaybackCoordinator.isPlayingState.value) Player.STATE_READY else super.getPlaybackState()
+            override fun isPlaying(): Boolean = if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                basePlayer.isPlaying
+            } else {
+                AudioPlaybackCoordinator.isPlayingState.value
+            }
+
+            override fun getPlayWhenReady(): Boolean = if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                basePlayer.playWhenReady
+            } else {
+                AudioPlaybackCoordinator.isPlayingState.value
+            }
+
+            override fun getPlaybackState(): Int = if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                super.getPlaybackState()
+            } else if (AudioPlaybackCoordinator.isPlayingState.value) {
+                Player.STATE_READY
+            } else {
+                super.getPlaybackState()
+            }
 
             override fun getCurrentMediaItem(): androidx.media3.common.MediaItem? {
                 return androidx.media3.common.MediaItem.Builder()
@@ -356,11 +386,29 @@ class NovelAudioPlaybackService : MediaSessionService() {
             override fun seekForward() = dispatchNextChap()
             override fun seekBack() = dispatchPrevChap()
 
-            override fun getDuration(): Long = if (virtualDurationMs > 0) virtualDurationMs else super.getDuration()
-            override fun getCurrentPosition(): Long = if (virtualDurationMs > 0) virtualPositionMs else super.getCurrentPosition()
+            override fun getDuration(): Long = if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                super.getDuration()
+            } else if (virtualDurationMs > 0) virtualDurationMs else super.getDuration()
 
-            override fun seekTo(positionMs: Long) = handleSeekTo(positionMs)
-            override fun seekTo(mediaItemIndex: Int, positionMs: Long) = handleSeekTo(positionMs)
+            override fun getCurrentPosition(): Long = if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                super.getCurrentPosition()
+            } else if (virtualDurationMs > 0) virtualPositionMs else super.getCurrentPosition()
+
+            override fun seekTo(positionMs: Long) {
+                if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                    super.seekTo(positionMs)
+                } else {
+                    handleSeekTo(positionMs)
+                }
+            }
+
+            override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+                if (AudioPlaybackCoordinator.playbackProgressState.value.source == PlaybackSource.AUDIO_FILE) {
+                    super.seekTo(mediaItemIndex, positionMs)
+                } else {
+                    handleSeekTo(positionMs)
+                }
+            }
 
             override fun stop() {
                 super.stop()
@@ -707,7 +755,9 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .setMediaMetadata(metadata)
             .build()
         try {
-            exoPlayer?.setMediaItem(mediaItem, false)
+            if (AudioPlaybackCoordinator.playbackProgressState.value.source != PlaybackSource.AUDIO_FILE) {
+                exoPlayer?.setMediaItem(mediaItem, false)
+            }
             exoPlayer?.setPlaylistMetadata(metadata)
         } catch (_: Exception) {}
 
@@ -720,10 +770,12 @@ class NovelAudioPlaybackService : MediaSessionService() {
             if (exoPlayer?.playbackState == Player.STATE_IDLE) {
                 exoPlayer?.prepare()
             }
-            try {
-                exoPlayer?.seekTo(virtualPositionMs)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            if (AudioPlaybackCoordinator.playbackProgressState.value.source != PlaybackSource.AUDIO_FILE) {
+                try {
+                    exoPlayer?.seekTo(virtualPositionMs)
+                } catch (e: Exception) {
+                    AppLogger.w("NovelAudioPlaybackService", "Error seeking virtual position: ${e.message}", e)
+                }
             }
             if (exoPlayer?.playWhenReady != true) {
                 exoPlayer?.playWhenReady = true
@@ -741,7 +793,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     }
                     isForegroundServiceStarted = true
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    AppLogger.w("NovelAudioPlaybackService", "Error starting foreground service: ${e.message}", e)
                 }
             } else {
                 manager.notify(NOTIFICATION_ID, notification)
@@ -749,10 +801,12 @@ class NovelAudioPlaybackService : MediaSessionService() {
         } else {
             releaseWakeLock()
 
-            try {
-                exoPlayer?.seekTo(virtualPositionMs)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            if (AudioPlaybackCoordinator.playbackProgressState.value.source != PlaybackSource.AUDIO_FILE) {
+                try {
+                    exoPlayer?.seekTo(virtualPositionMs)
+                } catch (e: Exception) {
+                    AppLogger.w("NovelAudioPlaybackService", "Error seeking virtual position: ${e.message}", e)
+                }
             }
             if (exoPlayer?.playWhenReady != false) {
                 exoPlayer?.playWhenReady = false
@@ -776,6 +830,79 @@ class NovelAudioPlaybackService : MediaSessionService() {
             } else {
                 manager.notify(NOTIFICATION_ID, notification)
             }
+        }
+    }
+
+    fun playAudioFile(file: File) {
+        currentAudioFile = file
+        val player = exoPlayer ?: return
+        try {
+            val uri = android.net.Uri.fromFile(file)
+            val (_, coverArtworkBytes) = getBookCoverArtwork()
+            val albumName = file.parentFile?.name ?: "Audio Studio"
+            val metadata = MediaMetadata.Builder()
+                .setTitle(file.nameWithoutExtension)
+                .setArtist(albumName)
+                .setAlbumTitle(albumName)
+                .setDisplayTitle(file.nameWithoutExtension)
+                .setSubtitle(file.name)
+                .setArtworkData(coverArtworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                .build()
+            currentMediaMetadata = metadata
+            val mediaItem = androidx.media3.common.MediaItem.Builder()
+                .setUri(uri)
+                .setMediaId("audio_file_${file.absolutePath.hashCode()}")
+                .setMediaMetadata(metadata)
+                .build()
+            player.repeatMode = Player.REPEAT_MODE_OFF
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            player.playWhenReady = true
+            player.play()
+            acquireWakeLock()
+            AppLogger.i("NovelAudioPlaybackService", "ExoPlayer playing audio file: ${file.name}")
+        } catch (e: Exception) {
+            AppLogger.e("NovelAudioPlaybackService", "Error playing audio file ${file.name}", e)
+        }
+    }
+
+    fun resumeAudioFile() {
+        val player = exoPlayer ?: return
+        try {
+            acquireWakeLock()
+            player.playWhenReady = true
+            player.play()
+            AppLogger.d("NovelAudioPlaybackService", "Resumed audio file playback")
+        } catch (e: Exception) {
+            AppLogger.e("NovelAudioPlaybackService", "Error resuming audio file", e)
+        }
+    }
+
+    fun pauseAudioFile() {
+        val player = exoPlayer ?: return
+        try {
+            releaseWakeLock()
+            player.playWhenReady = false
+            player.pause()
+            AppLogger.d("NovelAudioPlaybackService", "Paused audio file playback")
+        } catch (e: Exception) {
+            AppLogger.e("NovelAudioPlaybackService", "Error pausing audio file", e)
+        }
+    }
+
+    fun stopAudioFile() {
+        val player = exoPlayer ?: return
+        try {
+            currentAudioFile = null
+            player.stop()
+            silenceMediaSource?.let {
+                player.setMediaSource(it)
+                player.repeatMode = Player.REPEAT_MODE_ALL
+                player.prepare()
+            }
+            AppLogger.d("NovelAudioPlaybackService", "Stopped audio file playback and restored silence source")
+        } catch (e: Exception) {
+            AppLogger.e("NovelAudioPlaybackService", "Error stopping audio file", e)
         }
     }
 

@@ -118,7 +118,11 @@ class AudioExportService : Service() {
             _exportProgressState.value = ExportState.Running(
                 title = novel.title,
                 percent = 0,
-                statusText = "Starting audio synthesis (${subChapters.size} chapters)..."
+                statusText = "Starting audio synthesis (${subChapters.size} chapters)...",
+                currentChapter = 1,
+                totalChapters = subChapters.size,
+                currentParagraph = 0,
+                totalParagraphs = 0
             )
 
             val request = AudioExportEngine.ExportRequest(
@@ -134,13 +138,22 @@ class AudioExportService : Service() {
                 request = request,
                 libraryRepository = libRepo,
                 settingsRepository = settingsRepo,
-                onProgress = { current, total, pct, text ->
+                onProgress = { curChap, totChaps, curPara, totParas, pct, text ->
                     _exportProgressState.value = ExportState.Running(
                         title = novel.title,
                         percent = pct,
-                        statusText = text
+                        statusText = text,
+                        currentChapter = curChap,
+                        totalChapters = totChaps,
+                        currentParagraph = curPara,
+                        totalParagraphs = totParas
                     )
-                    updateNotification("Audifying: ${novel.title}", pct, text)
+                    val notifText = if (totParas > 0) {
+                        "Ch. $curChap/$totChaps • ¶ $curPara/$totParas ($pct%)"
+                    } else {
+                        text
+                    }
+                    updateNotification("Audifying: ${novel.title}", pct, notifText)
                 },
                 isCancelled = { isCancelled }
             )
@@ -217,7 +230,11 @@ class AudioExportService : Service() {
             _exportProgressState.value = ExportState.Running(
                 title = novel.title,
                 percent = 0,
-                statusText = "Fusing ${chapters.size} chapters..."
+                statusText = "Fusing ${chapters.size} chapters...",
+                currentChapter = 1,
+                totalChapters = chapters.size,
+                currentParagraph = 0,
+                totalParagraphs = 0
             )
 
             val fused = FileFusionManager.fuseChapters(
@@ -230,7 +247,11 @@ class AudioExportService : Service() {
                     _exportProgressState.value = ExportState.Running(
                         title = novel.title,
                         percent = pct,
-                        statusText = "Fusing Chapter $cur/$tot"
+                        statusText = "Fusing Chapter $cur/$tot",
+                        currentChapter = cur,
+                        totalChapters = tot,
+                        currentParagraph = 0,
+                        totalParagraphs = 0
                     )
                     updateNotification("Fusing ${novel.title}", pct, "Chapter $cur of $tot")
                 }
@@ -265,7 +286,11 @@ class AudioExportService : Service() {
             _exportProgressState.value = ExportState.Running(
                 title = novel.title,
                 percent = 0,
-                statusText = "Zipping ${chapters.size} chapters..."
+                statusText = "Zipping ${chapters.size} chapters...",
+                currentChapter = 1,
+                totalChapters = chapters.size,
+                currentParagraph = 0,
+                totalParagraphs = 0
             )
 
             val zipFile = FileFusionManager.zipNovelFolder(
@@ -278,7 +303,11 @@ class AudioExportService : Service() {
                     _exportProgressState.value = ExportState.Running(
                         title = novel.title,
                         percent = pct,
-                        statusText = "Compressing Chapter $cur/$tot"
+                        statusText = "Compressing Chapter $cur/$tot",
+                        currentChapter = cur,
+                        totalChapters = tot,
+                        currentParagraph = 0,
+                        totalParagraphs = 0
                     )
                     updateNotification("Zipping ${novel.title}", pct, "Compressing $cur of $tot")
                 }
@@ -380,7 +409,15 @@ class AudioExportService : Service() {
 
     sealed class ExportState {
         object Idle : ExportState()
-        data class Running(val title: String, val percent: Int, val statusText: String) : ExportState()
+        data class Running(
+            val title: String,
+            val percent: Int,
+            val statusText: String,
+            val currentChapter: Int = 0,
+            val totalChapters: Int = 0,
+            val currentParagraph: Int = 0,
+            val totalParagraphs: Int = 0
+        ) : ExportState()
         data class Success(val files: List<File>) : ExportState()
     }
 
