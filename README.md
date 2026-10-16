@@ -1,20 +1,19 @@
-# NovelArrow Reader Pro 📖✨
+# BookReader 📖✨
 
-> **100% Free and Open Source Software (FOSS)**  
+> A personal offline novel reader and Text-to-Speech (TTS) audiobook application for Android.
 > No Ads • No Trackers • No Subscriptions • Fully Offline • Native Android & Text-to-Speech
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android_8.0+-green.svg)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0+-purple.svg)](https://kotlinlang.org)
 [![Compose](https://img.shields.io/badge/Jetpack_Compose-Material3-deepskyblue.svg)](https://developer.android.com/jetpack/compose)
 
 ---
 
-## 🌟 What is NovelArrow Reader?
+## 🌟 What is BookReader?
 
-**NovelArrow Reader** is a high-performance Android reader and offline Text-to-Speech (TTS) audiobook player built for readers of web novels, light novels, eBooks, and multi-file text collections.
+**BookReader** (NovelArrow Reader) is a personal hobby project created and maintained by Faycal Rafa. It is a high-performance Android reader and offline Text-to-Speech (TTS) audiobook player built for readers of web novels, light novels, eBooks, and multi-file text collections.
 
-Unlike standard e-readers that treat individual chapters as disconnected documents, NovelArrow Reader treats your **local folders as dynamic audio playlists**:
+Unlike standard e-readers that treat individual chapters as disconnected documents, BookReader treats your **local folders as dynamic audio playlists**:
 1. Simply select any root novel directory on your device.
 2. Every subfolder is automatically detected and indexed as its own novel/playlist.
 3. Chapters (`.txt`, `.html`, `.xhtml`, `.md`, `.epub`) are naturally sorted in order.
@@ -104,9 +103,3 @@ cd free-novel-reader-tts-android/android-app
 The output APK will be generated at:
 `android-app/app/build/outputs/apk/release/app-release.apk`
 
----
-
-## 📄 License & Freedom
-
-NovelArrow Reader is **Free and Open Source Software** licensed under the [Apache License 2.0](LICENSE).  
-You are free to use, modify, distribute, and contribute back to the project.
