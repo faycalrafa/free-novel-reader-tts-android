@@ -84,7 +84,7 @@ Unlike other browsers that hide scripts in internal databases, NovelArrow stores
   └── Font_Customizer.user.js
 ```
 
-- You can edit scripts inside the app using the built-in **CodeMirror Editor**, or use an external editor on your phone/PC.
+- You can edit scripts inside the app using the built-in **Monaco Editor**, or use an external editor on your phone/PC.
 - Any `.user.js` files dropped into `Download/NovelArrow_Scripts/` will be automatically detected!
 - Deleting a script in the Userscript Manager will delete both the database entry and the physical file.
 

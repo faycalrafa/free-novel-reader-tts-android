@@ -32,4 +32,16 @@ class QuickToolbarFormattingTest {
         assertEquals("⏱ 1:00:00", QuickToolbarForegroundService.formatSleepTimer(60, 3600))
         assertEquals("⏱ 1:01:05", QuickToolbarForegroundService.formatSleepTimer(65, 3665))
     }
+
+    @Test
+    fun testFormatChapterProgressOutputsCleanFraction() {
+        // Normal playlist chapters (0-indexed to 1-indexed)
+        assertEquals("1/10", QuickToolbarForegroundService.formatChapterProgress(0, 10))
+        assertEquals("45/120", QuickToolbarForegroundService.formatChapterProgress(44, 120))
+        assertEquals("100/100", QuickToolbarForegroundService.formatChapterProgress(99, 100))
+
+        // When total chapters is unknown or 0 (e.g. single web chapter)
+        assertEquals("1", QuickToolbarForegroundService.formatChapterProgress(0, 0))
+        assertEquals("12", QuickToolbarForegroundService.formatChapterProgress(11, 0))
+    }
 }

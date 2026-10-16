@@ -290,6 +290,10 @@ fun MonacoCodeEditorDialog(
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
+                                    allowFileAccess = true
+                                    allowContentAccess = true
+                                    allowFileAccessFromFileURLs = true
+                                    allowUniversalAccessFromFileURLs = true
                                     useWideViewPort = true
                                     loadWithOverviewMode = true
                                     builtInZoomControls = true
@@ -309,7 +313,7 @@ fun MonacoCodeEditorDialog(
                                     "MonacoBridge"
                                 )
                                 loadDataWithBaseURL(
-                                    "https://novelreader.local/",
+                                    "file:///android_asset/",
                                     monacoHtml,
                                     "text/html",
                                     "UTF-8",
@@ -387,7 +391,7 @@ private fun buildMonacoHtml(code: String, language: String): String {
                     z-index: 10;
                 }
             </style>
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+            <script src="file:///android_asset/monaco/vs/loader.js"></script>
         </head>
         <body>
             <div id="loading-banner">Loading Monaco Editor...</div>
@@ -400,6 +404,15 @@ private fun buildMonacoHtml(code: String, language: String): String {
                 var monacoLoaded = false;
                 var initialCode = $safeCode;
                 var docLanguage = $safeLang;
+
+                window.MonacoEnvironment = {
+                    getWorkerUrl: function(workerId, label) {
+                        return 'data:text/javascript;charset=utf-8,' + encodeURIComponent(
+                            "self.MonacoEnvironment = { baseUrl: 'file:///android_asset/monaco/vs/' };" +
+                            "importScripts('file:///android_asset/monaco/vs/base/worker/workerMain.js');"
+                        );
+                    }
+                };
 
                 function showFallback() {
                     if (monacoLoaded) return;
@@ -419,12 +432,12 @@ private fun buildMonacoHtml(code: String, language: String): String {
                             return;
                         }
                         require.config({
-                            paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }
+                            paths: { 'vs': 'file:///android_asset/monaco/vs' }
                         });
 
                         var fallbackTimer = setTimeout(function() {
                             if (!monacoLoaded) showFallback();
-                        }, 5000);
+                        }, 4000);
 
                         require(['vs/editor/editor.main'], function() {
                             clearTimeout(fallbackTimer);
@@ -452,7 +465,7 @@ private fun buildMonacoHtml(code: String, language: String): String {
                                 }
                             });
 
-                            if (docLanguage === 'html') {
+                            if (docLanguage === 'html' || docLanguage === 'javascript') {
                                 setTimeout(function() {
                                     try {
                                         window.editor.getAction('editor.action.formatDocument').run();

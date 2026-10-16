@@ -183,21 +183,7 @@ class QuickToolbarForegroundService : Service() {
         val speedText = formatSpeed(currentSpeed)
         val sleepTimerText = AudioPlaybackCoordinator.formatSleepTimerForNotification()
 
-        val novelTitle = if (progress.novelTitle.isNotBlank() && progress.novelTitle != "NovelArrow Reader") {
-            progress.novelTitle
-        } else {
-            "NovelArrow Reader"
-        }
-
-        val chapterStatus = if (progress.chapterTitle.isNotBlank() && progress.chapterTitle != "No chapter loaded") {
-            if (progress.totalParagraphs > 0) {
-                "${progress.chapterTitle} • ¶ ${progress.currentParagraphIndex + 1}/${progress.totalParagraphs}"
-            } else {
-                progress.chapterTitle
-            }
-        } else {
-            "Tap Play to Resume Reading"
-        }
+        val progressText = formatChapterProgress(progress.chapterIndex, progress.totalChapters)
 
         // 1. PendingIntents
         val openAppIntent = Intent(appContext, MainActivity::class.java).apply {
@@ -227,8 +213,8 @@ class QuickToolbarForegroundService : Service() {
 
         // 2. Compact View RemoteViews
         val compactView = RemoteViews(appContext.packageName, R.layout.notification_quick_toolbar).apply {
-            setTextViewText(R.id.tv_novel_title, novelTitle)
-            setTextViewText(R.id.tv_chapter_status, chapterStatus)
+            setTextViewText(R.id.tv_novel_title, progressText)
+            setViewVisibility(R.id.tv_chapter_status, View.GONE)
             setTextViewText(R.id.btn_speed, speedText)
             setTextViewText(R.id.btn_sleep_timer, sleepTimerText)
 
@@ -258,8 +244,8 @@ class QuickToolbarForegroundService : Service() {
 
         // 3. Expanded View RemoteViews
         val expandedView = RemoteViews(appContext.packageName, R.layout.notification_quick_toolbar_expanded).apply {
-            setTextViewText(R.id.tv_novel_title_exp, novelTitle)
-            setTextViewText(R.id.tv_chapter_status_exp, chapterStatus)
+            setTextViewText(R.id.tv_novel_title_exp, progressText)
+            setViewVisibility(R.id.tv_chapter_status_exp, View.GONE)
             setTextViewText(R.id.btn_speed_exp, speedText)
             setTextViewText(R.id.btn_sleep_timer_exp, sleepTimerText)
 
@@ -307,8 +293,8 @@ class QuickToolbarForegroundService : Service() {
         // 4. Notification Builder
         val builder = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_toolbar)
-            .setContentTitle(novelTitle)
-            .setContentText(chapterStatus)
+            .setContentTitle(progressText)
+            .setContentText("")
             .setContentIntent(openAppPendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -385,6 +371,15 @@ class QuickToolbarForegroundService : Service() {
         const val ACTION_START_OR_UPDATE = "com.novelarrow.reader.ACTION_START_OR_UPDATE_TOOLBAR"
         const val ACTION_STOP = "com.novelarrow.reader.ACTION_STOP_TOOLBAR"
         const val ACTION_RESTORE_TOOLBAR = "com.novelarrow.reader.ACTION_RESTORE_TOOLBAR"
+
+        internal fun formatChapterProgress(chapterIndex: Int, totalChapters: Int): String {
+            val current = chapterIndex + 1
+            return if (totalChapters > 0) {
+                "$current/$totalChapters"
+            } else {
+                "$current"
+            }
+        }
 
         internal fun formatSpeed(rate: Float): String {
             return if (rate == rate.toInt().toFloat()) {

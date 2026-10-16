@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
@@ -496,11 +497,12 @@ fun BrowserScreen(
             )
         }
 
-        // CodeMirror Editor Dialog
+        // Userscript Monaco Editor Dialog (bundled offline editor, single instance)
         if (uiState.showCodeMirrorEditor) {
-            CodeMirrorEditorDialog(
-                initialTitle = uiState.editorPrefilledTitle,
+            MonacoCodeEditorDialog(
+                title = uiState.editorPrefilledTitle.ifBlank { "New Userscript" },
                 initialContent = uiState.editorPrefilledCode,
+                language = "javascript",
                 onDismiss = { viewModel.dismissCodeMirrorEditor() },
                 onSave = { code -> viewModel.saveUserscriptFromEditor(code) }
             )
@@ -790,12 +792,16 @@ private fun BrowserTopBar(
                     )
                 }
 
-                // Next Chapter
+                // Next Chapter (Click in Webpage)
                 IconButton(
                     onClick = onNextChapterClicked,
                     modifier = Modifier.size(34.dp)
                 ) {
-                    Icon(Icons.Default.SkipNext, contentDescription = "Next Chapter", modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Default.Mouse,
+                        contentDescription = "Next Chapter (Click in Page)",
+                        modifier = Modifier.size(19.dp)
+                    )
                 }
 
                 // Read Aloud / TTS - Matching ReaderTopBar design

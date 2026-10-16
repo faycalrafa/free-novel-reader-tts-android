@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v2.5.0"
+          DATE_TAG="v2.6.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "2.5.0"
-        run: ./gradlew assembleRelease -PappVersionName=2.5.0 --no-daemon
+          APP_VERSION_NAME: "2.6.0"
+        run: ./gradlew assembleRelease -PappVersionName=2.6.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,31 +53,32 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v2.5.0 (Stable)
+          name: NovelArrow Reader v2.6.0 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v2.5.0 (Stable) 📖✨
+            ### NovelArrow Reader v2.6.0 (Stable) 📖✨
 
-            **NovelArrow Reader v2.5.0** delivers a complete visual and functional redesign of the persistent quick reading notification toolbar, adding sleek modern icons, prominent playback controls, live real-time sleep timer countdown, and space-optimized layout.
+            **NovelArrow Reader v2.6.0** brings bundled offline Monaco code editing, streamlined toolbar progress, universal library drawer navigation, and clean reading enhancements.
 
             **100% Free and Open Source Software (FOSS)**
 
             #### Changes in this release:
-            - **Notification Toolbar Visual Redesign**:
-              - Eliminated the double-border "card-inside-card" appearance by integrating seamlessly with Android's system notification container (`@android:color/transparent`).
-              - Removed duplicate header icon inside the custom view to grant full horizontal space to novel title and chapter reading status.
-              - Replaced legacy Gingerbread media icons with crisp Material 3 vector assets for Previous, Play/Pause, Next, and Site Next (`ic_toolbar_*`).
-              - Added a prominent circular accent purple (`#7C3AED`) background for the Play/Pause button.
-              - Redesigned speed and sleep timer badges into sleek dark slate (`#1E293B`) pills with `#334155` subtle borders.
-            - **Live Sleep Timer Countdown**:
-              - The notification toolbar sleep timer pill now actively counts down in real time (e.g. `⏱ 29:45`, `⏱ 14:02`, `⏱ 0:45`) synchronized with TTS playback.
-              - Live updates dispatched via coroutine state flows in `QuickToolbarForegroundService`.
-            - **Speed Formatter Fix**:
-              - Fixed string formatting bug where speech rates like 1.75x were displayed as `"1.75xx"`.
-            - **Settings Live Mockup Harmonization**:
-              - Updated `ToolbarSettingsScreen` live mockup preview to perfectly mirror the new dark slate pills, purple circular play button, and slate icons.
-            - **Unit Tests**:
-              - Added comprehensive unit tests in `QuickToolbarFormattingTest` validating speed rate string formatting and live countdown timer conversion.
+            - **Bundled Full Monaco Editor**:
+              - Bundled the official VS Code web editor (Monaco Editor 0.45.0) directly into the app assets.
+              - 100% offline functionality with zero external CDN dependencies or network latency.
+              - Full IDE features: syntax highlighting, brackets matching, find/replace, multi-cursor, and code formatting for JavaScript and HTML.
+            - **Script Editor Bug Fix**:
+              - Fixed the bug where the userscript creation page displayed 3 stacked duplicate code editor boxes.
+              - Migrated userscript creation and editing to the unified, robust Monaco Editor.
+            - **Default Demo Userscript (Clean Novel Reader)**:
+              - Automatically seeds an out-of-the-box userscript: *Clean Novel Reader (Ad & Clutter Remover)*.
+              - Declutters web novel pages by removing floating ads, sticky banners, and sidebars before reading or TTS.
+            - **Browser Next Chapter Mouse Icon**:
+              - Updated the in-browser Next Chapter action button to a computer mouse icon (`Icons.Default.Mouse`).
+            - **Streamlined Toolbar Progress**:
+              - Both the in-app Reader top bar and the notification quick reading toolbar now strictly display clean `currentchap/total` progress (e.g. `12/85`) without redundant novel and chapter title clutter.
+            - **Universal Drawer Navigation**:
+              - Replaced back arrows in General Settings, About, Toolbar Settings, and Developer Logs with the Library Drawer burger menu (`Icons.Default.Menu`) to allow seamless navigation across books and tabs from any screen.
 
             **Download and install `app-release.apk` or `update-latest.apk` below:**
           files: |

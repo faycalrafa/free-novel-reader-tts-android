@@ -43,6 +43,41 @@ class UserscriptRepository(private val context: Context) {
             val clean = name.trim().replace(Regex("[\\\\/:*?\"<>|\\r\\n]+"), "_")
             return clean.ifBlank { "script_" + System.currentTimeMillis() }
         }
+
+        val DEFAULT_DEMO_SCRIPT = """
+            // ==UserScript==
+            // @name         Clean Novel Reader (Ad & Clutter Remover)
+            // @version      1.0.0
+            // @description  Removes floating ads, sticky banners, and declutters web novel pages for clean reading and TTS.
+            // @match        *://*/*
+            // @run-at       document-end
+            // @grant        GM_notification
+            // ==/UserScript==
+
+            (function() {
+                'use strict';
+                const adSelectors = [
+                    '.ads', '.ad-container', '.ad_box', '#sidebar', 'aside',
+                    '.header-advert', '.footer-advert', 'iframe', '.floating-ad',
+                    '.social-share', '.share-buttons', '.sticky-banner',
+                    '.ad-wrapper', '#floating-banner', '.advertisement',
+                    '[id*="ad_"]', '[class*="advert"]'
+                ];
+                let removed = 0;
+                adSelectors.forEach(function(sel) {
+                    document.querySelectorAll(sel).forEach(function(el) {
+                        if (el.id === 'chapter-content' || el.classList.contains('chapter-content') || el.tagName === 'BODY') {
+                            return;
+                        }
+                        el.remove();
+                        removed++;
+                    });
+                });
+                if (removed > 0 && typeof GM_notification === 'function') {
+                    GM_notification('Novel page cleaned (' + removed + ' clutter items removed)');
+                }
+            })();
+        """.trimIndent()
     }
 
     private val _scriptsFlow: MutableStateFlow<List<UserscriptEntity>>
@@ -61,9 +96,46 @@ class UserscriptRepository(private val context: Context) {
         // Sync directory in background to detect files placed in Downloads
         try {
             ensureScriptsDirectory()
-            syncFromDiskInternal()
+            val synced = syncFromDiskInternal()
+            if (synced.isEmpty() && _scriptsFlow.value.isEmpty()) {
+                seedDefaultDemoScript()
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Initial sync failed: ${e.message}")
+        }
+    }
+
+    private fun seedDefaultDemoScript() {
+        try {
+            val scriptsDir = ensureScriptsDirectory()
+            val fileName = "Clean_Novel_Reader.user.js"
+            val targetFile = File(scriptsDir, fileName)
+            val demoCode = DEFAULT_DEMO_SCRIPT.trimIndent()
+            targetFile.writeText(demoCode, Charsets.UTF_8)
+
+            val parsed = UserscriptMetadataParser.parse(demoCode, fallbackName = "Clean Novel Reader (Ad & Clutter Remover)")
+            val demoEntity = UserscriptEntity(
+                id = UUID.randomUUID().toString(),
+                name = parsed.name,
+                version = parsed.version,
+                filePath = targetFile.absolutePath,
+                isEnabled = true,
+                matchPatterns = parsed.matchPatterns,
+                runAt = parsed.runAt,
+                description = parsed.description,
+                author = parsed.author,
+                grantList = parsed.grantList,
+                lastModified = targetFile.lastModified()
+            )
+            val current = _scriptsFlow.value.toMutableList()
+            if (current.none { it.name == demoEntity.name }) {
+                current.add(demoEntity)
+                saveDatabase(current)
+                _scriptsFlow.value = current
+                Log.i(TAG, "Successfully seeded default demo userscript: ${demoEntity.name}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to seed demo userscript: ${e.message}")
         }
     }
 

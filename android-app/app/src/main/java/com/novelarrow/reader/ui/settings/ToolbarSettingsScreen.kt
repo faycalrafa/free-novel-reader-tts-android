@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -67,7 +68,8 @@ import com.novelarrow.reader.data.model.QuickToolbarSettings
 fun ToolbarSettingsScreen(
     toolbarSettings: QuickToolbarSettings,
     onUpdateSettings: (QuickToolbarSettings) -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onOpenDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
     Scaffold(
@@ -80,8 +82,8 @@ fun ToolbarSettingsScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, contentDescription = "Library Menu")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -264,9 +266,19 @@ fun ToolbarSettingsScreen(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Novel Title Here", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                        Text("Ch. 45 • ¶ 12/80 • Ready", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        Surface(
+                            color = Color(0xFF1E293B),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                "45/120",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
                     }
 
                     Row(

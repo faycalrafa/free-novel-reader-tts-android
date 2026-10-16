@@ -313,18 +313,20 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = AppScreen.READER
                                     },
                                     onNavigateToDevLogs = { currentScreen = AppScreen.DEV_LOGS },
-                                    onNavigateBack = { currentScreen = AppScreen.READER }
+                                    onNavigateBack = { currentScreen = AppScreen.READER },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
                             }
                             AppScreen.DEV_LOGS -> {
                                 DevLogsScreen(
                                     installedVersionName = uiState.installedVersionName,
-                                    onNavigateBack = { currentScreen = AppScreen.ABOUT }
+                                    onNavigateBack = { currentScreen = AppScreen.ABOUT },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
                             }
                             AppScreen.SETTINGS -> {
                                 GlobalSettingsScreen(
-                                    onNavigateBack = { currentScreen = AppScreen.READER },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNavigateToToolbarSettings = { currentScreen = AppScreen.TOOLBAR_SETTINGS },
                                     onOpenAudioSettings = { showGlobalAudioSettings = true },
                                     onOpenCssSelector = { showCssSelectorDialog = true },
@@ -335,7 +337,8 @@ class MainActivity : ComponentActivity() {
                                 ToolbarSettingsScreen(
                                     toolbarSettings = uiState.settings.quickToolbarSettings,
                                     onUpdateSettings = { viewModel.updateQuickToolbarSettings(it) },
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS },
+                                    onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
                             }
                             AppScreen.BROWSER -> {

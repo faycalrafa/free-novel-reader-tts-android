@@ -175,12 +175,14 @@ fun ReaderScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
+            val progressText = if (uiState.chapters.isNotEmpty()) {
+                val chapIdx = (uiState.currentChapter?.orderIndex ?: 0) + 1
+                "$chapIdx/${uiState.chapters.size}"
+            } else {
+                ""
+            }
             ReaderTopBar(
-                title = uiState.currentChapter?.title ?: "NovelArrow Reader Pro",
-                subtitle = uiState.currentNovel?.let { novel ->
-                    val chapIdx = (uiState.currentChapter?.orderIndex ?: 0) + 1
-                    "${novel.title} • $chapIdx/${uiState.chapters.size}"
-                } ?: "Ready to read",
+                progressText = progressText,
                 isTtsDockVisible = uiState.isTtsDockVisible,
                 isTextChapter = uiState.currentChapter?.isTextBased() == true,
                 onMenuClick = onOpenDrawer,
@@ -390,8 +392,7 @@ fun ReaderScreen(
 
 @Composable
 fun ReaderTopBar(
-    title: String,
-    subtitle: String,
+    progressText: String,
     isTtsDockVisible: Boolean,
     isTextChapter: Boolean,
     onMenuClick: () -> Unit,
@@ -418,24 +419,28 @@ fun ReaderTopBar(
                     Icon(Icons.Default.Menu, contentDescription = "Library Drawer", modifier = Modifier.size(20.dp))
                 }
 
-                Column(
+                Box(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 4.dp)
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (progressText.isNotBlank()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = progressText,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
                 }
 
                 IconButton(

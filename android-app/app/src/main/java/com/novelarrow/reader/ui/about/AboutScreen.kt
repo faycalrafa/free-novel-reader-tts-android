@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -71,6 +72,7 @@ fun AboutScreen(
     onReplayOnboarding: () -> Unit = {},
     onNavigateToDevLogs: () -> Unit = {},
     onNavigateBack: () -> Unit,
+    onOpenDrawer: () -> Unit = onNavigateBack,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -89,10 +91,10 @@ fun AboutScreen(
                         .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onOpenDrawer) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back to reader",
+                            Icons.Default.Menu,
+                            contentDescription = "Library Menu",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }

@@ -78,4 +78,15 @@ class UserscriptMetadataParserTest {
         assertTrue(template.contains("// @grant        GM_notification"))
         assertTrue(template.contains("GM_notification('Userscript [Test Script] loaded successfully!')"))
     }
+
+    @Test
+    fun testParseDefaultDemoScript() {
+        val parsed = UserscriptMetadataParser.parse(UserscriptRepository.DEFAULT_DEMO_SCRIPT)
+        assertEquals("Clean Novel Reader (Ad & Clutter Remover)", parsed.name)
+        assertEquals("1.0.0", parsed.version)
+        assertEquals(listOf("*://*/*"), parsed.matchPatterns)
+        assertEquals("document-end", parsed.runAt)
+        assertEquals(listOf("GM_notification"), parsed.grantList)
+        assertTrue(parsed.description.contains("Removes floating ads"))
+    }
 }
