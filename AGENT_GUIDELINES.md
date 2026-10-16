@@ -1,8 +1,11 @@
 # AI Agent & Contributor Engineering Guidelines
 
 > **Target Audience**: AI Coding Agents (LLMs) and human contributors modifying or extending the **NovelArrow Reader TTS** codebase.
-> **Primary Rule 1 (Git Synchronization)**: ALWAYS run `git pull origin main` BEFORE starting any research, planning, or code implementation to ensure your branch is never working behind `main`.
-> **Primary Rule 2 (Architectural Contracts)**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
+> **Primary Rule 1 (Git Synchronization - Start & Finish)**:
+> - **Before starting**: ALWAYS run `git pull origin main` BEFORE starting any research, planning, or code implementation to ensure your branch is never working behind `main`.
+> - **When done**: ALWAYS run `git push origin main` AFTER completing implementation, verifying test passes, and updating versions so that changes are never left unpushed on local branches.
+> **Primary Rule 2 (Near Logging & Robust Error Capture - No Silent Bugs)**: ALWAYS write immediate ("near") logging and robust error capture at every failure-prone site, boundary, repository method, and coroutine. NEVER swallow exceptions silently (`catch (e: Exception) {}` is strictly forbidden). Always log rich contextual metadata and stack traces using `AppLogger` (`com.novelarrow.reader.util.AppLogger`) or `android.util.Log` so that every failure is immediately detectable, traceable, and visible in Dev Logs.
+> **Primary Rule 3 (Architectural Contracts)**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
 
 ---
 
@@ -60,6 +63,7 @@ flowchart TD
 2. **Unidirectional Data Flow (UDF)**: ViewModels emit immutable `StateFlow<UiState>` to Composables. User actions flow up as intents/function calls. One-off side effects (navigation, web commands, toasts) use buffered `Channel` / `Flow`.
 3. **Zero Context Leaks**: Never retain Android `Context`, `Activity`, `View`, or `WebView` references inside ViewModels, singletons, or coroutines outliving the UI lifecycle.
 4. **Thread Isolation**: All file I/O, heavy JSON parsing, DOM extraction, and database access MUST run on `Dispatchers.IO`. The main thread is reserved for UI rendering and UI event dispatching.
+5. **Near Logging & Error Capture (Zero Silent Bugs)**: Every error boundary, I/O operation, background coroutine, parsing logic, and external interaction MUST have immediate, near-site error capture and logging using `AppLogger` (`com.novelarrow.reader.util.AppLogger`) or `android.util.Log`. Never swallow exceptions or leave catch blocks empty. Always log rich contextual details (parameters, novel titles, chapter numbers, URLs, IDs, tags) along with the full exception stack trace so that unexpected behaviors and edge cases are immediately discoverable and diagnosable in debug logs.
 
 ---
 
@@ -116,6 +120,27 @@ The browser subsystem allows live in-browser TTS reading, batch chapter scraping
 * **Decoupled Actions**: One-off UI commands for WebView (navigation, evaluating JavaScript, history back/forward) must be passed from the ViewModel via `Channel<BrowserAction>` exposed as `Flow<BrowserAction>`.
 * **Unified Controls**: Shared settings (such as TTS speed, pitch, voice, pronunciation rules, skip words) must use [`UnifiedAudioSettingsDialog.kt`](file:///android-app/app/src/main/java/com/novelarrow/reader/ui/common/UnifiedAudioSettingsDialog.kt) rather than maintaining duplicate UI dialogs in Reader and Browser.
 
+### E. Logging & Error Capture Architecture (`com.novelarrow.reader.util.AppLogger`)
+
+NovelArrow Reader includes an integrated diagnostic logging engine ([`AppLogger.kt`](file:///android-app/app/src/main/java/com/novelarrow/reader/util/AppLogger.kt)) and in-app developer logs viewer (`DevLogsScreen`) with real-time log capturing and export capabilities.
+
+* **Proximity Logging ("Near Logging")**: Log errors, state transitions, and warnings immediately at the callsite / failure point where the event originates. Do not postpone logging to distant outer callers where original context (parameters, filenames, chapter indexes, raw responses) is lost.
+* **Dual-Target Logging via `AppLogger`**: Use `AppLogger.e(TAG, message, throwable)`, `AppLogger.w(TAG, message, throwable)`, `AppLogger.i(TAG, message)`, or `AppLogger.d(TAG, message)` across ViewModels, repositories, and managers. This logs to standard Android Logcat AND automatically captures entries into the in-memory rolling buffer for user export and developer diagnostics.
+* **Zero Silent Swallowing**:
+  - Catch blocks MUST NEVER be empty (`catch (e: Exception) {}`).
+  - If an exception is expected or non-fatal, log it at `WARN` level with an explanation and execute a safe fallback:
+    ```kotlin
+    try {
+        // file or network operation
+    } catch (e: Exception) {
+        AppLogger.w(TAG, "Failed to load cached chapter $chapterId, falling back to network: ${e.message}", e)
+        fallbackToNetwork()
+    }
+    ```
+  - If an error disrupts a user-facing action, log it at `ERROR` level, record it in `AppLogger.e`, and surface an informative message or snackbar/dialog (e.g., via `AppErrorBus` or UI state).
+* **Coroutine Exception Handling**: Always wrap coroutine bodies or install `CoroutineExceptionHandler` on launched scopes (`viewModelScope.launch`, background workers). Uncaught coroutine exceptions that do not log context lead to silent job cancellations or crashes with lost stack context.
+* **WebView & JavaScript Error Interception**: JavaScript evaluation failures, injection errors, and bridge parsing anomalies must be trapped in `WebScriptInjector` / `WebContentExtractor` and logged with raw snippets and URLs to avoid silent extraction failures.
+
 ---
 
 ## 3. Strict Antipatterns (The "Do NOT" List)
@@ -129,6 +154,8 @@ The browser subsystem allows live in-browser TTS reading, batch chapter scraping
 | **Allocating `ToneGenerator` for clicks** | Causes native audio track resource exhaustion on rapid button presses | Use native Compose view sound effects or Android View haptics |
 | **Direct disk I/O on Main thread** | Freezes the UI and causes Android Application Not Responding (ANR) | Always wrap I/O in `withContext(Dispatchers.IO)` |
 | **Skipping in-memory cache on async DB save** | Causes data loss / library wipe when reading immediately after an async write | Update `@Volatile cachedDb` immediately on every change |
+| **Silent error swallowing & unlogged exceptions** | Empty `catch` blocks (`catch (e: Exception) {}`) or missing error logs create invisible bugs, silent state corruptions, and untraceable regressions | Always catch specific exceptions, write immediate near-site logging with `AppLogger.e(TAG, ..., e)` including parameters and stack traces, and handle fallbacks |
+| **Leaving completed work unpushed (`git push origin main`)** | Code left only on local branches leads to drift, broken CI/CD pipelines, diverged work, and lost changes across sessions | Always run `git push origin main` immediately after finishing implementation, tests, and version increments |
 
 ---
 
@@ -146,6 +173,9 @@ The browser subsystem allows live in-browser TTS reading, batch chapter scraping
   - Any modifications to `WebScriptInjector` (URL pattern matching, script wrapping).
   - Any modifications to `UserscriptMetadataParser` or `UserscriptRepository`.
   - Any changes to library progress calculation, chapter sorting, or backup/restore serialization.
+* **Error Handling & Log Verification**:
+  - Ensure any new error paths, fallbacks, or failure points have corresponding `AppLogger` / `Log` statements with informative tags and error messages.
+  - Verify that no empty `catch` blocks or swallowed exceptions exist in new or modified code.
 
 ---
 
@@ -225,4 +255,30 @@ When bumping the version, you must update the following three files synchronousl
   ```
 * **Why this matters**:
   If `debug` uses the default Android debug keystore (`~/.android/debug.keystore`), local development builds will have a different signature than GitHub Actions CI release builds. By binding `debug` to `release.keystore`, all APKs—whether built locally or downloaded from GitHub releases—share the exact same signature certificate and can update cleanly over each other without error.
+
+### D. Mandatory Push to Main When Done (`git push origin main`)
+
+> [!IMPORTANT]
+> **Always push your changes to `main` upon task completion.** Never conclude a task or session with unpushed commits sitting on your local branch.
+
+Whenever work (feature, bugfix, refactoring, or documentation) is completed:
+1. **Verify Unit Tests Pass**:
+   ```bash
+   cd android-app && ./gradlew testDebugUnitTest
+   ```
+2. **Review Git Status & Diff**:
+   ```bash
+   git status
+   git diff
+   ```
+3. **Stage & Commit**:
+   ```bash
+   git add -A
+   git commit -m "feat/fix/chore: concise description of changes"
+   ```
+4. **Push to Remote Main**:
+   ```bash
+   git push origin main
+   ```
+5. **Verify Push Success**: Ensure the command exits cleanly (`0`) and `git status` reports `Your branch is up to date with 'origin/main'`.
 
