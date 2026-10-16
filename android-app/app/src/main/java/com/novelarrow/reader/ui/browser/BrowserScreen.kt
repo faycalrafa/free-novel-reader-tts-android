@@ -153,7 +153,8 @@ fun BrowserScreen(
     onOpenDownloadedNovel: (novelId: String) -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onNavigateToPronunciationRules: (() -> Unit)? = null,
-    onNavigateToSkipWords: (() -> Unit)? = null
+    onNavigateToSkipWords: (() -> Unit)? = null,
+    onNavigateToVoiceEngine: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
@@ -455,6 +456,12 @@ fun BrowserScreen(
                     }
                 },
                 onNavigateToSkipWords = onNavigateToSkipWords?.let { nav ->
+                    {
+                        showAudioSettingsDialog = false
+                        nav()
+                    }
+                },
+                onNavigateToVoiceEngine = onNavigateToVoiceEngine?.let { nav ->
                     {
                         showAudioSettingsDialog = false
                         nav()

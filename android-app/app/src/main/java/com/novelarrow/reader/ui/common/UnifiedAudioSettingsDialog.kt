@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
@@ -67,6 +68,7 @@ fun UnifiedAudioSettingsDialog(
     onContentSelectorChange: ((String) -> Unit)? = null,
     onNavigateToPronunciationRules: (() -> Unit)? = null,
     onNavigateToSkipWords: (() -> Unit)? = null,
+    onNavigateToVoiceEngine: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -234,63 +236,113 @@ fun UnifiedAudioSettingsDialog(
 
                             item {
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text("Voice Engine", style = MaterialTheme.typography.titleSmall)
+                                Text("Voice Engine & Voices", style = MaterialTheme.typography.titleSmall)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                ExposedDropdownMenuBox(
-                                    expanded = voiceExpanded,
-                                    onExpandedChange = { voiceExpanded = !voiceExpanded }
-                                ) {
-                                    val currentVoiceLabel = selectedVoiceName ?: "System Default"
-                                    OutlinedTextField(
-                                        value = currentVoiceLabel,
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded) },
-                                        leadingIcon = {
+
+                                val currentVoiceLabel = selectedVoiceName ?: "System Default"
+
+                                if (onNavigateToVoiceEngine != null) {
+                                    Card(
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onNavigateToVoiceEngine() }
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                                        ) {
                                             Icon(
                                                 Icons.Default.RecordVoiceOver,
                                                 contentDescription = null,
-                                                modifier = Modifier.size(20.dp)
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.dp)
                                             )
-                                        },
-                                        modifier = Modifier
-                                            .menuAnchor()
-                                            .fillMaxWidth()
-                                    )
-
-                                    ExposedDropdownMenu(
-                                        expanded = voiceExpanded,
-                                        onDismissRequest = { voiceExpanded = false },
-                                        modifier = Modifier.heightIn(max = 280.dp)
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("System Default", fontWeight = FontWeight.Bold) },
-                                            onClick = {
-                                                onVoiceChange(null)
-                                                voiceExpanded = false
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = currentVoiceLabel,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "Select engine & browse voices with audio preview",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
                                             }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Button(
+                                                onClick = onNavigateToVoiceEngine,
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text("Change", style = MaterialTheme.typography.labelMedium)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    ExposedDropdownMenuBox(
+                                        expanded = voiceExpanded,
+                                        onExpandedChange = { voiceExpanded = !voiceExpanded }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = currentVoiceLabel,
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = voiceExpanded) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Default.RecordVoiceOver,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .menuAnchor()
+                                                .fillMaxWidth()
                                         )
-                                        availableVoices.forEach { voice ->
+
+                                        ExposedDropdownMenu(
+                                            expanded = voiceExpanded,
+                                            onDismissRequest = { voiceExpanded = false },
+                                            modifier = Modifier.heightIn(max = 280.dp)
+                                        ) {
                                             DropdownMenuItem(
-                                                text = {
-                                                    Column {
-                                                        Text(
-                                                            text = voice.name,
-                                                            style = MaterialTheme.typography.bodyMedium,
-                                                            maxLines = 1
-                                                        )
-                                                        Text(
-                                                            text = "${voice.locale.displayName} • ${voice.quality}",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                                        )
-                                                    }
-                                                },
+                                                text = { Text("System Default", fontWeight = FontWeight.Bold) },
                                                 onClick = {
-                                                    onVoiceChange(voice.name)
+                                                    onVoiceChange(null)
                                                     voiceExpanded = false
                                                 }
                                             )
+                                            availableVoices.forEach { voice ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Column {
+                                                            Text(
+                                                                text = voice.name,
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                maxLines = 1
+                                                            )
+                                                            Text(
+                                                                text = "${voice.locale.displayName} • ${voice.quality}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                                            )
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        onVoiceChange(voice.name)
+                                                        voiceExpanded = false
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }

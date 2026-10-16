@@ -32,8 +32,8 @@ Key architectural boundaries:
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Settings Architecture & Pronunciation Rules | F1, F2, F3, F4 | none | PLANNED |
-| M2 | Voice Engine & Voice Selection Routes | F5, F6 | none | PLANNED |
+| M1 | Settings Architecture & Pronunciation Rules | F1, F2, F3, F4 | none | DONE |
+| M2 | Voice Engine & Voice Selection Routes | F5, F6 | none | DONE |
 | M3 | Audio Studio Overhaul & Granular Progress | F7, F8, F9 | M2 | PLANNED |
 | M4 | Web Multi-Download & Dynamic Content Detection | F10, F11 | none | PLANNED |
 | M5 | About Screen & Branding | F12, F13 | none | PLANNED |

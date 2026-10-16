@@ -11,6 +11,7 @@ import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
+import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,6 +54,9 @@ object AudioPlaybackCoordinator {
 
     private val _availableVoicesState = MutableStateFlow<List<Voice>>(emptyList())
     val availableVoicesState: StateFlow<List<Voice>> = _availableVoicesState.asStateFlow()
+
+    private val _previewingVoiceName = MutableStateFlow<String?>(null)
+    val previewingVoiceName: StateFlow<String?> = _previewingVoiceName.asStateFlow()
 
     private var currentSource: PlaybackSource = PlaybackSource.NONE
     private var currentNovelId: String? = null
@@ -105,6 +109,10 @@ object AudioPlaybackCoordinator {
             onParagraphStart = { index -> handleParagraphStart(index) }
             onParagraphDone = { index -> handleParagraphDone(index) }
             onError = { index, error -> handleParagraphError(index, error) }
+            onPreviewDone = {
+                _previewingVoiceName.value = null
+                applyTtsSettings()
+            }
         }
 
         coordinatorScope.launch {
@@ -695,6 +703,36 @@ object AudioPlaybackCoordinator {
             settingsRepository?.setVoice(voiceName)
         }
     }
+
+    fun previewVoice(voice: Voice, sampleText: String? = null) {
+        if (_previewingVoiceName.value == voice.name) {
+            stopVoicePreview()
+            return
+        }
+
+        // Pause active reading if playing
+        if (_isPlayingState.value) {
+            pause()
+        }
+
+        _previewingVoiceName.value = voice.name
+        val text = sampleText ?: TtsManager.getSampleTextForLocale(voice.locale)
+        AppLogger.d("AudioPlaybackCoordinator", "Previewing voice ${voice.name} with sample text: \"$text\"")
+        ttsManager?.speakPreview(voice, text)
+    }
+
+    fun stopVoicePreview() {
+        if (_previewingVoiceName.value != null) {
+            _previewingVoiceName.value = null
+            ttsManager?.stopPreview()
+            applyTtsSettings()
+            AppLogger.d("AudioPlaybackCoordinator", "Stopped voice preview and restored TTS settings")
+        }
+    }
+
+    fun getDefaultTtsEngine(): String? = ttsManager?.getDefaultEngineName()
+
+    fun getInstalledTtsEngines(): List<android.speech.tts.TextToSpeech.EngineInfo> = ttsManager?.getEngines().orEmpty()
 
     private fun applyTtsSettings() {
         ttsManager?.setRate(currentSpeechRate)

@@ -53,6 +53,7 @@ fun GlobalSettingsScreen(
     onNavigateToToolbarSettings: () -> Unit,
     onNavigateToHardwareButtons: () -> Unit,
     onOpenAudioSettings: () -> Unit,
+    onNavigateToVoiceEngine: () -> Unit = {},
     onNavigateToPronunciationRules: () -> Unit = {},
     onNavigateToSkipWords: () -> Unit = {},
     onOpenCssSelector: () -> Unit,
@@ -112,9 +113,15 @@ fun GlobalSettingsScreen(
                         subtitle = "Map volume keys, double press, long press & screen on/off actions",
                         onClick = onNavigateToHardwareButtons
                     )
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     SettingsNavigationItem(
                         icon = Icons.Default.RecordVoiceOver,
+                        title = "Voice Engine & Voices",
+                        subtitle = "Select speech engine, browse voices by language & preview samples",
+                        onClick = onNavigateToVoiceEngine
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingsNavigationItem(
+                        icon = Icons.AutoMirrored.Filled.VolumeUp,
                         title = "Speech & TTS Filters",
                         subtitle = "Speed, pitch, system voices, sleep timer & audio controls",
                         onClick = onOpenAudioSettings

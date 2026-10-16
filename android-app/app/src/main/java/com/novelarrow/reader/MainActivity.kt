@@ -93,6 +93,7 @@ import com.novelarrow.reader.ui.settings.HardwareButtonsScreen
 import com.novelarrow.reader.ui.settings.PronunciationRulesScreen
 import com.novelarrow.reader.ui.settings.SkipWordsScreen
 import com.novelarrow.reader.ui.settings.ToolbarSettingsScreen
+import com.novelarrow.reader.ui.settings.VoiceEngineScreen
 import com.novelarrow.reader.ui.studio.AudioStudioScreen
 import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +109,7 @@ enum class AppScreen {
     HARDWARE_BUTTON_SETTINGS,
     SETTINGS_PRONUNCIATION,
     SETTINGS_SKIP_WORDS,
+    VOICE_ENGINE,
     DEV_LOGS,
     ARCHIVE,
     CHANGELOG,
@@ -226,6 +228,10 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_SKIP_WORDS) {
+                currentScreen = AppScreen.SETTINGS
+            }
+
+            BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.VOICE_ENGINE) {
                 currentScreen = AppScreen.SETTINGS
             }
 
@@ -375,6 +381,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onAddFolder = { folderPickerLauncher.launch(null) },
+                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
                                     onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS }
                                 )
@@ -413,11 +420,17 @@ class MainActivity : ComponentActivity() {
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNavigateToToolbarSettings = { currentScreen = AppScreen.TOOLBAR_SETTINGS },
                                     onNavigateToHardwareButtons = { currentScreen = AppScreen.HARDWARE_BUTTON_SETTINGS },
+                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
                                     onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
                                     onOpenAudioSettings = { showGlobalAudioSettings = true },
                                     onOpenCssSelector = { showCssSelectorDialog = true },
                                     onNavigateToAbout = { currentScreen = AppScreen.ABOUT }
+                                )
+                            }
+                            AppScreen.VOICE_ENGINE -> {
+                                VoiceEngineScreen(
+                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
                                 )
                             }
                             AppScreen.SETTINGS_PRONUNCIATION -> {
@@ -473,7 +486,8 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
-                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS }
+                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
+                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE }
                                 )
                             }
                             AppScreen.ARCHIVE -> {
@@ -610,6 +624,10 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToSkipWords = {
                                     showGlobalAudioSettings = false
                                     currentScreen = AppScreen.SETTINGS_SKIP_WORDS
+                                },
+                                onNavigateToVoiceEngine = {
+                                    showGlobalAudioSettings = false
+                                    currentScreen = AppScreen.VOICE_ENGINE
                                 },
                                 onDismiss = { showGlobalAudioSettings = false }
                             )

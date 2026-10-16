@@ -117,9 +117,13 @@ class SettingsRepository(private val context: Context) {
         synchronized(SettingsRepository::class.java) {
             if (sharedSettingsFlowInternal == null) {
                 sharedSettingsFlowInternal = MutableStateFlow(mergedReader)
+            } else {
+                sharedSettingsFlowInternal?.value = mergedReader
             }
             if (sharedBrowserSettingsFlowInternal == null) {
                 sharedBrowserSettingsFlowInternal = MutableStateFlow(mergedBrowser)
+            } else {
+                sharedBrowserSettingsFlowInternal?.value = mergedBrowser
             }
         }
 

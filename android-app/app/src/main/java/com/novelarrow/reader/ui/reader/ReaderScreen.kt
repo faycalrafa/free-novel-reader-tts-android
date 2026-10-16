@@ -181,6 +181,7 @@ fun ReaderScreen(
     onNavigateToBrowser: (createNewTab: Boolean) -> Unit,
     onOpenDrawer: () -> Unit = {},
     onAddFolder: () -> Unit = {},
+    onNavigateToVoiceEngine: (() -> Unit)? = null,
     onNavigateToPronunciationRules: (() -> Unit)? = null,
     onNavigateToSkipWords: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -413,6 +414,12 @@ fun ReaderScreen(
                 }
             },
             onNavigateToSkipWords = onNavigateToSkipWords?.let { nav ->
+                {
+                    showUnifiedAudioSettings = false
+                    nav()
+                }
+            },
+            onNavigateToVoiceEngine = onNavigateToVoiceEngine?.let { nav ->
                 {
                     showUnifiedAudioSettings = false
                     nav()
