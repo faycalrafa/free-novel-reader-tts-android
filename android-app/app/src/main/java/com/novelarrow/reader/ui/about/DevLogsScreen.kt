@@ -37,7 +37,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.CircularProgressIndicator
+import com.novelarrow.reader.ui.common.AppLoadingIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -153,7 +153,7 @@ fun DevLogsScreen(
                             enabled = !isDumpingLogcat
                         ) {
                             if (isDumpingLogcat) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                AppLoadingIndicator(modifier = Modifier.size(18.dp))
                             } else {
                                 Icon(Icons.Default.Refresh, contentDescription = "Dump System Logcat")
                             }

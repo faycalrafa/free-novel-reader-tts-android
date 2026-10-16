@@ -86,7 +86,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
+import com.novelarrow.reader.ui.common.AppLoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -914,20 +914,9 @@ private fun PageLoadingOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
-                        progress = { (progress.coerceAtLeast(10)).toFloat() / 100f },
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(56.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Icon(
-                        Icons.Default.Language,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = pulseAlpha),
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+                AppLoadingIndicator(
+                    modifier = Modifier.size(56.dp)
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -1757,10 +1746,7 @@ private fun BrowserReaderView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(36.dp),
-                    color = MaterialTheme.colorScheme.primary
-                )
+                AppLoadingIndicator(modifier = Modifier.size(48.dp))
                 Text(
                     text = "Extracting clean chapter text...",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1851,10 +1837,7 @@ private fun BrowserReaderView(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     if (isLoadingNext) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(28.dp)
-                        )
+                        AppLoadingIndicator(modifier = Modifier.size(32.dp))
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "Loading next chapter...",

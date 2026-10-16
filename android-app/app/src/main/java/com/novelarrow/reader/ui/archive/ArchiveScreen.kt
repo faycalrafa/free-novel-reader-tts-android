@@ -33,7 +33,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
+import com.novelarrow.reader.ui.common.AppLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -427,7 +427,7 @@ private fun ArchivedChaptersDialog(
                             .weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator()
+                        AppLoadingIndicator(modifier = Modifier.size(48.dp))
                     }
                 } else if (currentChapters.isEmpty()) {
                     Box(

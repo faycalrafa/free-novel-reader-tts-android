@@ -61,6 +61,14 @@ jobs:
             **BookReader v3.3.0** brings major enhancements to audio playback seeking, multi-language voice management, browser batch downloads, home boot flow, and dedicated skip/selector screens!
 
             #### Key Updates in this release:
+            - **Custom Claymorphic Loading Animation**:
+              - Replaced all circular progress spinners across the app with the custom looping claymorphic book & pulsating audio waveform animation.
+              - Super-smooth transparent animated WebP (`app_loading_animation.webp`) with graceful pulsing brand fallback on legacy Android versions.
+              - Standardized `AppLoadingIndicator` composable across reader, browser, audio studio, archive, and diagnostics screens.
+            - **Default Squircle App Launcher Icon**:
+              - Set the 3D terracotta cushion squircle icon as default app launcher icon across all densities and Android launchers (`roundIcon`).
+              - Upgraded Play Store icon asset (`playstore-icon.png`) to the 512x512 3D squircle cushion.
+              - Preserved authentic circular 3D icon (`ic_app_icon_round.webp`) for in-app screens (About hero card, onboarding, home empty state).
             - **Audio Studio & Bottom Media Dock (`TtsDock`) Seeking**:
               - Audio studio mode now displays position and duration in seconds (`mm:ss / mm:ss`).
               - Interactive audio scrubbing and slider seeking like a dedicated music player.

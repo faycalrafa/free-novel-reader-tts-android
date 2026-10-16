@@ -108,7 +108,7 @@ import androidx.compose.material.icons.filled.Tab
 import com.novelarrow.reader.ui.browser.BrowserTab
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import com.novelarrow.reader.ui.common.AppLoadingIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -352,7 +352,7 @@ fun ReaderScreen(
                         .background(Color.Black.copy(alpha = 0.35f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    AppLoadingIndicator(modifier = Modifier.size(72.dp))
                 }
             }
         }
@@ -2310,11 +2310,7 @@ fun LibraryScanningOverlay(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        CircularProgressIndicator(
-                            strokeWidth = 3.5.dp,
-                            modifier = Modifier.size(32.dp),
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                        AppLoadingIndicator(modifier = Modifier.size(36.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Indexing Novel Library",

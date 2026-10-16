@@ -26,6 +26,8 @@ class AboutBrandingTest {
         assertTrue("Launcher icon mipmap resource ID must be non-zero", R.mipmap.ic_launcher != 0)
         assertTrue("Launcher round icon mipmap resource ID must be non-zero", R.mipmap.ic_launcher_round != 0)
         assertTrue("About screen app icon resource ID must be non-zero", R.drawable.ic_app_icon_round != 0)
+        assertTrue("Squircle icon resource ID must be non-zero", R.drawable.ic_app_icon_squircle != 0)
+        assertTrue("Loading animation drawable resource ID must be non-zero", R.drawable.app_loading_animation != 0)
     }
 
     @Test

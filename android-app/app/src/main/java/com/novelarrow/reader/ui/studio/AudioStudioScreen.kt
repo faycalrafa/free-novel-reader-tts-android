@@ -40,7 +40,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import com.novelarrow.reader.ui.common.AppLoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -208,10 +208,7 @@ fun AudioStudioScreen(
                     if (currentMode == AudioStudioMode.LIBRARY) {
                         IconButton(onClick = { refreshLibrary() }) {
                             if (isScanning) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
+                                AppLoadingIndicator(modifier = Modifier.size(18.dp))
                             } else {
                                 Icon(
                                     Icons.Default.Refresh,
@@ -883,10 +880,7 @@ private fun ExportProgressCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.5.dp
-                    )
+                    AppLoadingIndicator(modifier = Modifier.size(22.dp))
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "Audifying in Progress",

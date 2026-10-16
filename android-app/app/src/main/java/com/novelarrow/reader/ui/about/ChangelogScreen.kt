@@ -48,8 +48,19 @@ data class ReleaseItem(
 
 val FullReleaseHistory = listOf(
     ReleaseItem(
-        version = "v3.2.2",
+        version = "v3.3.0",
         date = "Latest Release",
+        title = "Loading Animation Overhaul & Squircle Launcher App Icon",
+        changes = listOf(
+            "Integrated high-definition animated WebP loading indicator (turning pages & pulsating sound wave) replacing circular progress indicators app-wide",
+            "Set 3D terracotta squircle cushion icon as default launcher app icon across all Android launchers and stores",
+            "Preserved dedicated circular 3D icon for in-app screens (About, Reader Home empty state, Onboarding)",
+            "Implemented responsive AppLoadingIndicator composable with hardware-accelerated AnimatedImageDrawable and safe fallback"
+        )
+    ),
+    ReleaseItem(
+        version = "v3.2.2",
+        date = "2026-10-16",
         title = "Starting Home Screen & Onboarding 3D Icon Suite",
         changes = listOf(
             "Integrated circular 3D app icon (ic_app_icon_round.webp) on starting home screen empty state",
@@ -359,13 +370,13 @@ fun ChangelogScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = if (release.version == "v3.2.1") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+                                    color = if (release.version == "v3.3.0") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
                                 ) {
                                     Text(
                                         text = release.version,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = if (release.version == "v3.2.1") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                                            color = if (release.version == "v3.3.0") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                                         ),
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                                     )
@@ -377,7 +388,7 @@ fun ChangelogScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (release.version == "v3.2.1") {
+                            if (release.version == "v3.3.0") {
                                 Surface(
                                     shape = CircleShape,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
