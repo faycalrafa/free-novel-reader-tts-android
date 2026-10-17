@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.8.0"
+          DATE_TAG="v3.9.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.8.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.8.0 --no-daemon
+          APP_VERSION_NAME: "3.9.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.9.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,41 +53,30 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.8.0 (Stable)
+          name: BookReader v3.9.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.8.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.9.0 (Stable) 📚🎙️⚡
 
-            **BookReader v3.8.0** completes the full in-app integration for offline on-device Text-to-Speech (TTS) powered by **sherpa-onnx** and **Piper** neural voice models!
+            **BookReader v3.9.0** delivers a major TTS Voice Engine Screen overhaul, native multi-engine embedded neural TTS (Piper, Kokoro, KittenTTS), resolution of the native playback crash, and a complete fix for folder refresh and chapter imports!
 
             #### Key Updates in this release:
-            - **First-Class In-App Offline Neural TTS Picker**:
-              - Added dedicated "Embedded Neural TTS" engine card in `VoiceEngineScreen` allowing users to select `SHERPA_LOCAL` as their primary speech synthesis engine with 1 tap.
-              - 100% offline and self-contained: synthesizes speech on-device with zero external apps, zero system TTS dependencies, and zero internet connection required.
-            - **Direct Audio Playback Coordinator Routing**:
-              - `AudioPlaybackCoordinator` automatically routes paragraph-by-paragraph novel reading in `ReaderScreen` and `BrowserScreen` through the embedded `LocalTtsEngine`.
-              - Seamless paragraph advancement, sentence chunking, synchronization with paragraph text highlighting, auto-scrolling, and lockscreen/notification toolbar controls.
-            - **Honest On-Device Voice Testing & Previews**:
-              - "Test Voice" in `OfflineEngineVoiceScreen` synthesizes sample text directly via `LocalTtsEngine` and streams IEEE 32-bit float PCM audio through Android `AudioTrack`.
-              - Instant start/stop controls with visual pulse animation and reliable cleanup.
-            - **Eliminated False External APK Warnings**:
-              - Removed confusing banners claiming external Piper/Sherpa APKs were required. Replaced with an informative "⚡ Built-in Neural Engine Ready (sherpa-onnx)" card.
-              - "Active Voice" status badges directly on neural voice cards in the catalog.
-            - **Automatic Piper Linguistic Support Assets**:
-              - Bundled `tokens.txt` (154 tokens) and `espeak-ng-data` phoneme tables inside APK assets.
-              - `NeuralModelDownloader` automatically extracts support assets to device internal storage upon model download so new Piper voices work out-of-the-box.
-            - **Subfolder Isolation & Playlist Partitioning**:
-              - Automatically partitions nested subfolders (e.g., `Volume 1`, `Volume 2`) under imported root folders into distinct, isolated novel playlists.
-              - Subfolders maintain dedicated `.progress.json` metadata files ensuring reading progress never cross-pollinates between series volumes or sibling folders.
-              - Scoped deletion guarantees deleting a subfolder playlist only removes that subfolder from disk, keeping parent directories and sibling books completely untouched.
-            - **Deterministic Canonical Chapter Deduplication**:
-              - Eliminates duplicate chapter rows caused by Android multi-root file discovery across internal storage, MediaStore, and public Downloads directories.
-              - Merges duplicate files deterministically, preserving highest read paragraph progress and completed status.
-            - **Reading State & Active Chapter Preservation**:
-              - Persists `currentChapterId` across re-scans, natural/reverse sorting, and folder refreshes so playback pointers never jump or reset to chapter 1.
-              - Updates active chapter metadata seamlessly during background refreshes without interrupting ongoing TTS playback.
-            - **Reactive Download Visibility via Event Streams**:
-              - Real-time `LibraryUpdateEvent` SharedFlow instantly pushes newly downloaded web novel chapters and committed batches into the UI without requiring manual refreshes.
+            - **TTS Voice Engine Screen Redesign**:
+              - Cleaned up the cluttered interface: eliminated redundant "Installed engines on device" radio list.
+              - Streamlined primary engines into two clear options: Built-in Android TTS vs. Embedded Neural TTS.
+              - Displayed Piper, Kokoro, and KittenTTS models as "Embedded • Ready" with clear on-device status badges.
+            - **Unified Multi-Engine Offline Neural TTS**:
+              - Added native multi-engine configuration support for Piper (VITS), Kokoro, and KittenTTS via embedded `sherpa-onnx`.
+              - Removed false external APK warnings from `OfflineEngineVoiceScreen` across all neural engine families.
+              - Unified test voice synthesis and playback routing directly through `AudioPlaybackCoordinator` and `LocalTtsEngine`.
+            - **Native Playback Crash Resolution (SIGABRT Fix)**:
+              - Fixed native C++ aborts caused by missing ONNX metadata (`sample_rate`) by updating Piper download URLs to official `csukuangfj` Sherpa-ONNX pre-converted repositories.
+              - Added multi-layer pre-flight model validation in `LocalTtsEngine` before initializing JNI pointers, preventing native crashes.
+            - **Full Root Folder Re-scanning on Refresh**:
+              - Fixed the bug where folder refresh ignored newly added subfolders and new files.
+              - Re-scans all linked root directories during refresh to discover new subfolder novels and newly dropped files.
+              - Automatically reloads chapters and active chapter pointers in `ReaderViewModel` so new files appear in the UI immediately without app restart.
+              - Added rich near-logging via `AppLogger` across `.progress.json` reads, writes, and directory reconciliation.
             - **Lifecycle-Aware Auto & Manual Refresh**:
               - Automatic background library refresh upon app resume (`ON_RESUME`) with intelligent debouncing.
               - Manual "Refresh Folders" triggers an end-to-end scan across all linked directories and downloaded web novels.

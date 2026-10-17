@@ -147,7 +147,7 @@ fun OfflineEngineVoiceScreen(
     // Currently selected voice
     var selectedVoiceId by remember(settings.selectedVoiceName, allVoices) {
         val isEngineMatch = settings.selectedEngineType.equals(engineType, ignoreCase = true) ||
-                (engineType.equals("PIPER", ignoreCase = true) && settings.selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
+                (settings.selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL && allVoices.any { it.id == settings.selectedVoiceName })
         val initialId = if (isEngineMatch && settings.selectedVoiceName != null) {
             settings.selectedVoiceName
         } else {
@@ -296,8 +296,7 @@ fun OfflineEngineVoiceScreen(
 
                             scope.launch {
                                 try {
-                                    val isPiper = engineType.equals("PIPER", ignoreCase = true)
-                                    val targetEngine = if (isPiper) SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL else engineType.uppercase()
+                                    val targetEngine = SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL
                                     settingsRepo.setSelectedEngineType(targetEngine)
                                     settingsRepo.setVoice(voiceToSave.id)
                                     settingsRepo.setFavoriteVoice(voiceToSave.language.code, voiceToSave.id)
@@ -305,29 +304,7 @@ fun OfflineEngineVoiceScreen(
                                     AudioPlaybackCoordinator.setVoice(voiceToSave.id)
                                     AppLogger.i("OfflineEngineVoiceScreen", "Saved ${voiceToSave.name} as default voice for $engineType ($targetEngine)")
 
-                                    if (isPiper) {
-                                        Toast.makeText(context, "Activated ${voiceToSave.name} (Embedded Neural TTS)", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        val compatible = AudioPlaybackCoordinator.findCompatibleEngineForVoice(voiceToSave)
-                                        if (compatible != null && AudioPlaybackCoordinator.getActiveTtsEngine() != compatible.name) {
-                                            AudioPlaybackCoordinator.switchTtsEngine(compatible.name)
-                                            Toast.makeText(context, "Activated ${compatible.label} engine for ${voiceToSave.name}", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            val isRegisteredInEngine = AudioPlaybackCoordinator.getAvailableVoices().any {
-                                                it.name.equals(voiceToSave.id, ignoreCase = true) || it.name.contains(voiceToSave.name, ignoreCase = true)
-                                            }
-                                            if (isRegisteredInEngine) {
-                                                Toast.makeText(context, "Activated ${voiceToSave.name} as TTS voice", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                val activeEngineName = AudioPlaybackCoordinator.getActiveTtsEngine() ?: AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "System"
-                                                Toast.makeText(
-                                                    context,
-                                                    "Saved ${voiceToSave.name}. Note: Active engine ($activeEngineName) requires a compatible neural engine service (Piper/Sherpa).",
-                                                    Toast.LENGTH_LONG
-                                                ).show()
-                                            }
-                                        }
-                                    }
+                                    Toast.makeText(context, "Activated ${voiceToSave.name} (Embedded Neural TTS)", Toast.LENGTH_SHORT).show()
                                     AudioPlaybackCoordinator.stopVoicePreview()
                                     onNavigateBack()
                                 } catch (e: Exception) {
@@ -400,119 +377,48 @@ fun OfflineEngineVoiceScreen(
             ) {
                 // Engine Compatibility & Status Banner
                 item(key = "engine_status_banner_${engineType}") {
-                    val isPiper = engineType.equals("PIPER", ignoreCase = true)
-                    if (isPiper) {
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
+                    val engineDisplayName = when (engineType.uppercase()) {
+                        "PIPER" -> "Piper"
+                        "KOKORO" -> "Kokoro"
+                        "KITTEN" -> "Kitten"
+                        else -> engineType
+                    }
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(14.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(14.dp)
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                modifier = Modifier.size(36.dp)
                             ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "⚡ Built-in Neural Engine Ready (sherpa-onnx)",
-                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Downloaded Piper neural voices synthesize directly on-device with zero external apps or internet required.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             }
-                        }
-                    } else {
-                        val activeEngine = AudioPlaybackCoordinator.getActiveTtsEngine() ?: AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "com.google.android.tts"
-                        val isEngineCompatible = when (engineType.uppercase()) {
-                            "KOKORO", "KITTEN" -> activeEngine.contains("sherpa", ignoreCase = true) || activeEngine.contains("onnx", ignoreCase = true)
-                            else -> true
-                        }
-                        val compatibleEngine = selectedVoice?.let { AudioPlaybackCoordinator.findCompatibleEngineForVoice(it) }
-
-                        if (!isEngineCompatible) {
-                            Card(
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.Info,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "Active Engine: ${activeEngine.substringAfterLast('.')}",
-                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = if (compatibleEngine != null) {
-                                            "Compatible engine \"${compatibleEngine.label}\" is installed on your device. Switch to it to enable neural speech."
-                                        } else {
-                                            "Google Speech Services cannot synthesize offline ONNX models. A compatible TTS engine service (e.g. Sherpa-ONNX APK) is required."
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    if (compatibleEngine != null) {
-                                        Button(
-                                            onClick = {
-                                                AudioPlaybackCoordinator.switchTtsEngine(compatibleEngine.name) {
-                                                    Toast.makeText(context, "Switched to ${compatibleEngine.label}", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Text("Switch to ${compatibleEngine.label}", fontSize = 13.sp)
-                                        }
-                                    } else {
-                                        OutlinedButton(
-                                            onClick = {
-                                                val url = "https://github.com/k2-fsa/sherpa-onnx/releases"
-                                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                                                try {
-                                                    context.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    AppLogger.w("OfflineEngineVoiceScreen", "Failed to launch release URL: ${e.message}", e)
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Get Sherpa-ONNX APK", fontSize = 13.sp)
-                                        }
-                                    }
-                                }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "⚡ Built-in Neural Engine Ready (sherpa-onnx)",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Downloaded $engineDisplayName neural voices synthesize directly on-device with zero external apps or internet required.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
@@ -651,7 +557,7 @@ fun OfflineEngineVoiceScreen(
                         val isPreviewing = (previewingVoiceName == voice.id)
                         val isVoiceActive = (settings.selectedVoiceName == voice.id) &&
                                 (settings.selectedEngineType.equals(voice.engine, ignoreCase = true) ||
-                                (voice.engine.equals("PIPER", ignoreCase = true) && settings.selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL))
+                                (settings.selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL))
 
                         NeuralVoiceCard(
                             voice = voice,
@@ -1304,12 +1210,7 @@ private fun VoiceSynthesisTestCard(
     onPlayTest: (String) -> Unit,
     onStopTest: () -> Unit
 ) {
-    val isEmbedded = voice.engine.equals("PIPER", ignoreCase = true)
-    val activeEngine = AudioPlaybackCoordinator.getActiveTtsEngine() ?: AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "com.google.android.tts"
-    val isEngineCompatible = isEmbedded || when (voice.engine.uppercase()) {
-        "KOKORO", "KITTEN" -> activeEngine.contains("sherpa", ignoreCase = true) || activeEngine.contains("onnx", ignoreCase = true)
-        else -> true
-    }
+    val isEmbedded = true
 
     var sampleText by remember(voice.id) {
         val defaultText = when (voice.language) {
@@ -1347,9 +1248,9 @@ private fun VoiceSynthesisTestCard(
                         )
                     )
                     Text(
-                        text = if (isEmbedded) "Engine: Embedded sherpa-onnx (Offline)" else "Active Engine: ${activeEngine.substringAfterLast('.')}",
+                        text = "Engine: Embedded sherpa-onnx (Offline)",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isEngineCompatible) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -1368,15 +1269,6 @@ private fun VoiceSynthesisTestCard(
             )
 
             Spacer(modifier = Modifier.height(10.dp))
-
-            if (!isEngineCompatible && !isEmbedded) {
-                Text(
-                    text = "⚠️ Active engine is ${activeEngine.substringAfterLast('.')}. It requires a compatible engine (Piper/Sherpa) to synthesize this voice.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-            }
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,

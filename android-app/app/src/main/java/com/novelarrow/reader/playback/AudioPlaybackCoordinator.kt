@@ -185,7 +185,10 @@ object AudioPlaybackCoordinator {
 
     fun isLocalNeuralEngineActive(): Boolean {
         val type = settingsRepository?.getSettings()?.selectedEngineType ?: "SYSTEM"
-        return type == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL || type.equals("PIPER", ignoreCase = true)
+        return type == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL ||
+               type.equals("PIPER", ignoreCase = true) ||
+               type.equals("KOKORO", ignoreCase = true) ||
+               type.equals("KITTEN", ignoreCase = true)
     }
 
     fun isEmbeddedNeuralEngineReady(voiceInfo: NeuralVoiceInfo? = null): Boolean {
@@ -223,22 +226,27 @@ object AudioPlaybackCoordinator {
             null
         }
 
+        val targetEngineType = targetVoice?.engine ?: "PIPER"
+
         val result = if (modelFile != null && modelFile.exists()) {
             val tokensFile = File(modelFile.parentFile, "tokens.txt")
             val dataDir = File(modelFile.parentFile, "espeak-ng-data")
             engine.initialize(
                 modelFile = modelFile,
                 tokensFile = if (tokensFile.exists()) tokensFile else null,
-                dataDir = if (dataDir.exists()) dataDir else null
+                dataDir = if (dataDir.exists()) dataDir else null,
+                engineType = targetEngineType
             )
         } else {
-            engine.initialize()
+            engine.initialize(
+                engineType = targetEngineType
+            )
         }
 
         if (result.isSuccess) {
             engine
         } else {
-            AppLogger.w(TAG, "Failed to initialize LocalTtsEngine: ${result.exceptionOrNull()?.message}", result.exceptionOrNull())
+            AppLogger.w(TAG, "Failed to initialize LocalTtsEngine ($targetEngineType): ${result.exceptionOrNull()?.message}", result.exceptionOrNull())
             null
         }
     }
@@ -1229,7 +1237,10 @@ object AudioPlaybackCoordinator {
         _previewingVoiceName.value = voiceInfo.id
         AppLogger.d(TAG, "Testing neural voice ${voiceInfo.name} (${voiceInfo.id}) with custom text: \"$text\"")
 
-        if (voiceInfo.engine.equals("PIPER", ignoreCase = true)) {
+        if (voiceInfo.engine.equals("PIPER", ignoreCase = true) ||
+            voiceInfo.engine.equals("KOKORO", ignoreCase = true) ||
+            voiceInfo.engine.equals("KITTEN", ignoreCase = true)
+        ) {
             val ctx = appContext
             if (ctx == null) {
                 _previewingVoiceName.value = null

@@ -504,11 +504,28 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     allNovels.firstOrNull { it.id == current.id } ?: current
                 } else null
 
+                val updatedChapters = if (updatedCurrent != null) {
+                    libraryRepository.getChapters(updatedCurrent.id)
+                } else {
+                    _uiState.value.chapters
+                }
+
+                val currentChap = _uiState.value.currentChapter
+                val updatedChap = if (currentChap != null && updatedChapters.isNotEmpty()) {
+                    updatedChapters.firstOrNull { it.id == currentChap.id }
+                        ?: updatedChapters.firstOrNull { it.title.equals(currentChap.title, ignoreCase = true) }
+                        ?: updatedChapters.getOrNull(updatedCurrent?.currentChapterIndex ?: 0)
+                } else {
+                    updatedChapters.getOrNull(updatedCurrent?.currentChapterIndex ?: 0)
+                }
+
                 _uiState.update {
                     it.copy(
                         novels = unarchivedNovels,
                         archivedNovels = archivedNovels,
                         currentNovel = updatedCurrent,
+                        chapters = updatedChapters,
+                        currentChapter = updatedChap,
                         isLoading = false
                     )
                 }

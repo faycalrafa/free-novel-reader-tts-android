@@ -82,6 +82,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.novelarrow.reader.data.model.NeuralVoiceCatalog
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.SupportedLanguage
@@ -392,19 +393,18 @@ private fun EngineSelectionContent(
     onOpenKitten: () -> Unit,
     onOpenSystemTtsSettings: () -> Unit
 ) {
+    val context = LocalContext.current
     val defaultEngine = AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "com.google.android.tts"
     val activeEnginePkg = AudioPlaybackCoordinator.getActiveTtsEngine() ?: selectedEnginePackage ?: defaultEngine
-    val installedEngines = remember { AudioPlaybackCoordinator.getInstalledTtsEngines() }
 
-    val hasPiperEngine = installedEngines.any {
-        it.name.contains("piper", ignoreCase = true) || it.name.contains("sherpa", ignoreCase = true)
-    }
-    val hasKokoroEngine = installedEngines.any {
-        it.name.contains("sherpa", ignoreCase = true) || it.name.contains("onnx", ignoreCase = true)
-    }
-    val hasKittenEngine = installedEngines.any {
-        it.name.contains("sherpa", ignoreCase = true) || it.name.contains("onnx", ignoreCase = true)
-    }
+    val isLocalSherpaActive = selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL ||
+            selectedEngineType == "PIPER" ||
+            selectedEngineType == "KOKORO" ||
+            selectedEngineType == "KITTEN"
+
+    val isPiperVoiceActive = isLocalSherpaActive && (NeuralVoiceCatalog.PIPER_VOICES.any { it.id == selectedVoiceName } || selectedEngineType == "PIPER")
+    val isKokoroVoiceActive = isLocalSherpaActive && (NeuralVoiceCatalog.KOKORO_VOICES.any { it.id == selectedVoiceName } || selectedEngineType == "KOKORO")
+    val isKittenVoiceActive = isLocalSherpaActive && (NeuralVoiceCatalog.KITTEN_VOICES.any { it.id == selectedVoiceName } || selectedEngineType == "KITTEN")
 
     Column(
         modifier = Modifier
@@ -516,7 +516,7 @@ private fun EngineSelectionContent(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Active voice: ${selectedVoiceName ?: "System Default"}",
+                    text = "Active voice: ${if (selectedEngineType == "SYSTEM") (selectedVoiceName ?: "System Default") else "None (Neural Active)"}",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -524,7 +524,6 @@ private fun EngineSelectionContent(
         }
 
         // Embedded Offline Neural TTS (sherpa-onnx) Card
-        val isLocalSherpaActive = selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL || selectedEngineType == "PIPER"
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
@@ -608,7 +607,7 @@ private fun EngineSelectionContent(
                         Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
-                            text = "Fast on-device Piper neural models • 0 external APKs",
+                            text = "Piper, Kokoro & Kitten neural models • 0 external APKs",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -616,7 +615,7 @@ private fun EngineSelectionContent(
 
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Configure Piper Voices",
+                        contentDescription = "Configure Neural Voices",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(22.dp)
                     )
@@ -624,87 +623,17 @@ private fun EngineSelectionContent(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                val activeNeuralVoice = if (isLocalSherpaActive) {
+                    val v = NeuralVoiceCatalog.getVoiceById(selectedVoiceName ?: "", context)
+                    v?.name ?: selectedVoiceName ?: "Lessac (US)"
+                } else {
+                    "None (System TTS Active)"
+                }
                 Text(
-                    text = "Active voice: ${if (isLocalSherpaActive) (selectedVoiceName ?: "Lessac (US)") else "System Default"}",
+                    text = "Active voice: $activeNeuralVoice",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
-        }
-
-        // Installed Android TTS Engines Section
-        if (installedEngines.isNotEmpty()) {
-            Text(
-                text = "INSTALLED ENGINES ON DEVICE (${installedEngines.size})",
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            )
-
-            installedEngines.forEach { engine ->
-                val isCurrent = engine.name == activeEnginePkg
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isCurrent) {
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
-                        }
-                    ),
-                    border = BorderStroke(
-                        1.dp,
-                        if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelectEnginePackage(engine.name) }
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp)
-                    ) {
-                        RadioButton(
-                            selected = isCurrent,
-                            onClick = { onSelectEnginePackage(engine.name) }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = engine.label.ifBlank { engine.name },
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
-                                )
-                                if (isCurrent) {
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                    ) {
-                                        Text(
-                                            text = "Active",
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
-                                            ),
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            Text(
-                                text = engine.name,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                }
             }
         }
 
@@ -722,7 +651,7 @@ private fun EngineSelectionContent(
             subtitle = "Ultra-fast neural text-to-speech with English, French, and Arabic voices (<65MB each).",
             status = "Embedded • Ready",
             isEngineReady = true,
-            isSelected = isLocalSherpaActive,
+            isSelected = isPiperVoiceActive,
             onClick = {
                 onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
                 onOpenPiper()
@@ -732,21 +661,27 @@ private fun EngineSelectionContent(
         // Kokoro TTS Card
         OpenSourceEngineCard(
             title = "Kokoro TTS",
-            subtitle = "State-of-the-art 82M open-weight neural voice bundle (88MB) delivering human-grade prosody.",
-            status = if (hasKokoroEngine) "Engine Ready" else "Models & Voices",
-            isEngineReady = hasKokoroEngine,
-            isSelected = selectedEngineType == "KOKORO",
-            onClick = onOpenKokoro
+            subtitle = "State-of-the-art 82M open-weight neural voice bundle delivering human-grade prosody.",
+            status = "Embedded • Ready",
+            isEngineReady = true,
+            isSelected = isKokoroVoiceActive,
+            onClick = {
+                onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
+                onOpenKokoro()
+            }
         )
 
         // KittenTTS Card
         OpenSourceEngineCard(
             title = "KittenTTS",
-            subtitle = "Ultra-compact embedded on-device models (<30MB) designed for minimal battery consumption.",
-            status = if (hasKittenEngine) "Engine Ready" else "Models & Voices",
-            isEngineReady = hasKittenEngine,
-            isSelected = selectedEngineType == "KITTEN",
-            onClick = onOpenKitten
+            subtitle = "Ultra-compact embedded on-device models (<40MB) designed for minimal battery consumption.",
+            status = "Embedded • Ready",
+            isEngineReady = true,
+            isSelected = isKittenVoiceActive,
+            onClick = {
+                onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
+                onOpenKitten()
+            }
         )
 
         Spacer(modifier = Modifier.height(16.dp))

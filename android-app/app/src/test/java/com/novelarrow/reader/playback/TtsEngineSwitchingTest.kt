@@ -119,14 +119,56 @@ class TtsEngineSwitchingTest {
     fun testLocalEngineActivationMatching() {
         fun isLocalNeuralActive(engineType: String): Boolean {
             return engineType == com.novelarrow.reader.data.repository.SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL ||
-                    engineType.equals("PIPER", ignoreCase = true)
+                    engineType.equals("PIPER", ignoreCase = true) ||
+                    engineType.equals("KOKORO", ignoreCase = true) ||
+                    engineType.equals("KITTEN", ignoreCase = true)
         }
 
         assertTrue(isLocalNeuralActive("SHERPA_LOCAL"))
         assertTrue(isLocalNeuralActive("PIPER"))
         assertTrue(isLocalNeuralActive("piper"))
+        assertTrue(isLocalNeuralActive("KOKORO"))
+        assertTrue(isLocalNeuralActive("kokoro"))
+        assertTrue(isLocalNeuralActive("KITTEN"))
+        assertTrue(isLocalNeuralActive("kitten"))
         assertFalse(isLocalNeuralActive("SYSTEM"))
         assertFalse(isLocalNeuralActive("GOOGLE"))
+    }
+
+    @Test
+    fun testSherpaOnnxPiperModelUrlsIntegrity() {
+        val piperVoices = NeuralVoiceCatalog.PIPER_VOICES
+        assertTrue("Expected non-empty piper voices", piperVoices.isNotEmpty())
+
+        for (v in piperVoices) {
+            assertTrue(
+                "Voice ${v.id} should use official csukuangfj sherpa-onnx repository URL",
+                v.onnxDownloadUrl.contains("huggingface.co/csukuangfj/")
+            )
+            assertTrue(
+                "Voice ${v.id} should have resolve/main in download URL",
+                v.onnxDownloadUrl.contains("/resolve/main/")
+            )
+            assertTrue(
+                "Voice ${v.id} modelFileName must end with .onnx",
+                v.modelFileName.endsWith(".onnx")
+            )
+        }
+    }
+
+    @Test
+    fun testMultiEngineCatalogResolution() {
+        val kokoroVoices = NeuralVoiceCatalog.getVoicesForEngine("KOKORO")
+        assertTrue(kokoroVoices.isNotEmpty())
+        assertEquals("KOKORO", kokoroVoices.first().engine)
+
+        val kittenVoices = NeuralVoiceCatalog.getVoicesForEngine("KITTEN")
+        assertTrue(kittenVoices.isNotEmpty())
+        assertEquals("KITTEN", kittenVoices.first().engine)
+
+        val piperVoices = NeuralVoiceCatalog.getVoicesForEngine("PIPER")
+        assertTrue(piperVoices.isNotEmpty())
+        assertEquals("PIPER", piperVoices.first().engine)
     }
 }
 

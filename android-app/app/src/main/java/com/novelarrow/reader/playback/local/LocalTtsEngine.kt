@@ -6,6 +6,8 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsKittenModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.novelarrow.reader.util.AppLogger
@@ -71,7 +73,8 @@ class LocalTtsEngine(
     suspend fun initialize(
         modelFile: File? = null,
         tokensFile: File? = null,
-        dataDir: File? = null
+        dataDir: File? = null,
+        engineType: String = "PIPER"
     ): Result<Unit> = withContext(Dispatchers.IO) {
         engineMutex.withLock {
             if (isReleased.get()) {
@@ -94,7 +97,7 @@ class LocalTtsEngine(
                 val targetTokens = tokensFile ?: File(targetDir, "tokens.txt")
                 val targetDataDir = dataDir ?: File(targetDir, "espeak-ng-data")
 
-                if (!targetTokens.exists() || !targetDataDir.exists()) {
+                if (!targetTokens.exists() || !targetDataDir.exists() || !File(targetDataDir, "phontab").exists()) {
                     AppLogger.i(TAG, "Extracting TTS support assets from assets/$modelDirName to ${targetDir.absolutePath}...")
                     copyAssetsRecursively(modelDirName, targetDir)
                 }
@@ -105,8 +108,8 @@ class LocalTtsEngine(
                     copyAssetsRecursively(modelDirName, targetDir)
                 }
 
-                if (!effectiveModelFile.exists()) {
-                    val ex = IOException("Model file not found: ${effectiveModelFile.absolutePath}")
+                if (!effectiveModelFile.exists() || effectiveModelFile.length() < 1024L) {
+                    val ex = IOException("Model file not found or corrupted: ${effectiveModelFile.absolutePath}")
                     AppLogger.w(TAG, ex.message ?: "Model missing")
                     return@withContext Result.failure(ex)
                 }
@@ -114,23 +117,68 @@ class LocalTtsEngine(
                 val tokensPathToUse = if (targetTokens.exists()) targetTokens.absolutePath else File(targetDir, "tokens.txt").absolutePath
                 val dataDirPathToUse = if (targetDataDir.exists()) targetDataDir.absolutePath else File(targetDir, "espeak-ng-data").absolutePath
 
-                val vitsConfig = OfflineTtsVitsModelConfig(
-                    model = effectiveModelPath,
-                    lexicon = "",
-                    tokens = tokensPathToUse,
-                    dataDir = dataDirPathToUse,
-                    dictDir = "",
-                    noiseScale = 0.667f,
-                    noiseScaleW = 0.8f,
-                    lengthScale = 1.0f
-                )
+                // Pre-flight check: espeak-ng-data must have phontab or native C++ will abort()
+                val phontab = File(dataDirPathToUse, "phontab")
+                if (!phontab.exists()) {
+                    copyAssetsRecursively(modelDirName, targetDir)
+                }
 
-                val modelConfig = OfflineTtsModelConfig(
-                    vits = vitsConfig,
-                    numThreads = numThreads,
-                    debug = false,
-                    provider = "cpu"
-                )
+                val modelConfig = when (engineType.uppercase()) {
+                    "KITTEN" -> {
+                        val voicesFile = File(effectiveModelFile.parentFile, "voices.bin")
+                        val kittenConfig = OfflineTtsKittenModelConfig(
+                            model = effectiveModelPath,
+                            voices = if (voicesFile.exists()) voicesFile.absolutePath else "",
+                            tokens = tokensPathToUse,
+                            dataDir = dataDirPathToUse,
+                            lengthScale = 1.0f
+                        )
+                        OfflineTtsModelConfig(
+                            kitten = kittenConfig,
+                            numThreads = numThreads,
+                            debug = false,
+                            provider = "cpu"
+                        )
+                    }
+                    "KOKORO" -> {
+                        val voicesFile = File(effectiveModelFile.parentFile, "voices.bin")
+                        val lexiconFile = File(effectiveModelFile.parentFile, "lexicon.txt")
+                        val kokoroConfig = OfflineTtsKokoroModelConfig(
+                            model = effectiveModelPath,
+                            voices = if (voicesFile.exists()) voicesFile.absolutePath else "",
+                            tokens = tokensPathToUse,
+                            dataDir = dataDirPathToUse,
+                            lexicon = if (lexiconFile.exists()) lexiconFile.absolutePath else "",
+                            lang = "en-us",
+                            dictDir = "",
+                            lengthScale = 1.0f
+                        )
+                        OfflineTtsModelConfig(
+                            kokoro = kokoroConfig,
+                            numThreads = numThreads,
+                            debug = false,
+                            provider = "cpu"
+                        )
+                    }
+                    else -> {
+                        val vitsConfig = OfflineTtsVitsModelConfig(
+                            model = effectiveModelPath,
+                            lexicon = "",
+                            tokens = tokensPathToUse,
+                            dataDir = dataDirPathToUse,
+                            dictDir = "",
+                            noiseScale = 0.667f,
+                            noiseScaleW = 0.8f,
+                            lengthScale = 1.0f
+                        )
+                        OfflineTtsModelConfig(
+                            vits = vitsConfig,
+                            numThreads = numThreads,
+                            debug = false,
+                            provider = "cpu"
+                        )
+                    }
+                }
 
                 val config = OfflineTtsConfig(
                     model = modelConfig,
@@ -146,7 +194,7 @@ class LocalTtsEngine(
                 val tts = OfflineTts(assetManager = null, config = config)
                 offlineTts = tts
                 activeModelPath = effectiveModelPath
-                AppLogger.i(TAG, "sherpa-onnx OfflineTts initialized successfully! Model: ${effectiveModelFile.name}, SampleRate: ${tts.sampleRate()} Hz, Speakers: ${tts.numSpeakers()}")
+                AppLogger.i(TAG, "sherpa-onnx OfflineTts initialized successfully! Model: ${effectiveModelFile.name}, Engine: $engineType, SampleRate: ${tts.sampleRate()} Hz, Speakers: ${tts.numSpeakers()}")
                 Result.success(Unit)
             } catch (t: Throwable) {
                 AppLogger.e(TAG, "Fatal failure initializing sherpa-onnx OfflineTts: ${t.message}", t)

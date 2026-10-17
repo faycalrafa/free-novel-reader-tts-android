@@ -124,4 +124,34 @@ class LibraryRefreshReconciliationTest {
         assertEquals(1, refreshedNovel.currentChapterIndex)
         assertEquals(chaptersAfter[1].id, refreshedNovel.currentChapterId)
     }
+
+    @Test
+    fun testRefreshDiscoversNewlyAddedSubfolder() = runBlocking {
+        val appDir = tempFolder.newFolder("app_data_discover_sub")
+        val context = createMockContext(appDir)
+        val repository = LibraryRepository(context)
+
+        val rootDir = tempFolder.newFolder("ParentRoot")
+        val novelADir = File(rootDir, "NovelA").apply { mkdirs() }
+        File(novelADir, "Chapter 1.txt").writeText("Novel A chapter 1")
+
+        // Initial scan of ParentRoot
+        val initialNovels = repository.scanRootDirectory(rootDir.absolutePath)
+        assertEquals(1, initialNovels.size)
+        assertEquals("NovelA", initialNovels[0].title)
+
+        // Add a NEW subfolder with chapters
+        val novelBDir = File(rootDir, "NovelB").apply { mkdirs() }
+        File(novelBDir, "Chapter 1.txt").writeText("Novel B chapter 1")
+        File(novelBDir, "Chapter 2.txt").writeText("Novel B chapter 2")
+
+        // Refresh linked folders
+        val refreshedNovels = repository.refreshAllLinkedFolders()
+        assertEquals("Should discover both NovelA and NovelB", 2, refreshedNovels.size)
+
+        val novelB = refreshedNovels.firstOrNull { it.title == "NovelB" }
+        assertNotNull("NovelB should be discovered on refresh", novelB)
+        val novelBChapters = repository.getChapters(novelB!!.id)
+        assertEquals(2, novelBChapters.size)
+    }
 }

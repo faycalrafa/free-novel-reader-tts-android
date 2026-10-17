@@ -190,44 +190,57 @@ class LibraryRepository(private val context: Context) {
         folderDocId: String? = null
     ): NovelFolderProgress? {
         try {
+            AppLogger.d("LibraryRepository", "Attempting to read folder progress for '$novelTitle' (path: $folderUriOrPath, docId: $folderDocId)")
             if (!folderUriOrPath.isNullOrBlank()) {
                 if (folderUriOrPath.startsWith("/") || folderUriOrPath.startsWith("file://")) {
                     val dir = File(folderUriOrPath.removePrefix("file://"))
-                val progressFile = File(dir, ".progress.json")
-                if (progressFile.exists() && progressFile.isFile) {
-                    val text = progressFile.readText(Charsets.UTF_8)
-                    if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
-                }
-            } else if (folderUriOrPath.startsWith("content://")) {
-                val uri = Uri.parse(folderUriOrPath)
-                if (folderDocId != null) {
-                    try {
-                        val (_, files) = querySafChildrenFast(uri, folderDocId)
-                        val progressItem = files.firstOrNull { it.displayName == ".progress.json" }
-                        if (progressItem != null) {
-                            context.contentResolver.openInputStream(Uri.parse(progressItem.uriStr))?.use { stream ->
-                                val text = stream.bufferedReader(Charsets.UTF_8).readText()
-                                if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
-                            }
+                    val progressFile = File(dir, ".progress.json")
+                    if (progressFile.exists() && progressFile.isFile) {
+                        val text = progressFile.readText(Charsets.UTF_8)
+                        if (text.isNotBlank()) {
+                            val parsed = json.decodeFromString<NovelFolderProgress>(text)
+                            AppLogger.i("LibraryRepository", "Loaded .progress.json for '$novelTitle' from filesystem: ${parsed.chapters.size} chapters tracked (currentIdx=${parsed.currentChapterIndex})")
+                            return parsed
                         }
-                    } catch (e: Exception) {
-                        AppLogger.w("LibraryRepository", "Error reading SAF subfolder progress for $novelTitle (docId: $folderDocId)", e)
                     }
-                } else {
-                    val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) {
-                        AppLogger.w("LibraryRepository", "Failed resolving DocumentFile from $uri for $novelTitle", e)
-                        null
-                    }
-                    val progressFile = rootDoc?.findFile(".progress.json")
-                    if (progressFile != null && progressFile.exists()) {
-                        context.contentResolver.openInputStream(progressFile.uri)?.use { stream ->
-                            val text = stream.bufferedReader(Charsets.UTF_8).readText()
-                            if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
+                } else if (folderUriOrPath.startsWith("content://")) {
+                    val uri = Uri.parse(folderUriOrPath)
+                    if (folderDocId != null) {
+                        try {
+                            val (_, files) = querySafChildrenFast(uri, folderDocId)
+                            val progressItem = files.firstOrNull { it.displayName == ".progress.json" }
+                            if (progressItem != null) {
+                                context.contentResolver.openInputStream(Uri.parse(progressItem.uriStr))?.use { stream ->
+                                    val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                                    if (text.isNotBlank()) {
+                                        val parsed = json.decodeFromString<NovelFolderProgress>(text)
+                                        AppLogger.i("LibraryRepository", "Loaded SAF .progress.json for '$novelTitle' (docId $folderDocId): ${parsed.chapters.size} chapters tracked")
+                                        return parsed
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.w("LibraryRepository", "Error reading SAF subfolder progress for $novelTitle (docId: $folderDocId)", e)
+                        }
+                    } else {
+                        val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) {
+                            AppLogger.w("LibraryRepository", "Failed resolving DocumentFile from $uri for $novelTitle", e)
+                            null
+                        }
+                        val progressFile = rootDoc?.findFile(".progress.json")
+                        if (progressFile != null && progressFile.exists()) {
+                            context.contentResolver.openInputStream(progressFile.uri)?.use { stream ->
+                                val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                                if (text.isNotBlank()) {
+                                    val parsed = json.decodeFromString<NovelFolderProgress>(text)
+                                    AppLogger.i("LibraryRepository", "Loaded rootDoc .progress.json for '$novelTitle': ${parsed.chapters.size} chapters tracked")
+                                    return parsed
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
 
             // Fallback: check standard NovelReader directory for this novel title
             val safeTitle = WebNovelDownloader.sanitizeFileName(novelTitle)
@@ -246,7 +259,11 @@ class LibraryRepository(private val context: Context) {
                 val pFile = File(candidate, ".progress.json")
                 if (pFile.exists() && pFile.isFile && pFile.length() > 0L) {
                     val text = pFile.readText(Charsets.UTF_8)
-                    if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
+                    if (text.isNotBlank()) {
+                        val parsed = json.decodeFromString<NovelFolderProgress>(text)
+                        AppLogger.i("LibraryRepository", "Loaded fallback .progress.json for '$novelTitle' from ${candidate.absolutePath}: ${parsed.chapters.size} chapters tracked")
+                        return parsed
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -262,52 +279,60 @@ class LibraryRepository(private val context: Context) {
         folderDocId: String? = null
     ) {
         try {
+            AppLogger.d("LibraryRepository", "Saving .progress.json for '$novelTitle' (curIdx=${progress.currentChapterIndex}, chapters=${progress.chapters.size})")
             val jsonText = json.encodeToString(progress)
+            var written = false
             if (!folderUriOrPath.isNullOrBlank()) {
                 if (folderUriOrPath.startsWith("/") || folderUriOrPath.startsWith("file://")) {
                     val dir = File(folderUriOrPath.removePrefix("file://"))
                     if (dir.exists() && dir.isDirectory) {
                         File(dir, ".progress.json").writeText(jsonText, Charsets.UTF_8)
+                        written = true
+                        AppLogger.i("LibraryRepository", "Successfully saved .progress.json to filesystem: ${dir.absolutePath}")
                     }
                 } else if (folderUriOrPath.startsWith("content://")) {
-                val uri = Uri.parse(folderUriOrPath)
-                if (folderDocId != null) {
-                    try {
-                        val parentDocUri = DocumentsContract.buildDocumentUriUsingTree(uri, folderDocId)
-                        val (_, files) = querySafChildrenFast(uri, folderDocId)
-                        val existingProgress = files.firstOrNull { it.displayName == ".progress.json" }
-                        val targetUri = if (existingProgress != null) {
-                            Uri.parse(existingProgress.uriStr)
-                        } else {
-                            DocumentsContract.createDocument(context.contentResolver, parentDocUri, "application/json", ".progress.json")
-                        }
-                        targetUri?.let { pUri ->
-                            context.contentResolver.openOutputStream(pUri, "wt")?.use { out ->
-                                out.write(jsonText.toByteArray(Charsets.UTF_8))
+                    val uri = Uri.parse(folderUriOrPath)
+                    if (folderDocId != null) {
+                        try {
+                            val parentDocUri = DocumentsContract.buildDocumentUriUsingTree(uri, folderDocId)
+                            val (_, files) = querySafChildrenFast(uri, folderDocId)
+                            val existingProgress = files.firstOrNull { it.displayName == ".progress.json" }
+                            val targetUri = if (existingProgress != null) {
+                                Uri.parse(existingProgress.uriStr)
+                            } else {
+                                DocumentsContract.createDocument(context.contentResolver, parentDocUri, "application/json", ".progress.json")
                             }
+                            targetUri?.let { pUri ->
+                                context.contentResolver.openOutputStream(pUri, "wt")?.use { out ->
+                                    out.write(jsonText.toByteArray(Charsets.UTF_8))
+                                }
+                                written = true
+                                AppLogger.i("LibraryRepository", "Successfully saved SAF .progress.json for docId $folderDocId")
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.w("LibraryRepository", "Error writing SAF subfolder progress for $novelTitle (docId: $folderDocId)", e)
                         }
-                    } catch (e: Exception) {
-                        AppLogger.w("LibraryRepository", "Error writing SAF subfolder progress for $novelTitle (docId: $folderDocId)", e)
-                    }
-                } else {
-                    val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) {
-                        AppLogger.w("LibraryRepository", "Failed resolving tree uri for $folderUriOrPath", e)
-                        null
-                    }
-                    if (rootDoc != null && rootDoc.exists() && rootDoc.canWrite()) {
-                        var progressFile = rootDoc.findFile(".progress.json")
-                        if (progressFile == null) {
-                            progressFile = rootDoc.createFile("application/json", ".progress.json")
+                    } else {
+                        val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) {
+                            AppLogger.w("LibraryRepository", "Failed resolving tree uri for $folderUriOrPath", e)
+                            null
                         }
-                        progressFile?.uri?.let { pUri ->
-                            context.contentResolver.openOutputStream(pUri, "wt")?.use { out ->
-                                out.write(jsonText.toByteArray(Charsets.UTF_8))
+                        if (rootDoc != null && rootDoc.exists() && rootDoc.canWrite()) {
+                            var progressFile = rootDoc.findFile(".progress.json")
+                            if (progressFile == null) {
+                                progressFile = rootDoc.createFile("application/json", ".progress.json")
+                            }
+                            progressFile?.uri?.let { pUri ->
+                                context.contentResolver.openOutputStream(pUri, "wt")?.use { out ->
+                                    out.write(jsonText.toByteArray(Charsets.UTF_8))
+                                }
+                                written = true
+                                AppLogger.i("LibraryRepository", "Successfully saved SAF root .progress.json for $novelTitle")
                             }
                         }
                     }
                 }
             }
-        }
 
             val safeTitle = WebNovelDownloader.sanitizeFileName(novelTitle)
             val candidateDirs = mutableListOf<File>()
@@ -325,13 +350,14 @@ class LibraryRepository(private val context: Context) {
                 if (candidate.exists() && candidate.isDirectory) {
                     try {
                         File(candidate, ".progress.json").writeText(jsonText, Charsets.UTF_8)
+                        AppLogger.d("LibraryRepository", "Synced fallback .progress.json to ${candidate.absolutePath}")
                     } catch (e: Exception) {
-                        AppLogger.w("LibraryRepository", "Failed writing candidate progress at ${candidate.path}", e)
+                        AppLogger.w("LibraryRepository", "Failed writing fallback progress in ${candidate.absolutePath}: ${e.message}", e)
                     }
                 }
             }
         } catch (e: Exception) {
-            AppLogger.w("LibraryRepository", "Failed writing folder progress for $novelTitle", e)
+            AppLogger.e("LibraryRepository", "Failed to write folder progress for $novelTitle: ${e.message}", e)
         }
     }
 
@@ -1151,7 +1177,7 @@ class LibraryRepository(private val context: Context) {
 
             val novel = Novel(
                 id = novelId,
-                title = dirName,
+                title = existingDbNovel?.title ?: dirName,
                 rootTreeUri = treeUriStr,
                 chapterCount = chapters.size,
                 completedCount = chapters.count { it.isCompleted },
@@ -1235,7 +1261,7 @@ class LibraryRepository(private val context: Context) {
 
             val novel = Novel(
                 id = novelId,
-                title = novelTitle,
+                title = existingDbNovel?.title ?: novelTitle,
                 rootTreeUri = treeUriStr,
                 chapterCount = chapters.size,
                 completedCount = chapters.count { it.isCompleted },
@@ -1282,9 +1308,43 @@ class LibraryRepository(private val context: Context) {
     suspend fun refreshAllLinkedFolders(
         onProgress: (current: Int, total: Int, currentItemName: String) -> Unit = { _, _, _ -> }
     ): List<Novel> = withContext(Dispatchers.IO) {
+        val initialDb = dbMutex.withLock { loadDatabaseLocked() }
+        val activeNovels = initialDb.novels.filter { !it.isArchived }
+
+        val distinctRootUris = activeNovels
+            .filter { !it.isWebNovel && it.rootTreeUri.isNotBlank() }
+            .map { it.rootTreeUri }
+            .distinct()
+
+        AppLogger.i("LibraryRepository", "Refreshing linked folders. Found ${distinctRootUris.size} root folders to re-scan: $distinctRootUris")
+
+        for (rootUriStr in distinctRootUris) {
+            try {
+                AppLogger.d("LibraryRepository", "Re-scanning root directory: $rootUriStr")
+                if (rootUriStr.startsWith("content://")) {
+                    val uri = Uri.parse(rootUriStr)
+                    scanRootDirectoryInternal(rootUriStr, uri, onProgress)
+                } else {
+                    scanRootDirectoryInternal(rootUriStr, null, onProgress)
+                }
+            } catch (e: Exception) {
+                AppLogger.e("LibraryRepository", "Error re-scanning root directory $rootUriStr during refresh: ${e.message}", e)
+            }
+        }
+
+        // Reload DB after directory scans so any newly discovered folders/novels are present
         val reloadedDb = dbMutex.withLock { loadDatabaseLocked() }
-        val activeNovels = reloadedDb.novels.filter { !it.isArchived }
+        val refreshedActiveNovels = reloadedDb.novels.filter { !it.isArchived }
         val archivedNovels = reloadedDb.novels.filter { it.isArchived }
+
+        // For any novels not covered by the distinct root scans (e.g. rootTreeUri is blank), do per-novel scan
+        val novelsToRefresh = refreshedActiveNovels.filter { it.rootTreeUri !in distinctRootUris && !it.isWebNovel }
+
+        if (novelsToRefresh.isEmpty()) {
+            AppLogger.i("LibraryRepository", "Refresh complete across all linked root folders. Total active novels: ${refreshedActiveNovels.size}")
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryRefreshed)
+            return@withContext refreshedActiveNovels
+        }
 
         var lastProgressTime = 0L
         fun reportProgress(cur: Int, total: Int, name: String) {
@@ -1295,7 +1355,6 @@ class LibraryRepository(private val context: Context) {
             }
         }
 
-        val novelsToRefresh = activeNovels
         var totalFilesToScan = 0
         val filesPerNovel = mutableMapOf<String, List<ScannedFileItem>>()
 
