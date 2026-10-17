@@ -7,12 +7,15 @@ import android.os.Looper
 import android.speech.tts.Voice
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.novelarrow.reader.data.model.NeuralVoiceCatalog
 import com.novelarrow.reader.data.model.NeuralVoiceInfo
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
+import com.novelarrow.reader.playback.local.LocalTtsEngine
 import com.novelarrow.reader.util.AppLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +47,10 @@ object AudioPlaybackCoordinator {
 
     private var ttsManager: TtsManager? = null
     private var attachedService: NovelAudioPlaybackService? = null
+
+    @Volatile
+    private var localTtsEngine: LocalTtsEngine? = null
+    private var localTtsJob: Job? = null
 
     private val _isPlayingState = MutableStateFlow(false)
     val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
@@ -175,6 +182,67 @@ object AudioPlaybackCoordinator {
         // Initialize persistent notification toolbar with last paused hearing session
         restoreLastHearingSession(autoPlay = false)
     }
+
+    fun isLocalNeuralEngineActive(): Boolean {
+        val type = settingsRepository?.getSettings()?.selectedEngineType ?: "SYSTEM"
+        return type == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL || type.equals("PIPER", ignoreCase = true)
+    }
+
+    fun isEmbeddedNeuralEngineReady(voiceInfo: NeuralVoiceInfo? = null): Boolean {
+        val ctx = appContext ?: return false
+        val targetVoice = voiceInfo ?: run {
+            val savedId = settingsRepository?.getSettings()?.selectedVoiceName ?: currentVoiceName
+            if (savedId != null) NeuralVoiceCatalog.getVoiceById(savedId, ctx) else null
+        }
+        if (targetVoice != null && NeuralModelDownloader.isModelDownloaded(ctx, targetVoice)) {
+            return true
+        }
+        val defaultModel = File(ctx.filesDir, "vits-piper-en_US-lessac-medium/en_US-lessac-medium.onnx")
+        return defaultModel.exists() && defaultModel.length() > 1024L
+    }
+
+    suspend fun getOrInitLocalTtsEngine(voiceInfo: NeuralVoiceInfo? = null): LocalTtsEngine? = withContext(Dispatchers.IO) {
+        val ctx = appContext ?: return@withContext null
+        val targetVoice = voiceInfo ?: run {
+            val settings = settingsRepository?.getSettings()
+            val savedVoiceId = settings?.selectedVoiceName ?: currentVoiceName
+            if (savedVoiceId != null) {
+                NeuralVoiceCatalog.getVoiceById(savedVoiceId, ctx)
+            } else {
+                NeuralVoiceCatalog.PIPER_VOICES.firstOrNull()
+            }
+        }
+
+        val engine = localTtsEngine ?: synchronized(this@AudioPlaybackCoordinator) {
+            localTtsEngine ?: LocalTtsEngine(ctx).also { localTtsEngine = it }
+        }
+
+        val modelFile = if (targetVoice != null) {
+            NeuralModelDownloader.findExistingModelFile(ctx, targetVoice)
+        } else {
+            null
+        }
+
+        val result = if (modelFile != null && modelFile.exists()) {
+            val tokensFile = File(modelFile.parentFile, "tokens.txt")
+            val dataDir = File(modelFile.parentFile, "espeak-ng-data")
+            engine.initialize(
+                modelFile = modelFile,
+                tokensFile = if (tokensFile.exists()) tokensFile else null,
+                dataDir = if (dataDir.exists()) dataDir else null
+            )
+        } else {
+            engine.initialize()
+        }
+
+        if (result.isSuccess) {
+            engine
+        } else {
+            AppLogger.w(TAG, "Failed to initialize LocalTtsEngine: ${result.exceptionOrNull()?.message}", result.exceptionOrNull())
+            null
+        }
+    }
+
 
     fun attachService(service: NovelAudioPlaybackService) {
         attachedService = service
@@ -714,6 +782,8 @@ object AudioPlaybackCoordinator {
     fun pause() {
         stopWatchdog()
         lastEnqueuedParagraphIndex = -1
+        localTtsJob?.cancel()
+        localTtsEngine?.stopPlayback()
         ttsManager?.stop()
         sleepTimerJob?.cancel()
         audioFileProgressJob?.cancel()
@@ -1077,6 +1147,8 @@ object AudioPlaybackCoordinator {
     fun stopVoicePreview() {
         previewTimeoutJob?.cancel()
         previewTimeoutJob = null
+        localTtsJob?.cancel()
+        localTtsEngine?.stopPlayback()
         neuralPreviewPlayer?.let { player ->
             try {
                 if (player.isPlaying) player.stop()
@@ -1098,6 +1170,12 @@ object AudioPlaybackCoordinator {
     fun setSelectedEngineType(engineType: String) {
         coordinatorScope.launch {
             settingsRepository?.setSelectedEngineType(engineType)
+            if (engineType == SettingsRepository.ENGINE_TYPE_SYSTEM) {
+                localTtsJob?.cancel()
+                localTtsEngine?.stopPlayback()
+            } else if (engineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL || engineType.equals("PIPER", ignoreCase = true)) {
+                ttsManager?.stop()
+            }
         }
     }
 
@@ -1150,6 +1228,45 @@ object AudioPlaybackCoordinator {
 
         _previewingVoiceName.value = voiceInfo.id
         AppLogger.d(TAG, "Testing neural voice ${voiceInfo.name} (${voiceInfo.id}) with custom text: \"$text\"")
+
+        if (voiceInfo.engine.equals("PIPER", ignoreCase = true)) {
+            val ctx = appContext
+            if (ctx == null) {
+                _previewingVoiceName.value = null
+                return
+            }
+            val isDownloaded = NeuralModelDownloader.isModelDownloaded(ctx, voiceInfo)
+            if (!isDownloaded) {
+                showToast("Please download ${voiceInfo.name} first before testing.")
+                _previewingVoiceName.value = null
+                return
+            }
+
+            localTtsJob = coordinatorScope.launch(Dispatchers.Main) {
+                try {
+                    val engine = getOrInitLocalTtsEngine(voiceInfo)
+                    if (engine == null) {
+                        showToast("Could not load model for ${voiceInfo.name}")
+                        _previewingVoiceName.value = null
+                        return@launch
+                    }
+                    engine.speak(
+                        text = text,
+                        speed = currentSpeechRate
+                    )
+                } catch (e: CancellationException) {
+                    AppLogger.d(TAG, "Test voice preview canceled for ${voiceInfo.name}")
+                } catch (t: Throwable) {
+                    AppLogger.e(TAG, "Failed to test voice ${voiceInfo.name}: ${t.message}", t)
+                    showToast("Error speaking sample: ${t.message}")
+                } finally {
+                    if (_previewingVoiceName.value == voiceInfo.id) {
+                        _previewingVoiceName.value = null
+                    }
+                }
+            }
+            return
+        }
 
         val availableVoices = ttsManager?.getAvailableVoices().orEmpty()
         val matchingVoice = availableVoices.firstOrNull { it.name.equals(voiceInfo.id, ignoreCase = true) }
@@ -1236,6 +1353,11 @@ object AudioPlaybackCoordinator {
         val idx = currentParagraphIndex
         if (idx !in paras.indices) return
 
+        if (isLocalNeuralEngineActive()) {
+            speakCurrentParagraphWithLocalEngine(idx)
+            return
+        }
+
         ttsManager?.stop()
         lastEnqueuedParagraphIndex = idx
         lastProgressTimestamp = System.currentTimeMillis()
@@ -1250,6 +1372,62 @@ object AudioPlaybackCoordinator {
         }
 
         startWatchdog()
+    }
+
+    private fun speakCurrentParagraphWithLocalEngine(idx: Int) {
+        localTtsJob?.cancel()
+        stopWatchdog()
+        ttsManager?.stop()
+        lastProgressTimestamp = System.currentTimeMillis()
+
+        val paras = currentParagraphs
+        if (idx !in paras.indices) return
+
+        val p = paras[idx]
+        val spoken = p.spokenText.ifBlank { p.rawText }.trim()
+        if (spoken.isBlank()) {
+            handleParagraphDone(idx)
+            return
+        }
+
+        localTtsJob = coordinatorScope.launch(Dispatchers.Main) {
+            val ctx = appContext
+            if (ctx == null) {
+                AppLogger.e(TAG, "Cannot speak with local engine: appContext is null")
+                handleParagraphError(idx, "Context is null")
+                return@launch
+            }
+
+            val engine = getOrInitLocalTtsEngine()
+            if (engine == null) {
+                AppLogger.w(TAG, "LocalTtsEngine not ready (model missing or uninitialized)")
+                showToast("Offline voice model not found. Please download a voice in Settings.")
+                pause()
+                return@launch
+            }
+
+            try {
+                engine.speakParagraph(
+                    index = idx,
+                    text = spoken,
+                    speed = currentSpeechRate,
+                    onStart = { startedIdx ->
+                        handleParagraphStart(startedIdx)
+                    },
+                    onDone = { doneIdx ->
+                        handleParagraphDone(doneIdx)
+                    },
+                    onError = { errIdx, error ->
+                        handleParagraphError(errIdx, error)
+                    }
+                )
+            } catch (e: CancellationException) {
+                AppLogger.d(TAG, "Local TTS playback canceled at paragraph $idx")
+            } catch (t: Throwable) {
+                AppLogger.e(TAG, "Error in local TTS playback at paragraph $idx: ${t.message}", t)
+                handleParagraphError(idx, t.message ?: "Playback failure")
+            }
+        }
     }
 
     private fun handleParagraphStart(index: Int) {
@@ -1291,6 +1469,21 @@ object AudioPlaybackCoordinator {
         }
 
         if (!_isPlayingState.value) return
+
+        if (isLocalNeuralEngineActive()) {
+            if (nextIndex < total) {
+                currentParagraphIndex = nextIndex
+                _playbackProgressState.update { it.copy(currentParagraphIndex = nextIndex) }
+                speakCurrentParagraphWithLocalEngine(nextIndex)
+            } else {
+                if (currentSource == PlaybackSource.READER && autoNextChapterEnabled) {
+                    advanceToNextChapter()
+                } else {
+                    pause()
+                }
+            }
+            return
+        }
 
         if (nextIndex < total) {
             // Paragraph (index + 1) is already speaking or enqueued via lookahead buffer!

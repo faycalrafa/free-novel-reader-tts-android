@@ -100,4 +100,33 @@ class TtsEngineSwitchingTest {
         assertEquals("en_GB-alan-medium.onnx", alan?.modelFileName)
         assertEquals("en_GB-alan-medium", alan?.modelFileName?.substringBefore("."))
     }
+
+    @Test
+    fun testEmbeddedSherpaLocalEngineSerialization() {
+        val settings = ReaderSettings(
+            selectedEngineType = com.novelarrow.reader.data.repository.SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL,
+            selectedVoiceName = "piper_en_us_lessac_medium"
+        )
+        val serialized = json.encodeToString(ReaderSettings.serializer(), settings)
+        assertTrue(serialized.contains("SHERPA_LOCAL"))
+
+        val deserialized = json.decodeFromString(ReaderSettings.serializer(), serialized)
+        assertEquals("SHERPA_LOCAL", deserialized.selectedEngineType)
+        assertEquals("piper_en_us_lessac_medium", deserialized.selectedVoiceName)
+    }
+
+    @Test
+    fun testLocalEngineActivationMatching() {
+        fun isLocalNeuralActive(engineType: String): Boolean {
+            return engineType == com.novelarrow.reader.data.repository.SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL ||
+                    engineType.equals("PIPER", ignoreCase = true)
+        }
+
+        assertTrue(isLocalNeuralActive("SHERPA_LOCAL"))
+        assertTrue(isLocalNeuralActive("PIPER"))
+        assertTrue(isLocalNeuralActive("piper"))
+        assertFalse(isLocalNeuralActive("SYSTEM"))
+        assertFalse(isLocalNeuralActive("GOOGLE"))
+    }
 }
+

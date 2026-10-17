@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.7.0"
+          DATE_TAG="v3.8.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.7.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.7.0 --no-daemon
+          APP_VERSION_NAME: "3.8.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.8.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,29 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.7.0 (Stable)
+          name: BookReader v3.8.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.7.0 (Stable) 📚🔄
+            ### BookReader v3.8.0 (Stable) 📚🎙️⚡
 
-            **BookReader v3.7.0** introduces a comprehensive overhaul of folder scanning, subfolder isolation, canonical chapter deduplication, reactive download visibility, and lifecycle-aware reading state preservation!
+            **BookReader v3.8.0** completes the full in-app integration for offline on-device Text-to-Speech (TTS) powered by **sherpa-onnx** and **Piper** neural voice models!
 
             #### Key Updates in this release:
+            - **First-Class In-App Offline Neural TTS Picker**:
+              - Added dedicated "Embedded Neural TTS" engine card in `VoiceEngineScreen` allowing users to select `SHERPA_LOCAL` as their primary speech synthesis engine with 1 tap.
+              - 100% offline and self-contained: synthesizes speech on-device with zero external apps, zero system TTS dependencies, and zero internet connection required.
+            - **Direct Audio Playback Coordinator Routing**:
+              - `AudioPlaybackCoordinator` automatically routes paragraph-by-paragraph novel reading in `ReaderScreen` and `BrowserScreen` through the embedded `LocalTtsEngine`.
+              - Seamless paragraph advancement, sentence chunking, synchronization with paragraph text highlighting, auto-scrolling, and lockscreen/notification toolbar controls.
+            - **Honest On-Device Voice Testing & Previews**:
+              - "Test Voice" in `OfflineEngineVoiceScreen` synthesizes sample text directly via `LocalTtsEngine` and streams IEEE 32-bit float PCM audio through Android `AudioTrack`.
+              - Instant start/stop controls with visual pulse animation and reliable cleanup.
+            - **Eliminated False External APK Warnings**:
+              - Removed confusing banners claiming external Piper/Sherpa APKs were required. Replaced with an informative "⚡ Built-in Neural Engine Ready (sherpa-onnx)" card.
+              - "Active Voice" status badges directly on neural voice cards in the catalog.
+            - **Automatic Piper Linguistic Support Assets**:
+              - Bundled `tokens.txt` (154 tokens) and `espeak-ng-data` phoneme tables inside APK assets.
+              - `NeuralModelDownloader` automatically extracts support assets to device internal storage upon model download so new Piper voices work out-of-the-box.
             - **Subfolder Isolation & Playlist Partitioning**:
               - Automatically partitions nested subfolders (e.g., `Volume 1`, `Volume 2`) under imported root folders into distinct, isolated novel playlists.
               - Subfolders maintain dedicated `.progress.json` metadata files ensuring reading progress never cross-pollinates between series volumes or sibling folders.

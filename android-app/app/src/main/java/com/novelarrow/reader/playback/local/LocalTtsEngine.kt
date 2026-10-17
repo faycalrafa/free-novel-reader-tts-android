@@ -11,6 +11,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -22,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Thread-safe wrapper for offline on-device Text-to-Speech powered by sherpa-onnx (k2-fsa).
- * Manages model extraction, native JNI pointers, and AudioTrack PCM float streaming.
+ * Manages model extraction, native JNI pointers, dynamic voice loading, and AudioTrack PCM float streaming.
  */
 class LocalTtsEngine(
     context: Context,
@@ -39,43 +40,85 @@ class LocalTtsEngine(
     private val appContext = context.applicationContext
     private val engineMutex = Mutex()
     private val isReleased = AtomicBoolean(false)
+    private val isSpeaking = AtomicBoolean(false)
 
     private var offlineTts: OfflineTts? = null
     private var audioTrack: AudioTrack? = null
     private var currentTrackSampleRate: Int = 0
+    private var activeModelPath: String? = null
 
     val isInitialized: Boolean
         get() = offlineTts != null && !isReleased.get()
 
     /**
-     * Initializes the engine by copying required assets to internal storage (for POSIX filesystem access)
-     * and allocating the native Sherpa-ONNX OfflineTts pointer.
-     * Safe to call multiple times; subsequent calls are no-ops once initialized.
+     * Checks whether the required model, tokens.txt, and espeak-ng-data directory exist.
      */
-    suspend fun initialize(): Result<Unit> = withContext(Dispatchers.IO) {
+    fun isModelReady(customModelFile: File? = null): Boolean {
+        val targetDir = File(appContext.filesDir, modelDirName)
+        val model = customModelFile ?: File(targetDir, modelFileName)
+        val tokens = File(targetDir, "tokens.txt")
+        val dataDir = File(targetDir, "espeak-ng-data")
+
+        return model.exists() && model.length() > 1024L &&
+                tokens.exists() && tokens.length() > 0L &&
+                dataDir.exists() && dataDir.isDirectory
+    }
+
+    /**
+     * Initializes or reloads the engine with an optional custom model file, tokens file, and data dir.
+     * Extracts support assets (tokens.txt, espeak-ng-data) from APK assets if not yet present in filesDir.
+     */
+    suspend fun initialize(
+        modelFile: File? = null,
+        tokensFile: File? = null,
+        dataDir: File? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         engineMutex.withLock {
             if (isReleased.get()) {
                 val err = IllegalStateException("LocalTtsEngine has already been released.")
                 AppLogger.e(TAG, err.message ?: "Released", err)
                 return@withContext Result.failure(err)
             }
-            if (offlineTts != null) return@withContext Result.success(Unit)
+
+            val targetDir = File(appContext.filesDir, modelDirName)
+            val effectiveModelFile = modelFile ?: File(targetDir, modelFileName)
+            val effectiveModelPath = effectiveModelFile.absolutePath
+
+            // If already initialized with this exact model file, reuse it
+            if (offlineTts != null && activeModelPath == effectiveModelPath) {
+                return@withContext Result.success(Unit)
+            }
 
             try {
-                val targetDir = File(appContext.filesDir, modelDirName)
-                val modelFile = File(targetDir, modelFileName)
+                // 1. Ensure support assets (tokens.txt, espeak-ng-data) are extracted to targetDir
+                val targetTokens = tokensFile ?: File(targetDir, "tokens.txt")
+                val targetDataDir = dataDir ?: File(targetDir, "espeak-ng-data")
 
-                // Copy assets to internal storage if not already extracted
-                if (!modelFile.exists()) {
-                    AppLogger.i(TAG, "Extracting TTS model assets to ${targetDir.absolutePath}...")
+                if (!targetTokens.exists() || !targetDataDir.exists()) {
+                    AppLogger.i(TAG, "Extracting TTS support assets from assets/$modelDirName to ${targetDir.absolutePath}...")
                     copyAssetsRecursively(modelDirName, targetDir)
                 }
 
+                // If default model file is missing from disk, try copying it from assets too
+                if (!effectiveModelFile.exists()) {
+                    AppLogger.i(TAG, "Copying model file from assets: $modelFileName")
+                    copyAssetsRecursively(modelDirName, targetDir)
+                }
+
+                if (!effectiveModelFile.exists()) {
+                    val ex = IOException("Model file not found: ${effectiveModelFile.absolutePath}")
+                    AppLogger.w(TAG, ex.message ?: "Model missing")
+                    return@withContext Result.failure(ex)
+                }
+
+                val tokensPathToUse = if (targetTokens.exists()) targetTokens.absolutePath else File(targetDir, "tokens.txt").absolutePath
+                val dataDirPathToUse = if (targetDataDir.exists()) targetDataDir.absolutePath else File(targetDir, "espeak-ng-data").absolutePath
+
                 val vitsConfig = OfflineTtsVitsModelConfig(
-                    model = File(targetDir, modelFileName).absolutePath,
+                    model = effectiveModelPath,
                     lexicon = "",
-                    tokens = File(targetDir, "tokens.txt").absolutePath,
-                    dataDir = File(targetDir, "espeak-ng-data").absolutePath,
+                    tokens = tokensPathToUse,
+                    dataDir = dataDirPathToUse,
                     dictDir = "",
                     noiseScale = 0.667f,
                     noiseScaleW = 0.8f,
@@ -95,10 +138,15 @@ class LocalTtsEngine(
                     maxNumSentences = 1
                 )
 
-                // Allocate native TTS instance (pass null for AssetManager to use POSIX file paths)
+                // Clean up any existing native instance before loading new model
+                offlineTts?.let {
+                    try { it.release() } catch (e: Exception) { AppLogger.w(TAG, "Error releasing previous OfflineTts", e) }
+                }
+
                 val tts = OfflineTts(assetManager = null, config = config)
                 offlineTts = tts
-                AppLogger.i(TAG, "Sherpa-ONNX OfflineTts initialized. Sample rate: ${tts.sampleRate()} Hz, Speakers: ${tts.numSpeakers()}")
+                activeModelPath = effectiveModelPath
+                AppLogger.i(TAG, "sherpa-onnx OfflineTts initialized successfully! Model: ${effectiveModelFile.name}, SampleRate: ${tts.sampleRate()} Hz, Speakers: ${tts.numSpeakers()}")
                 Result.success(Unit)
             } catch (t: Throwable) {
                 AppLogger.e(TAG, "Fatal failure initializing sherpa-onnx OfflineTts: ${t.message}", t)
@@ -117,7 +165,6 @@ class LocalTtsEngine(
     ): AudioData = withContext(Dispatchers.Default) {
         require(text.isNotBlank()) { "Input text cannot be blank." }
 
-        // Ensure initialized before synthesis
         if (offlineTts == null) {
             initialize().getOrThrow()
         }
@@ -147,6 +194,88 @@ class LocalTtsEngine(
     }
 
     /**
+     * Synthesizes and plays a paragraph, dispatching start, completion, and error events.
+     * Integrates with AudioPlaybackCoordinator for paragraph-by-paragraph novel reading.
+     */
+    suspend fun speakParagraph(
+        index: Int,
+        text: String,
+        speed: Float = 1.0f,
+        speakerId: Int = defaultSpeakerId,
+        onStart: (Int) -> Unit,
+        onDone: (Int) -> Unit,
+        onError: (Int, String) -> Unit
+    ) = withContext(Dispatchers.Default) {
+        stopPlayback()
+
+        val audioData = try {
+            generateAudio(text, speed, speakerId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Audio generation failed for paragraph $index: ${t.message}", t)
+            onError(index, t.message ?: "Synthesis failed")
+            return@withContext
+        }
+
+        if (audioData.samples.isEmpty()) {
+            onDone(index)
+            return@withContext
+        }
+
+        isSpeaking.set(true)
+        val sampleRate = audioData.sampleRate
+        val samples = audioData.samples
+
+        try {
+            val track = getOrCreateAudioTrack(sampleRate)
+            track.play()
+            onStart(index)
+
+            val chunkSize = 4096
+            var offset = 0
+            while (offset < samples.size && isSpeaking.get() && !isReleased.get()) {
+                ensureActive()
+                val length = minOf(chunkSize, samples.size - offset)
+                val written = track.write(
+                    samples,
+                    offset,
+                    length,
+                    AudioTrack.WRITE_BLOCKING
+                )
+                if (written < 0) {
+                    AppLogger.e(TAG, "AudioTrack write error: $written")
+                    onError(index, "AudioTrack error: $written")
+                    return@withContext
+                }
+                offset += written
+            }
+
+            // Wait for audio hardware buffer to finish playing
+            if (isSpeaking.get() && !isReleased.get()) {
+                val playbackDurationMs = audioData.durationMs
+                val startTime = System.currentTimeMillis()
+                while (isSpeaking.get() && (System.currentTimeMillis() - startTime) < playbackDurationMs) {
+                    ensureActive()
+                    delay(40)
+                }
+            }
+
+            if (isSpeaking.get() && !isReleased.get()) {
+                onDone(index)
+            }
+        } catch (e: CancellationException) {
+            AppLogger.d(TAG, "speakParagraph canceled at index $index")
+            throw e
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Playback failure in speakParagraph($index): ${t.message}", t)
+            onError(index, t.message ?: "Playback failure")
+        } finally {
+            isSpeaking.set(false)
+        }
+    }
+
+    /**
      * Synthesizes text and plays it immediately through an Android AudioTrack.
      */
     suspend fun speak(
@@ -157,46 +286,48 @@ class LocalTtsEngine(
         val audioData = generateAudio(text, speed, speakerId)
         if (audioData.samples.isEmpty()) return@withContext
 
-        engineMutex.withLock {
-            check(!isReleased.get()) { "Cannot play audio: LocalTtsEngine is released." }
-            val track = getOrCreateAudioTrack(audioData.sampleRate)
+        isSpeaking.set(true)
+        val sampleRate = audioData.sampleRate
+        val samples = audioData.samples
 
-            try {
-                track.play()
+        try {
+            val track = getOrCreateAudioTrack(sampleRate)
+            track.play()
 
-                // Stream chunks so coroutine cancellation can interrupt playback promptly
-                val chunkSize = 4096
-                var offset = 0
-                val samples = audioData.samples
-
-                while (offset < samples.size) {
-                    ensureActive()
-                    val length = minOf(chunkSize, samples.size - offset)
-                    val written = track.write(
-                        samples,
-                        offset,
-                        length,
-                        AudioTrack.WRITE_BLOCKING
-                    )
-                    if (written < 0) {
-                        AppLogger.e(TAG, "AudioTrack write error code: $written")
-                        break
-                    }
-                    offset += written
+            val chunkSize = 4096
+            var offset = 0
+            while (offset < samples.size && isSpeaking.get() && !isReleased.get()) {
+                ensureActive()
+                val length = minOf(chunkSize, samples.size - offset)
+                val written = track.write(
+                    samples,
+                    offset,
+                    length,
+                    AudioTrack.WRITE_BLOCKING
+                )
+                if (written < 0) {
+                    AppLogger.e(TAG, "AudioTrack write error code: $written")
+                    break
                 }
-            } catch (e: CancellationException) {
-                AppLogger.d(TAG, "AudioTrack playback canceled")
-                track.pause()
-                track.flush()
-                throw e
-            } catch (t: Throwable) {
-                AppLogger.e(TAG, "Playback failure in speak(): ${t.message}", t)
-                throw t
-            } finally {
-                if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                    track.stop()
+                offset += written
+            }
+
+            if (isSpeaking.get() && !isReleased.get()) {
+                val playbackDurationMs = audioData.durationMs
+                val startTime = System.currentTimeMillis()
+                while (isSpeaking.get() && (System.currentTimeMillis() - startTime) < playbackDurationMs) {
+                    ensureActive()
+                    delay(40)
                 }
             }
+        } catch (e: CancellationException) {
+            AppLogger.d(TAG, "AudioTrack playback canceled")
+            throw e
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Playback failure in speak(): ${t.message}", t)
+            throw t
+        } finally {
+            isSpeaking.set(false)
         }
     }
 
@@ -204,6 +335,7 @@ class LocalTtsEngine(
      * Immediately halts ongoing AudioTrack playback.
      */
     fun stopPlayback() {
+        isSpeaking.set(false)
         try {
             audioTrack?.let { track ->
                 if (track.state == AudioTrack.STATE_INITIALIZED &&
@@ -211,10 +343,11 @@ class LocalTtsEngine(
                 ) {
                     track.pause()
                     track.flush()
+                    track.stop()
                 }
             }
-        } catch (e: IllegalStateException) {
-            AppLogger.w(TAG, "Ignored IllegalStateException while stopping AudioTrack", e)
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Ignored exception while stopping AudioTrack: ${e.message}", e)
         }
     }
 
@@ -247,6 +380,7 @@ class LocalTtsEngine(
             }
         }
         offlineTts = null
+        activeModelPath = null
         AppLogger.i(TAG, "LocalTtsEngine resources released.")
     }
 
@@ -259,7 +393,11 @@ class LocalTtsEngine(
             return existing
         }
 
-        existing?.release()
+        try {
+            existing?.release()
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Error releasing old AudioTrack", e)
+        }
 
         val minBufferSize = AudioTrack.getMinBufferSize(
             sampleRate,
@@ -293,10 +431,13 @@ class LocalTtsEngine(
     @Throws(IOException::class)
     private fun copyAssetsRecursively(assetPath: String, destFile: File) {
         val assetManager = appContext.assets
-        val childEntries = assetManager.list(assetPath)
+        val childEntries = try {
+            assetManager.list(assetPath)
+        } catch (_: Exception) {
+            null
+        }
 
         if (!childEntries.isNullOrEmpty()) {
-            // Directory node
             if (!destFile.exists() && !destFile.mkdirs()) {
                 throw IOException("Failed to create directory: ${destFile.absolutePath}")
             }
@@ -306,12 +447,15 @@ class LocalTtsEngine(
                 copyAssetsRecursively(childAssetPath, childDestFile)
             }
         } else {
-            // Leaf file node
             destFile.parentFile?.mkdirs()
-            assetManager.open(assetPath).use { inputStream ->
-                FileOutputStream(destFile).use { outputStream ->
-                    inputStream.copyTo(outputStream, bufferSize = 8192)
+            try {
+                assetManager.open(assetPath).use { inputStream ->
+                    FileOutputStream(destFile).use { outputStream ->
+                        inputStream.copyTo(outputStream, bufferSize = 8192)
+                    }
                 }
+            } catch (e: Exception) {
+                AppLogger.d(TAG, "Asset not found as file, skipped: $assetPath (${e.message})")
             }
         }
     }

@@ -33,8 +33,9 @@ object NeuralModelDownloader {
     fun findExistingModelFile(context: Context, voiceInfo: NeuralVoiceInfo): File? {
         val internalDir = File(context.filesDir, "neural_tts/${voiceInfo.engine.lowercase()}")
         val externalDir = context.getExternalFilesDir("neural_tts")?.let { File(it, voiceInfo.engine.lowercase()) }
+        val defaultModelDir = File(context.filesDir, "vits-piper-en_US-lessac-medium")
 
-        val searchDirs = listOfNotNull(externalDir, internalDir, context.filesDir)
+        val searchDirs = listOfNotNull(externalDir, internalDir, defaultModelDir, context.filesDir)
 
         val namesToCheck = mutableListOf(voiceInfo.modelFileName)
         when (voiceInfo.engine.uppercase()) {
@@ -179,6 +180,10 @@ object NeuralModelDownloader {
                 }
             }
 
+            if (voiceInfo.engine.equals("PIPER", ignoreCase = true)) {
+                ensurePiperSupportAssets(context, targetDir)
+            }
+
             Result.success(targetFile)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to download model for ${voiceInfo.name}: ${e.message}", e)
@@ -251,4 +256,70 @@ object NeuralModelDownloader {
             connection.disconnect()
         }
     }
+
+    fun ensurePiperSupportAssets(context: Context, targetDir: File) {
+        val tokensFile = File(targetDir, "tokens.txt")
+        if (!tokensFile.exists() || tokensFile.length() == 0L) {
+            try {
+                context.assets.open("vits-piper-en_US-lessac-medium/tokens.txt").use { input ->
+                    tokensFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                AppLogger.i(TAG, "Copied tokens.txt to ${tokensFile.absolutePath}")
+            } catch (e: Exception) {
+                AppLogger.d(TAG, "tokens.txt not found in assets: ${e.message}")
+            }
+        }
+
+        val espeakDir = File(targetDir, "espeak-ng-data")
+        val defaultEspeakDir = File(context.filesDir, "vits-piper-en_US-lessac-medium/espeak-ng-data")
+        if (!espeakDir.exists()) {
+            if (defaultEspeakDir.exists()) {
+                try {
+                    defaultEspeakDir.copyRecursively(espeakDir, overwrite = false)
+                    AppLogger.i(TAG, "Copied espeak-ng-data to ${espeakDir.absolutePath}")
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Could not copy espeak-ng-data from filesDir: ${e.message}", e)
+                }
+            } else {
+                try {
+                    copyAssetDirRecursively(context, "vits-piper-en_US-lessac-medium/espeak-ng-data", espeakDir)
+                    AppLogger.i(TAG, "Extracted espeak-ng-data from assets to ${espeakDir.absolutePath}")
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Could not extract espeak-ng-data from assets: ${e.message}", e)
+                }
+            }
+        }
+    }
+
+    private fun copyAssetDirRecursively(context: Context, assetPath: String, destDir: File) {
+        val assetManager = context.assets
+        val children = try {
+            assetManager.list(assetPath)
+        } catch (_: Exception) {
+            null
+        }
+
+        if (!children.isNullOrEmpty()) {
+            if (!destDir.exists() && !destDir.mkdirs()) {
+                throw IOException("Failed to create dir: ${destDir.absolutePath}")
+            }
+            for (child in children) {
+                copyAssetDirRecursively(context, "$assetPath/$child", File(destDir, child))
+            }
+        } else {
+            destDir.parentFile?.mkdirs()
+            try {
+                assetManager.open(assetPath).use { input ->
+                    destDir.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.d(TAG, "Skipped asset leaf: $assetPath (${e.message})")
+            }
+        }
+    }
 }
+

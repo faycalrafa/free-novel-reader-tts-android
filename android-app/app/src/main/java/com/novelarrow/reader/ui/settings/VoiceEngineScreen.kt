@@ -82,6 +82,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.SupportedLanguage
 import com.novelarrow.reader.playback.VoiceGroupingHelper
@@ -522,6 +523,115 @@ private fun EngineSelectionContent(
             }
         }
 
+        // Embedded Offline Neural TTS (sherpa-onnx) Card
+        val isLocalSherpaActive = selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL || selectedEngineType == "PIPER"
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isLocalSherpaActive) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                }
+            ),
+            border = BorderStroke(
+                1.5.dp,
+                if (isLocalSherpaActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
+                    onOpenPiper()
+                }
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Embedded Neural TTS",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isLocalSherpaActive) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                } else {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                }
+                            ) {
+                                Text(
+                                    text = if (isLocalSherpaActive) "Active" else "Embedded",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isLocalSherpaActive) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        }
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Engine: sherpa-onnx (Offline C++)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Text(
+                            text = "Fast on-device Piper neural models • 0 external APKs",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Configure Piper Voices",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Active voice: ${if (isLocalSherpaActive) (selectedVoiceName ?: "Lessac (US)") else "System Default"}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         // Installed Android TTS Engines Section
         if (installedEngines.isNotEmpty()) {
             Text(
@@ -606,14 +716,17 @@ private fun EngineSelectionContent(
             )
         )
 
-        // Piper TTS Card
+        // Piper TTS Card (Embedded sherpa-onnx)
         OpenSourceEngineCard(
             title = "Piper TTS",
             subtitle = "Ultra-fast neural text-to-speech with English, French, and Arabic voices (<65MB each).",
-            status = if (hasPiperEngine) "Engine Ready" else "Models & Voices",
-            isEngineReady = hasPiperEngine,
-            isSelected = selectedEngineType == "PIPER",
-            onClick = onOpenPiper
+            status = "Embedded • Ready",
+            isEngineReady = true,
+            isSelected = isLocalSherpaActive,
+            onClick = {
+                onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
+                onOpenPiper()
+            }
         )
 
         // Kokoro TTS Card
