@@ -374,9 +374,9 @@ object AppUpdateManager {
                 @Suppress("DEPRECATION")
                 context.packageManager.getPackageInfo(context.packageName, 0)
             }
-            pInfo.versionName ?: "3.5.2"
+            pInfo.versionName ?: "3.5.3"
         } catch (e: Exception) {
-            "3.5.2"
+            "3.5.3"
         }
     }
 

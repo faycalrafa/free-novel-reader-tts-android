@@ -40,6 +40,7 @@ data class SharedTtsSettings(
     val favoriteVoiceArabic: String? = null,
     val favoriteVoiceFrench: String? = null,
     val selectedEngineType: String = "SYSTEM",
+    val selectedTtsEnginePackage: String? = null,
     val contentSelectors: List<ContentSelectorRule> = emptyList()
 )
 
@@ -126,6 +127,7 @@ class SettingsRepository(private val context: Context) {
                     favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
                     favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
                     selectedEngineType = shared.selectedEngineType,
+                    selectedTtsEnginePackage = shared.selectedTtsEnginePackage ?: loadedReader.selectedTtsEnginePackage,
                     contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
                 )
                 val mergedBrowser = loadedBrowser.copy(
@@ -274,6 +276,7 @@ class SettingsRepository(private val context: Context) {
                 favoriteVoiceArabic = _settingsFlow.value.favoriteVoiceArabic,
                 favoriteVoiceFrench = _settingsFlow.value.favoriteVoiceFrench,
                 selectedEngineType = _settingsFlow.value.selectedEngineType,
+                selectedTtsEnginePackage = _settingsFlow.value.selectedTtsEnginePackage,
                 contentSelectors = _settingsFlow.value.contentSelectors
             )
             val newShared = transform(currentShared)
@@ -292,6 +295,7 @@ class SettingsRepository(private val context: Context) {
                 favoriteVoiceArabic = newShared.favoriteVoiceArabic,
                 favoriteVoiceFrench = newShared.favoriteVoiceFrench,
                 selectedEngineType = newShared.selectedEngineType,
+                selectedTtsEnginePackage = newShared.selectedTtsEnginePackage,
                 contentSelectors = newShared.contentSelectors
             )
             val updatedBrowser = _browserSettingsFlow.value.copy(
@@ -468,6 +472,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSelectedEngineType(engineType: String) = withContext(Dispatchers.IO) {
         updateSharedTts { it.copy(selectedEngineType = engineType) }
+    }
+
+    suspend fun setSelectedTtsEnginePackage(enginePackage: String?) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(selectedTtsEnginePackage = enginePackage) }
     }
 
     suspend fun setContentSelectors(selectors: List<ContentSelectorRule>) = withContext(Dispatchers.IO) {
@@ -686,6 +694,7 @@ class SettingsRepository(private val context: Context) {
             favoriteVoiceArabic = reader.favoriteVoiceArabic,
             favoriteVoiceFrench = reader.favoriteVoiceFrench,
             selectedEngineType = reader.selectedEngineType,
+            selectedTtsEnginePackage = reader.selectedTtsEnginePackage,
             contentSelectors = reader.contentSelectors
         )
         saveSharedTts(initial)
@@ -722,6 +731,7 @@ class SettingsRepository(private val context: Context) {
             favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
             favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
             selectedEngineType = shared.selectedEngineType,
+            selectedTtsEnginePackage = shared.selectedTtsEnginePackage ?: loadedReader.selectedTtsEnginePackage,
             contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
         )
         val mergedBrowser = loadedBrowser.copy(
@@ -766,6 +776,7 @@ class SettingsRepository(private val context: Context) {
                 favoriteVoiceArabic = currentReader.favoriteVoiceArabic,
                 favoriteVoiceFrench = currentReader.favoriteVoiceFrench,
                 selectedEngineType = currentReader.selectedEngineType,
+                selectedTtsEnginePackage = currentReader.selectedTtsEnginePackage,
                 contentSelectors = currentReader.contentSelectors
             )
 

@@ -124,8 +124,10 @@ object AudioPlaybackCoordinator {
         libraryRepository = LibraryRepository(application)
         settingsRepository = SettingsRepository(application)
 
+        val initialEngine = settingsRepository?.getSettings()?.selectedTtsEnginePackage
+
         // Initialize TtsManager owned strictly by the coordinator
-        ttsManager = TtsManager(application) { success ->
+        ttsManager = TtsManager(application, initialEngine) { success ->
             if (success) {
                 val voices = ttsManager?.getAvailableVoices().orEmpty()
                 _availableVoicesState.value = voices
@@ -155,7 +157,18 @@ object AudioPlaybackCoordinator {
                         _sleepTimerRemainingSecondsState.value = 0
                     }
                 }
-                applyTtsSettings()
+                if (settings.selectedTtsEnginePackage != ttsManager?.getActiveEnginePackage()) {
+                    ttsManager?.setEngine(settings.selectedTtsEnginePackage) { success ->
+                        if (success) {
+                            val voices = ttsManager?.getAvailableVoices().orEmpty()
+                            _availableVoicesState.value = voices
+                            _playbackProgressState.update { it.copy(availableVoices = voices) }
+                            applyTtsSettings()
+                        }
+                    }
+                } else {
+                    applyTtsSettings()
+                }
             }
         }
 
@@ -1090,7 +1103,37 @@ object AudioPlaybackCoordinator {
 
     fun getDefaultTtsEngine(): String? = ttsManager?.getDefaultEngineName()
 
+    fun getActiveTtsEngine(): String? = ttsManager?.getActiveEnginePackage()
+
     fun getInstalledTtsEngines(): List<android.speech.tts.TextToSpeech.EngineInfo> = ttsManager?.getEngines().orEmpty()
+
+    fun switchTtsEngine(enginePackage: String?, onComplete: ((Boolean) -> Unit)? = null) {
+        coordinatorScope.launch {
+            settingsRepository?.setSelectedTtsEnginePackage(enginePackage)
+            ttsManager?.setEngine(enginePackage) { success ->
+                if (success) {
+                    val voices = ttsManager?.getAvailableVoices().orEmpty()
+                    _availableVoicesState.value = voices
+                    _playbackProgressState.update { it.copy(availableVoices = voices) }
+                    applyTtsSettings()
+                }
+                onComplete?.invoke(success)
+            }
+        }
+    }
+
+    fun findCompatibleEngineForVoice(voiceInfo: NeuralVoiceInfo): android.speech.tts.TextToSpeech.EngineInfo? {
+        val engines = getInstalledTtsEngines()
+        return when (voiceInfo.engine.uppercase()) {
+            "PIPER" -> engines.firstOrNull {
+                it.name.contains("piper", ignoreCase = true) || it.name.contains("sherpa", ignoreCase = true)
+            }
+            "KOKORO", "KITTEN" -> engines.firstOrNull {
+                it.name.contains("sherpa", ignoreCase = true) || it.name.contains("onnx", ignoreCase = true)
+            }
+            else -> null
+        }
+    }
 
     fun getAvailableVoices(): List<Voice> = ttsManager?.getAvailableVoices().orEmpty()
 
@@ -1111,23 +1154,15 @@ object AudioPlaybackCoordinator {
         val availableVoices = ttsManager?.getAvailableVoices().orEmpty()
         val matchingVoice = availableVoices.firstOrNull { it.name.equals(voiceInfo.id, ignoreCase = true) }
             ?: availableVoices.firstOrNull { it.name.contains(voiceInfo.name, ignoreCase = true) }
-            ?: availableVoices.firstOrNull { it.locale == voiceInfo.language.locale }
+            ?: availableVoices.firstOrNull { it.name.contains(voiceInfo.modelFileName.substringBefore("."), ignoreCase = true) }
 
         if (matchingVoice != null) {
             ttsManager?.speakPreview(matchingVoice, text)
         } else {
-            val engine = getDefaultTtsEngine() ?: "System TTS"
-            AppLogger.w(TAG, "Voice \"${voiceInfo.name}\" not registered in engine $engine. Using best matching voice for preview.")
-            showToast("Voice \"${voiceInfo.name}\" not registered in engine $engine. Previewing with best matching voice.")
-            ttsManager?.configureLanguageSafely(voiceInfo.language.locale.displayLanguage)
-            val fallbackVoice = availableVoices.firstOrNull { it.locale.language == voiceInfo.language.locale.language }
-                ?: availableVoices.firstOrNull()
-            if (fallbackVoice != null) {
-                ttsManager?.speakPreview(fallbackVoice, text)
-            } else {
-                showToast("No TTS voice available on device for language ${voiceInfo.language.displayName}")
-                _previewingVoiceName.value = null
-            }
+            val activeEngine = getActiveTtsEngine() ?: getDefaultTtsEngine() ?: "System TTS"
+            AppLogger.w(TAG, "Voice \"${voiceInfo.name}\" (${voiceInfo.id}) is not registered in active TTS engine ($activeEngine). Engine voices: ${availableVoices.size}")
+            showToast("Voice \"${voiceInfo.name}\" is not registered in active engine ($activeEngine). Please activate a compatible TTS engine.")
+            _previewingVoiceName.value = null
         }
     }
 

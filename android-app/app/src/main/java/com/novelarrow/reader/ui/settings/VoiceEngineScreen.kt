@@ -17,6 +17,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -317,10 +319,14 @@ fun VoiceEngineScreen(
                         voiceCount = availableVoices.size,
                         selectedVoiceName = savedVoiceName,
                         selectedEngineType = settings?.selectedEngineType ?: "SYSTEM",
+                        selectedEnginePackage = settings?.selectedTtsEnginePackage,
                         onSelectEngine = { engineType ->
                             coroutineScope.launch {
                                 AudioPlaybackCoordinator.settingsRepository?.setSelectedEngineType(engineType)
                             }
+                        },
+                        onSelectEnginePackage = { pkg ->
+                            AudioPlaybackCoordinator.switchTtsEngine(pkg)
                         },
                         onSelectBuiltIn = {
                             currentMode = VoiceEngineScreenMode.VOICE_SELECTION
@@ -376,7 +382,9 @@ private fun EngineSelectionContent(
     voiceCount: Int,
     selectedVoiceName: String?,
     selectedEngineType: String,
+    selectedEnginePackage: String?,
     onSelectEngine: (String) -> Unit,
+    onSelectEnginePackage: (String) -> Unit,
     onSelectBuiltIn: () -> Unit,
     onOpenPiper: () -> Unit,
     onOpenKokoro: () -> Unit,
@@ -384,10 +392,23 @@ private fun EngineSelectionContent(
     onOpenSystemTtsSettings: () -> Unit
 ) {
     val defaultEngine = AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "com.google.android.tts"
+    val activeEnginePkg = AudioPlaybackCoordinator.getActiveTtsEngine() ?: selectedEnginePackage ?: defaultEngine
+    val installedEngines = remember { AudioPlaybackCoordinator.getInstalledTtsEngines() }
+
+    val hasPiperEngine = installedEngines.any {
+        it.name.contains("piper", ignoreCase = true) || it.name.contains("sherpa", ignoreCase = true)
+    }
+    val hasKokoroEngine = installedEngines.any {
+        it.name.contains("sherpa", ignoreCase = true) || it.name.contains("onnx", ignoreCase = true)
+    }
+    val hasKittenEngine = installedEngines.any {
+        it.name.contains("sherpa", ignoreCase = true) || it.name.contains("onnx", ignoreCase = true)
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -469,7 +490,7 @@ private fun EngineSelectionContent(
                         }
 
                         Text(
-                            text = defaultEngine,
+                            text = "Engine: $activeEnginePkg",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                         )
@@ -501,6 +522,82 @@ private fun EngineSelectionContent(
             }
         }
 
+        // Installed Android TTS Engines Section
+        if (installedEngines.isNotEmpty()) {
+            Text(
+                text = "INSTALLED ENGINES ON DEVICE (${installedEngines.size})",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            )
+
+            installedEngines.forEach { engine ->
+                val isCurrent = engine.name == activeEnginePkg
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isCurrent) {
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                        }
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelectEnginePackage(engine.name) }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        RadioButton(
+                            selected = isCurrent,
+                            onClick = { onSelectEnginePackage(engine.name) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = engine.label.ifBlank { engine.name },
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                if (isCurrent) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = "Active",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = engine.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         Text(
             text = "OFFLINE NEURAL VOICES",
             style = MaterialTheme.typography.labelMedium.copy(
@@ -513,7 +610,8 @@ private fun EngineSelectionContent(
         OpenSourceEngineCard(
             title = "Piper TTS",
             subtitle = "Ultra-fast neural text-to-speech with English, French, and Arabic voices (<65MB each).",
-            status = "Models & Voices",
+            status = if (hasPiperEngine) "Engine Ready" else "Models & Voices",
+            isEngineReady = hasPiperEngine,
             isSelected = selectedEngineType == "PIPER",
             onClick = onOpenPiper
         )
@@ -522,7 +620,8 @@ private fun EngineSelectionContent(
         OpenSourceEngineCard(
             title = "Kokoro TTS",
             subtitle = "State-of-the-art 82M open-weight neural voice bundle (88MB) delivering human-grade prosody.",
-            status = "Models & Voices",
+            status = if (hasKokoroEngine) "Engine Ready" else "Models & Voices",
+            isEngineReady = hasKokoroEngine,
             isSelected = selectedEngineType == "KOKORO",
             onClick = onOpenKokoro
         )
@@ -531,12 +630,13 @@ private fun EngineSelectionContent(
         OpenSourceEngineCard(
             title = "KittenTTS",
             subtitle = "Ultra-compact embedded on-device models (<30MB) designed for minimal battery consumption.",
-            status = "Models & Voices",
+            status = if (hasKittenEngine) "Engine Ready" else "Models & Voices",
+            isEngineReady = hasKittenEngine,
             isSelected = selectedEngineType == "KITTEN",
             onClick = onOpenKitten
         )
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(16.dp))
 
         // System Settings Launch Card
         Card(
@@ -584,6 +684,7 @@ private fun OpenSourceEngineCard(
     title: String,
     subtitle: String,
     status: String,
+    isEngineReady: Boolean = false,
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
@@ -626,13 +727,21 @@ private fun OpenSourceEngineCard(
                     )
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer
+                        color = if (isEngineReady) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        } else {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        }
                     ) {
                         Text(
                             text = status,
                             style = MaterialTheme.typography.labelSmall.copy(
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (isEngineReady) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                }
                             ),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )

@@ -17,13 +17,18 @@ import java.util.Locale
  */
 class TtsManager(
     private val context: Context,
+    initialEnginePackage: String? = null,
     private val onInitComplete: (Boolean) -> Unit
 ) {
+    constructor(context: Context, onInitComplete: (Boolean) -> Unit) : this(context, null, onInitComplete)
 
     private var tts: TextToSpeech? = null
     var isInitialized: Boolean = false
         private set
 
+    private var currentEnginePackage: String? = initialEnginePackage
+    private var currentRate: Float = 1.0f
+    private var currentPitch: Float = 1.0f
     private var languageOverride: Locale? = null
     private var activeCustomVoice: Voice? = null
 
@@ -33,7 +38,12 @@ class TtsManager(
     var onPreviewDone: (() -> Unit)? = null
 
     init {
-        tts = TextToSpeech(context) { status ->
+        initializeEngine(initialEnginePackage)
+    }
+
+    private fun initializeEngine(enginePackage: String?, callback: ((Boolean) -> Unit)? = null) {
+        currentEnginePackage = enginePackage
+        val listener = TextToSpeech.OnInitListener { status ->
             if (status == TextToSpeech.SUCCESS) {
                 try {
                     val audioAttributes = AudioAttributes.Builder()
@@ -42,20 +52,69 @@ class TtsManager(
                         .build()
                     tts?.setAudioAttributes(audioAttributes)
                 } catch (e: Exception) {
-                    Log.w(TAG, "Failed to set AudioAttributes: ${e.message}")
+                    AppLogger.w(TAG, "Failed to set AudioAttributes: ${e.message}", e)
                 }
                 configureLanguageSafely()
                 isInitialized = true
                 setupProgressListener()
+                tts?.setSpeechRate(currentRate)
+                tts?.setPitch(currentPitch)
+                activeCustomVoice?.let { voice ->
+                    try {
+                        tts?.voice = voice
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Failed to re-assert voice ${voice.name} after engine init: ${e.message}", e)
+                    }
+                }
+                val activePkg = enginePackage ?: tts?.defaultEngine ?: "System Default"
+                AppLogger.i(TAG, "TTS engine initialized successfully: $activePkg")
                 onInitComplete(true)
+                callback?.invoke(true)
             } else {
                 isInitialized = false
+                AppLogger.e(TAG, "Failed to initialize TTS engine: ${enginePackage ?: "System Default"} (status: $status)")
                 onInitComplete(false)
+                callback?.invoke(false)
             }
+        }
+
+        try {
+            tts = if (!enginePackage.isNullOrBlank()) {
+                TextToSpeech(context, listener, enginePackage)
+            } else {
+                TextToSpeech(context, listener)
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Exception creating TextToSpeech for engine $enginePackage: ${e.message}", e)
+            isInitialized = false
+            onInitComplete(false)
+            callback?.invoke(false)
         }
     }
 
+    fun setEngine(enginePackage: String?, onComplete: ((Boolean) -> Unit)? = null) {
+        if (enginePackage == currentEnginePackage && isInitialized) {
+            onComplete?.invoke(true)
+            return
+        }
+        AppLogger.i(TAG, "Switching TTS engine from $currentEnginePackage to $enginePackage")
+        try {
+            stop()
+            tts?.shutdown()
+            tts = null
+            isInitialized = false
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Error shutting down previous TTS engine: ${e.message}", e)
+        }
+        initializeEngine(enginePackage, onComplete)
+    }
+
+    fun getActiveEnginePackage(): String? {
+        return currentEnginePackage ?: tts?.defaultEngine
+    }
+
     fun setSpeechRate(rate: Float) {
+        currentRate = rate
         try {
             tts?.setSpeechRate(rate)
         } catch (e: Exception) {
@@ -295,12 +354,14 @@ class TtsManager(
     }
 
     fun setRate(rate: Float) {
+        currentRate = rate
         if (isInitialized) {
             tts?.setSpeechRate(rate)
         }
     }
 
     fun setPitch(pitch: Float) {
+        currentPitch = pitch
         if (isInitialized) {
             tts?.setPitch(pitch)
         }
@@ -348,11 +409,12 @@ class TtsManager(
             // Check if this is an offline neural voice from NeuralVoiceCatalog
             val neuralVoice = com.novelarrow.reader.data.model.NeuralVoiceCatalog.getVoiceById(voiceName, context)
             val displayName = neuralVoice?.name ?: voiceName
-            val engineName = tts?.defaultEngine ?: "System TTS"
+            val activeEngine = getActiveEnginePackage() ?: "System TTS"
 
             val matchingVoice = if (neuralVoice != null) {
                 availableVoices.firstOrNull { it.name.contains(neuralVoice.name, ignoreCase = true) }
-                    ?: availableVoices.firstOrNull { it.locale == neuralVoice.language.locale }
+                    ?: availableVoices.firstOrNull { it.name.contains(neuralVoice.modelFileName.substringBefore("."), ignoreCase = true) }
+                    ?: availableVoices.firstOrNull { it.name.contains(neuralVoice.id, ignoreCase = true) }
             } else null
 
             if (matchingVoice != null) {
@@ -370,11 +432,11 @@ class TtsManager(
                 }
             } else {
                 configureLanguageSafely(neuralVoice?.language?.locale?.displayLanguage)
-                AppLogger.w(TAG, "Requested voice \"$voiceName\" ($displayName) was not found in TTS engine ($engineName). Engine voices: ${availableVoices.size}")
+                AppLogger.w(TAG, "Requested voice \"$voiceName\" ($displayName) was not found in TTS engine ($activeEngine). Engine voices: ${availableVoices.size}")
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     Toast.makeText(
                         context,
-                        "Voice \"$displayName\" is not available in TTS engine ($engineName). Using default voice.",
+                        "Voice \"$displayName\" is not available in active TTS engine ($activeEngine).",
                         Toast.LENGTH_LONG
                     ).show()
                 }

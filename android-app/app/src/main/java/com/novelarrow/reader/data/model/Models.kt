@@ -199,6 +199,7 @@ data class ReaderSettings(
     val favoriteVoiceArabic: String? = null,
     val favoriteVoiceFrench: String? = null,
     val selectedEngineType: String = "ANDROID_SYSTEM",
+    val selectedTtsEnginePackage: String? = null,
     val autoNextChapter: Boolean = true,
     val autoScroll: Boolean = true,
     val rememberProgress: Boolean = true,
