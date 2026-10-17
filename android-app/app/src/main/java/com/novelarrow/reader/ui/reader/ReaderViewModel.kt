@@ -15,6 +15,7 @@ import com.novelarrow.reader.data.model.ThemeMode
 import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.ChapterSortPreset
 import com.novelarrow.reader.data.repository.LibraryRepository
+import com.novelarrow.reader.data.repository.LibraryUpdateEvent
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
@@ -31,6 +32,7 @@ import com.novelarrow.reader.data.backup.BackupRestoreManager
 import com.novelarrow.reader.data.backup.ExistingConfigsReport
 import com.novelarrow.reader.data.model.WebBrowserSettings
 import com.novelarrow.reader.data.repository.UserPreferencesBackup
+import com.novelarrow.reader.util.AppLogger
 import com.novelarrow.reader.util.PermissionUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -94,6 +96,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         AudioPlaybackCoordinator.initialize(application)
         observeSettings()
         observePlaybackService()
+        observeLibraryUpdates()
         checkAndImportDefaultDownloadFolderOnFirstLaunch()
         loadInitialLibrary()
         val installedVer = AppUpdateManager.getInstalledVersionName(application)
@@ -111,10 +114,16 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         if (novelId == null) return
         _uiState.update { state ->
             val updatedNovels = state.novels.map { nov ->
-                if (nov.id == novelId) nov.copy(currentChapterIndex = chapterIndex) else nov
+                if (nov.id == novelId) nov.copy(
+                    currentChapterIndex = chapterIndex,
+                    currentChapterId = chapterId ?: nov.currentChapterId
+                ) else nov
             }
             val updatedCurrentNovel = if (state.currentNovel?.id == novelId) {
-                state.currentNovel.copy(currentChapterIndex = chapterIndex)
+                state.currentNovel.copy(
+                    currentChapterIndex = chapterIndex,
+                    currentChapterId = chapterId ?: state.currentNovel.currentChapterId
+                )
             } else {
                 state.currentNovel
             }
@@ -277,10 +286,117 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    private var lastResumeRefreshTimeMs = 0L
+
+    private fun observeLibraryUpdates() {
+        viewModelScope.launch {
+            libraryRepository.libraryUpdateEvents.collect { event ->
+                AppLogger.d("ReaderViewModel", "Received library update event: $event")
+                val novels = libraryRepository.getNovels()
+                val archived = libraryRepository.getArchivedNovels()
+                _uiState.update { current ->
+                    current.copy(
+                        novels = novels,
+                        archivedNovels = archived
+                    )
+                }
+
+                val curNovel = _uiState.value.currentNovel
+                val inspNovel = _uiState.value.inspectedNovel
+
+                when (event) {
+                    is LibraryUpdateEvent.ChapterDownloaded -> {
+                        if (curNovel != null && curNovel.title.equals(event.novelTitle, ignoreCase = true)) {
+                            val updatedNovel = novels.firstOrNull { it.id == curNovel.id } ?: curNovel
+                            refreshCurrentNovelState(updatedNovel)
+                        }
+                        if (inspNovel != null && inspNovel.title.equals(event.novelTitle, ignoreCase = true)) {
+                            val inspectedChaps = libraryRepository.getChapters(inspNovel.id)
+                            _uiState.update { it.copy(inspectedChapters = inspectedChaps) }
+                        }
+                    }
+                    is LibraryUpdateEvent.BatchCommitted -> {
+                        if (curNovel != null && curNovel.title.equals(event.novelTitle, ignoreCase = true)) {
+                            val updatedNovel = novels.firstOrNull { it.id == curNovel.id } ?: curNovel
+                            refreshCurrentNovelState(updatedNovel)
+                        }
+                        if (inspNovel != null && inspNovel.title.equals(event.novelTitle, ignoreCase = true)) {
+                            val inspectedChaps = libraryRepository.getChapters(inspNovel.id)
+                            _uiState.update { it.copy(inspectedChapters = inspectedChaps) }
+                        }
+                    }
+                    LibraryUpdateEvent.LibraryRefreshed,
+                    LibraryUpdateEvent.LibraryChanged -> {
+                        if (curNovel != null) {
+                            val updatedNovel = novels.firstOrNull { it.id == curNovel.id }
+                            if (updatedNovel != null) {
+                                refreshCurrentNovelState(updatedNovel)
+                            }
+                        }
+                        if (inspNovel != null) {
+                            val inspectedChaps = libraryRepository.getChapters(inspNovel.id)
+                            _uiState.update { it.copy(inspectedChapters = inspectedChaps) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshCurrentNovelState(updatedNovel: Novel) {
+        val chapters = libraryRepository.getChapters(updatedNovel.id)
+        val curChap = _uiState.value.currentChapter
+        val newCurrentChap = if (curChap != null) {
+            chapters.firstOrNull { it.id == curChap.id } ?: chapters.getOrNull(updatedNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0)))
+        } else {
+            chapters.getOrNull(updatedNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0)))
+        }
+
+        _uiState.update {
+            it.copy(
+                currentNovel = updatedNovel,
+                chapters = chapters,
+                currentChapter = newCurrentChap ?: it.currentChapter
+            )
+        }
+    }
+
+    fun onAppResumed() {
+        val now = System.currentTimeMillis()
+        if (now - lastResumeRefreshTimeMs < 4000L) {
+            AppLogger.d("ReaderViewModel", "Skipping onAppResumed refresh (debounced)")
+            return
+        }
+        lastResumeRefreshTimeMs = now
+        viewModelScope.launch {
+            try {
+                AppLogger.i("ReaderViewModel", "App resumed: executing background library refresh...")
+                libraryRepository.scanDownloadedWebNovels()
+                val refreshedNovels = libraryRepository.refreshAllLinkedFolders()
+                val archived = libraryRepository.getArchivedNovels()
+                _uiState.update {
+                    it.copy(
+                        novels = refreshedNovels,
+                        archivedNovels = archived
+                    )
+                }
+                _uiState.value.currentNovel?.let { cur ->
+                    val updated = refreshedNovels.firstOrNull { it.id == cur.id }
+                    if (updated != null) {
+                        refreshCurrentNovelState(updated)
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w("ReaderViewModel", "Error in onAppResumed refresh: ${e.message}", e)
+            }
+        }
+    }
+
     fun loadInitialLibrary() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
-            val novels = libraryRepository.scanDownloadedWebNovels()
+            libraryRepository.scanDownloadedWebNovels()
+            val novels = libraryRepository.getNovels()
             val archivedNovels = libraryRepository.getArchivedNovels()
             val lastActiveId = libraryRepository.getLastActiveNovelId()
             val sortedNovels = if (lastActiveId != null) {
@@ -605,7 +721,12 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, currentNovel = novel) }
             val chapters = libraryRepository.getChapters(novel.id)
-            val chapterIdx = novel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+            val chapterIdx = if (novel.currentChapterId != null) {
+                val idx = chapters.indexOfFirst { it.id == novel.currentChapterId }
+                if (idx >= 0) idx else novel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+            } else {
+                novel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+            }
             val currentChapter = chapters.getOrNull(chapterIdx)
 
             _uiState.update {
@@ -1132,10 +1253,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     scanProgress = 0f,
                     scanCurrentIndex = 0,
                     scanTotalItems = 0,
-                    scanCurrentItem = "Discovering linked folder files..."
+                    scanCurrentItem = "Discovering library files..."
                 )
             }
-            val novels = libraryRepository.refreshAllLinkedFolders { current, total, name ->
+            val novels = libraryRepository.refreshEntireLibrary { current, total, name ->
                 val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
                 _uiState.update {
                     it.copy(
@@ -1146,17 +1267,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
             }
+            val archived = libraryRepository.getArchivedNovels()
             _uiState.update {
                 it.copy(
                     novels = novels,
+                    archivedNovels = archived,
                     isLibraryScanning = false,
-                    toastMessage = "Refreshed ${novels.size} folders"
+                    toastMessage = "Refreshed ${novels.size} novels"
                 )
             }
             _uiState.value.currentNovel?.let { cur ->
                 val updated = novels.firstOrNull { it.id == cur.id }
                 if (updated != null) {
-                    selectNovel(updated)
+                    refreshCurrentNovelState(updated)
                 }
             }
         }

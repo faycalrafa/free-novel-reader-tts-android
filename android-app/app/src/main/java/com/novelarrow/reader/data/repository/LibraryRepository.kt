@@ -20,9 +20,20 @@ import java.util.UUID
 import android.os.Environment
 import androidx.core.util.AtomicFile
 import com.novelarrow.reader.data.browser.WebNovelDownloader
+import com.novelarrow.reader.util.AppLogger
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.FileOutputStream
+
+sealed class LibraryUpdateEvent {
+    data class ChapterDownloaded(val novelTitle: String, val chapterTitle: String) : LibraryUpdateEvent()
+    data class BatchCommitted(val novelTitle: String) : LibraryUpdateEvent()
+    object LibraryRefreshed : LibraryUpdateEvent()
+    object LibraryChanged : LibraryUpdateEvent()
+}
 
 @Serializable
 data class ChapterProgressEntry(
@@ -42,7 +53,8 @@ data class NovelFolderProgress(
     val currentChapterTitle: String = "",
     val currentParagraphIndex: Int = 0,
     val chapters: List<ChapterProgressEntry> = emptyList(),
-    val lastUpdated: Long = System.currentTimeMillis()
+    val lastUpdated: Long = System.currentTimeMillis(),
+    val currentChapterId: String? = null
 )
 
 enum class ChapterSortPreset {
@@ -66,10 +78,96 @@ class LibraryRepository(private val context: Context) {
         @Volatile
         private var cachedDb: LibraryDatabase? = null
 
+        private val _libraryUpdateEvents = MutableSharedFlow<LibraryUpdateEvent>(extraBufferCapacity = 64)
+        val libraryUpdateEvents: SharedFlow<LibraryUpdateEvent> = _libraryUpdateEvents.asSharedFlow()
+
+        fun notifyLibraryUpdate(event: LibraryUpdateEvent) {
+            _libraryUpdateEvents.tryEmit(event)
+        }
+
         fun clearCacheForTesting() {
             cachedDb = null
         }
+
+        fun normalizeForMatching(s: String): String {
+            return s.replace("[_\\-\\s]+".toRegex(), " ").trim().lowercase(java.util.Locale.ROOT)
+        }
+
+        fun deduplicateNovels(
+            novels: List<Novel>,
+            chaptersMap: Map<String, List<Chapter>>
+        ): List<Novel> {
+            val grouped = novels.groupBy {
+                Triple(
+                    normalizeForMatching(it.title),
+                    it.rootTreeUri,
+                    it.subfolderPath ?: it.folderDocId ?: ""
+                )
+            }
+            return grouped.values.map { list ->
+                if (list.size == 1) list.first()
+                else {
+                    val wasArchived = list.any { it.isArchived }
+                    val chosen = list.maxByOrNull { n -> chaptersMap[n.id]?.size ?: n.chapterCount } ?: list.first()
+                    if (wasArchived) chosen.copy(isArchived = true) else chosen
+                }
+            }
+        }
+
+        fun deduplicateChapters(chapters: List<Chapter>): List<Chapter> {
+            if (chapters.isEmpty()) return emptyList()
+            val grouped = chapters.groupBy { ch ->
+                val rawUri = ch.fileUri.removePrefix("file://")
+                val fileName = try {
+                    File(rawUri).name.lowercase(java.util.Locale.ROOT)
+                } catch (_: Exception) { "" }
+                val normTitle = normalizeForMatching(ch.title)
+                val key = if (fileName.isNotBlank() && fileName.contains(".")) {
+                    fileName.substringBeforeLast('.')
+                } else if (normTitle.isNotBlank()) {
+                    normTitle
+                } else {
+                    rawUri.lowercase(java.util.Locale.ROOT)
+                }
+                Pair(ch.novelId, key)
+            }
+            return grouped.values.map { dupList ->
+                if (dupList.size == 1) dupList.first()
+                else {
+                    val isComp = dupList.any { it.isCompleted }
+                    val maxPara = dupList.maxOf { it.lastReadParagraphIndex }
+                    val maxOffset = dupList.maxOf { it.lastScrollOffset }
+                    val bestUrl = dupList.firstOrNull { !it.webSourceUrl.isNullOrBlank() }?.webSourceUrl
+                    val bestUri = dupList.firstOrNull {
+                        try {
+                            val f = File(it.fileUri.removePrefix("file://"))
+                            f.exists() && f.length() > 0
+                        } catch (_: Exception) { false }
+                    }?.fileUri ?: dupList.first().fileUri
+                    val chosen = dupList.first()
+                    chosen.copy(
+                        isCompleted = isComp,
+                        lastReadParagraphIndex = maxPara,
+                        lastScrollOffset = maxOffset,
+                        webSourceUrl = bestUrl ?: chosen.webSourceUrl,
+                        fileUri = bestUri
+                    )
+                }
+            }.sortedBy { it.orderIndex }.mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+        }
+
+        fun generateCanonicalChapterId(novelId: String, fileUriOrName: String): String {
+            val rawName = try {
+                File(fileUriOrName.removePrefix("file://")).name
+            } catch (_: Exception) {
+                fileUriOrName
+            }
+            val cleanName = rawName.substringBeforeLast('.').lowercase(java.util.Locale.ROOT).replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+            return "${novelId}_$cleanName"
+        }
     }
+
+    val libraryUpdateEvents: SharedFlow<LibraryUpdateEvent> get() = Companion.libraryUpdateEvents
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -86,7 +184,11 @@ class LibraryRepository(private val context: Context) {
         "txt", "md", "markdown", "html", "htm", "xhtml", "xml", "json", "csv", "log", "rtf", "epub", "text", "mhtml"
     )
 
-    fun readFolderProgress(folderUriOrPath: String, novelTitle: String): NovelFolderProgress? {
+    fun readFolderProgress(
+        folderUriOrPath: String,
+        novelTitle: String,
+        folderDocId: String? = null
+    ): NovelFolderProgress? {
         try {
             if (folderUriOrPath.startsWith("/") || folderUriOrPath.startsWith("file://")) {
                 val dir = File(folderUriOrPath.removePrefix("file://"))
@@ -97,12 +199,30 @@ class LibraryRepository(private val context: Context) {
                 }
             } else if (folderUriOrPath.startsWith("content://")) {
                 val uri = Uri.parse(folderUriOrPath)
-                val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (_: Exception) { null }
-                val progressFile = rootDoc?.findFile(".progress.json")
-                if (progressFile != null && progressFile.exists()) {
-                    context.contentResolver.openInputStream(progressFile.uri)?.use { stream ->
-                        val text = stream.bufferedReader(Charsets.UTF_8).readText()
-                        if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
+                if (folderDocId != null) {
+                    try {
+                        val (_, files) = querySafChildrenFast(uri, folderDocId)
+                        val progressItem = files.firstOrNull { it.displayName == ".progress.json" }
+                        if (progressItem != null) {
+                            context.contentResolver.openInputStream(Uri.parse(progressItem.uriStr))?.use { stream ->
+                                val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                                if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w("LibraryRepository", "Error reading SAF subfolder progress for $novelTitle (docId: $folderDocId)", e)
+                    }
+                } else {
+                    val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) {
+                        AppLogger.w("LibraryRepository", "Failed resolving DocumentFile from $uri for $novelTitle", e)
+                        null
+                    }
+                    val progressFile = rootDoc?.findFile(".progress.json")
+                    if (progressFile != null && progressFile.exists()) {
+                        context.contentResolver.openInputStream(progressFile.uri)?.use { stream ->
+                            val text = stream.bufferedReader(Charsets.UTF_8).readText()
+                            if (text.isNotBlank()) return json.decodeFromString<NovelFolderProgress>(text)
+                        }
                     }
                 }
             }
@@ -128,7 +248,7 @@ class LibraryRepository(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.w("LibraryRepository", "Failed reading folder progress for $novelTitle: ${e.message}", e)
         }
         return null
     }
@@ -136,7 +256,8 @@ class LibraryRepository(private val context: Context) {
     fun writeFolderProgress(
         folderUriOrPath: String,
         novelTitle: String,
-        progress: NovelFolderProgress
+        progress: NovelFolderProgress,
+        folderDocId: String? = null
     ) {
         try {
             val jsonText = json.encodeToString(progress)
@@ -147,15 +268,38 @@ class LibraryRepository(private val context: Context) {
                 }
             } else if (folderUriOrPath.startsWith("content://")) {
                 val uri = Uri.parse(folderUriOrPath)
-                val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (_: Exception) { null }
-                if (rootDoc != null && rootDoc.exists() && rootDoc.canWrite()) {
-                    var progressFile = rootDoc.findFile(".progress.json")
-                    if (progressFile == null) {
-                        progressFile = rootDoc.createFile("application/json", ".progress.json")
+                if (folderDocId != null) {
+                    try {
+                        val parentDocUri = DocumentsContract.buildDocumentUriUsingTree(uri, folderDocId)
+                        val (_, files) = querySafChildrenFast(uri, folderDocId)
+                        val existingProgress = files.firstOrNull { it.displayName == ".progress.json" }
+                        val targetUri = if (existingProgress != null) {
+                            Uri.parse(existingProgress.uriStr)
+                        } else {
+                            DocumentsContract.createDocument(context.contentResolver, parentDocUri, "application/json", ".progress.json")
+                        }
+                        targetUri?.let { pUri ->
+                            context.contentResolver.openOutputStream(pUri, "wt")?.use { out ->
+                                out.write(jsonText.toByteArray(Charsets.UTF_8))
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w("LibraryRepository", "Error writing SAF subfolder progress for $novelTitle (docId: $folderDocId)", e)
                     }
-                    progressFile?.uri?.let { pUri ->
-                        context.contentResolver.openOutputStream(pUri, "wt")?.use { out ->
-                            out.write(jsonText.toByteArray(Charsets.UTF_8))
+                } else {
+                    val rootDoc = try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) {
+                        AppLogger.w("LibraryRepository", "Failed resolving tree uri for $folderUriOrPath", e)
+                        null
+                    }
+                    if (rootDoc != null && rootDoc.exists() && rootDoc.canWrite()) {
+                        var progressFile = rootDoc.findFile(".progress.json")
+                        if (progressFile == null) {
+                            progressFile = rootDoc.createFile("application/json", ".progress.json")
+                        }
+                        progressFile?.uri?.let { pUri ->
+                            context.contentResolver.openOutputStream(pUri, "wt")?.use { out ->
+                                out.write(jsonText.toByteArray(Charsets.UTF_8))
+                            }
                         }
                     }
                 }
@@ -177,11 +321,13 @@ class LibraryRepository(private val context: Context) {
                 if (candidate.exists() && candidate.isDirectory) {
                     try {
                         File(candidate, ".progress.json").writeText(jsonText, Charsets.UTF_8)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        AppLogger.w("LibraryRepository", "Failed writing candidate progress at ${candidate.path}", e)
+                    }
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.w("LibraryRepository", "Failed writing folder progress for $novelTitle", e)
         }
     }
 
@@ -256,28 +402,12 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
-    private fun normalizeForMatching(s: String): String {
-        return s.replace("[_\\-\\s]+".toRegex(), " ").trim().lowercase(java.util.Locale.ROOT)
-    }
 
-    private fun deduplicateNovels(
-        novels: List<Novel>,
-        chaptersMap: Map<String, List<Chapter>>
-    ): List<Novel> {
-        val grouped = novels.groupBy { normalizeForMatching(it.title) }
-        return grouped.values.map { list ->
-            if (list.size == 1) list.first()
-            else {
-                val wasArchived = list.any { it.isArchived }
-                val chosen = list.maxByOrNull { n -> chaptersMap[n.id]?.size ?: n.chapterCount } ?: list.first()
-                if (wasArchived) chosen.copy(isArchived = true) else chosen
-            }
-        }
-    }
 
     suspend fun getChapters(novelId: String): List<Chapter> = withContext(Dispatchers.IO) {
         dbMutex.withLock {
-            loadDatabaseLocked().chapters[novelId] ?: emptyList()
+            val raw = loadDatabaseLocked().chapters[novelId] ?: emptyList()
+            deduplicateChapters(raw)
         }
     }
 
@@ -349,7 +479,11 @@ class LibraryRepository(private val context: Context) {
                 currentChapterIndex = existingNovel?.currentChapterIndex ?: 0,
                 lastUpdated = System.currentTimeMillis(),
                 isWebNovel = false,
-                webUrl = sourceUrl.ifBlank { existingNovel?.webUrl }
+                webUrl = sourceUrl.ifBlank { existingNovel?.webUrl },
+                subfolderPath = folder.absolutePath,
+                folderDocId = null,
+                isLooseRootFiles = false,
+                currentChapterId = updatedChapters.getOrNull(existingNovel?.currentChapterIndex ?: 0)?.id
             )
 
             val updatedNovels = currentDb.novels.filter {
@@ -380,6 +514,7 @@ class LibraryRepository(private val context: Context) {
                 }
             }
 
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.ChapterDownloaded(novelTitle, chapterTitle))
             updatedNovel
         }
     }
@@ -404,10 +539,10 @@ class LibraryRepository(private val context: Context) {
                     val existingByUri = existingChapters.associateBy { it.fileUri }
                     val existingByTitle = existingChapters.associateBy { it.title }
 
-                    val chapters = files.mapIndexed { index, file ->
+                    val chapters = deduplicateChapters(files.mapIndexed { index, file ->
                         val existing = existingByUri[file.absolutePath] ?: existingByTitle[file.nameWithoutExtension]
                         Chapter(
-                            id = existing?.id ?: "${targetNovelId}_${file.name}",
+                            id = existing?.id ?: generateCanonicalChapterId(targetNovelId, file.name),
                             novelId = targetNovelId,
                             title = file.nameWithoutExtension,
                             fileUri = file.absolutePath,
@@ -418,7 +553,7 @@ class LibraryRepository(private val context: Context) {
                             isCompleted = existing?.isCompleted ?: false,
                             webSourceUrl = existing?.webSourceUrl
                         )
-                    }
+                    })
 
                     val updatedNovel = Novel(
                         id = existingNovel?.id ?: targetNovelId,
@@ -429,7 +564,11 @@ class LibraryRepository(private val context: Context) {
                         currentChapterIndex = existingNovel?.currentChapterIndex ?: 0,
                         lastUpdated = System.currentTimeMillis(),
                         isWebNovel = false,
-                        webUrl = existingNovel?.webUrl
+                        webUrl = existingNovel?.webUrl,
+                        subfolderPath = folder.absolutePath,
+                        folderDocId = null,
+                        isLooseRootFiles = false,
+                        currentChapterId = chapters.getOrNull(existingNovel?.currentChapterIndex ?: 0)?.id
                     )
 
                     val updatedNovels = currentDb.novels.filter {
@@ -447,10 +586,12 @@ class LibraryRepository(private val context: Context) {
                             lastActiveNovelId = updatedNovel.id
                         )
                     )
+                    _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.BatchCommitted(novelTitle))
                     return@withContext
                 }
             }
             saveDatabaseLocked(currentDb)
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.BatchCommitted(novelTitle ?: ""))
         }
     }
 
@@ -461,10 +602,7 @@ class LibraryRepository(private val context: Context) {
             if (f.isDirectory) {
                 result.addAll(collectFilesRecursively(f, baseDir))
             } else if (f.isFile && isSupported(f.name)) {
-                val rel = f.relativeTo(baseDir)
-                val parentPath = rel.parent
-                val displayName = if (!parentPath.isNullOrBlank()) "[$parentPath] ${f.name}" else f.name
-                result.add(Pair(f, displayName))
+                result.add(Pair(f, f.name))
             }
         }
         return result
@@ -527,7 +665,7 @@ class LibraryRepository(private val context: Context) {
 
                     val existingNovel = novelsByNormTitle[normKey]
                     if (existingNovel == null) {
-                        val chapters = filesWithDisp.mapIndexed { index, (file, dispName) ->
+                        val rawChapters = filesWithDisp.mapIndexed { index, (file, dispName) ->
                             val fTitle = dispName.substringBeforeLast('.')
                             val existing = existingByUri[file.absolutePath] ?: existingByTitle[fTitle] ?: existingByTitle[file.nameWithoutExtension]
                             val prog = progressByTitle[fTitle] ?: progressByTitle[file.nameWithoutExtension] ?: progressByFile[file.name]
@@ -536,7 +674,7 @@ class LibraryRepository(private val context: Context) {
                             val isComp = prog?.isCompleted ?: existing?.isCompleted ?: false
                             val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
                             Chapter(
-                                id = existing?.id ?: "${actualNovelId}_${file.relativeTo(sub).path.replace(File.separatorChar, '_')}",
+                                id = existing?.id ?: generateCanonicalChapterId(actualNovelId, file.name),
                                 novelId = actualNovelId,
                                 title = fTitle,
                                 fileUri = file.absolutePath,
@@ -547,7 +685,23 @@ class LibraryRepository(private val context: Context) {
                                 isCompleted = isComp,
                                 webSourceUrl = existing?.webSourceUrl
                             )
-                        }.sortedBy { it.orderIndex }.mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }.toMutableList()
+                        }
+                        val chapters = deduplicateChapters(rawChapters)
+                            .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
+                            .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+                            .toMutableList()
+
+                        val targetChapterId = folderProgress?.currentChapterId ?: existingDbNovel?.currentChapterId
+                        val targetChapterTitle = folderProgress?.currentChapterTitle
+                        val resolvedIndex = if (targetChapterId != null) {
+                            val idx = chapters.indexOfFirst { it.id == targetChapterId }
+                            if (idx >= 0) idx else (folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0)
+                        } else if (!targetChapterTitle.isNullOrBlank()) {
+                            val idx = chapters.indexOfFirst { it.title.equals(targetChapterTitle, ignoreCase = true) }
+                            if (idx >= 0) idx else (folderProgress.currentChapterIndex)
+                        } else {
+                            folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0
+                        }.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
 
                         val novel = Novel(
                             id = actualNovelId,
@@ -555,19 +709,26 @@ class LibraryRepository(private val context: Context) {
                             rootTreeUri = sub.absolutePath,
                             chapterCount = chapters.size,
                             completedCount = chapters.count { it.isCompleted },
-                            currentChapterIndex = folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0,
+                            currentChapterIndex = resolvedIndex,
                             lastUpdated = existingDbNovel?.lastUpdated ?: System.currentTimeMillis(),
                             isWebNovel = existingDbNovel?.isWebNovel ?: false,
                             webUrl = existingDbNovel?.webUrl,
-                            isArchived = existingDbNovel?.isArchived ?: false
+                            isArchived = existingDbNovel?.isArchived ?: false,
+                            subfolderPath = sub.absolutePath,
+                            folderDocId = null,
+                            isLooseRootFiles = false,
+                            currentChapterId = chapters.getOrNull(resolvedIndex)?.id
                         )
                         novelsByNormTitle[normKey] = novel
                         chaptersByNovelId[novel.id] = chapters
                     } else {
                         val currentChapters = chaptersByNovelId[existingNovel.id] ?: mutableListOf()
-                        val existingFileUris = currentChapters.map { it.fileUri }.toSet()
+                        val existingFileKeys = currentChapters.map { ch ->
+                            try { File(ch.fileUri).name.lowercase(java.util.Locale.ROOT) } catch (_: Exception) { ch.title.lowercase(java.util.Locale.ROOT) }
+                        }.toSet()
                         for ((file, dispName) in filesWithDisp) {
-                            if (!existingFileUris.contains(file.absolutePath)) {
+                            val fileKey = file.name.lowercase(java.util.Locale.ROOT)
+                            if (!existingFileKeys.contains(fileKey)) {
                                 val fTitle = dispName.substringBeforeLast('.')
                                 val existing = existingByUri[file.absolutePath] ?: existingByTitle[fTitle] ?: existingByTitle[file.nameWithoutExtension]
                                 val prog = progressByTitle[fTitle] ?: progressByTitle[file.nameWithoutExtension] ?: progressByFile[file.name]
@@ -576,7 +737,7 @@ class LibraryRepository(private val context: Context) {
                                 val isComp = prog?.isCompleted ?: existing?.isCompleted ?: false
                                 currentChapters.add(
                                     Chapter(
-                                        id = existing?.id ?: "${existingNovel.id}_${file.relativeTo(sub).path.replace(File.separatorChar, '_')}",
+                                        id = existing?.id ?: generateCanonicalChapterId(existingNovel.id, file.name),
                                         novelId = existingNovel.id,
                                         title = fTitle,
                                         fileUri = file.absolutePath,
@@ -590,10 +751,16 @@ class LibraryRepository(private val context: Context) {
                                 )
                             }
                         }
-                        currentChapters.sortWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
+                        val deduped = deduplicateChapters(currentChapters)
+                            .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
+                            .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+                            .toMutableList()
+                        chaptersByNovelId[existingNovel.id] = deduped
                         novelsByNormTitle[normKey] = existingNovel.copy(
-                            chapterCount = currentChapters.size,
-                            completedCount = currentChapters.count { it.isCompleted }
+                            chapterCount = deduped.size,
+                            completedCount = deduped.count { it.isCompleted },
+                            currentChapterIndex = existingNovel.currentChapterIndex.coerceIn(0, (deduped.size - 1).coerceAtLeast(0)),
+                            currentChapterId = deduped.getOrNull(existingNovel.currentChapterIndex)?.id
                         )
                     }
                 }
@@ -745,12 +912,10 @@ class LibraryRepository(private val context: Context) {
     ) {
         val (subdirs, files) = querySafChildrenFast(treeUri, dirDocId)
         for (file in files) {
-            val displayName = if (pathPrefix.isNotBlank()) "[$pathPrefix] ${file.displayName}" else file.displayName
-            out.add(file.copy(displayName = displayName))
+            out.add(file)
         }
         for ((subDocId, subName) in subdirs) {
-            val nextPrefix = if (pathPrefix.isBlank()) subName else "$pathPrefix/$subName"
-            collectSafChildrenRecursivelyFast(treeUri, subDocId, out, nextPrefix)
+            collectSafChildrenRecursivelyFast(treeUri, subDocId, out, "")
         }
     }
 
@@ -774,11 +939,9 @@ class LibraryRepository(private val context: Context) {
         for (f in dir.listFiles()) {
             val name = f.name ?: continue
             if (f.isDirectory) {
-                val nextPrefix = if (pathPrefix.isBlank()) name else "$pathPrefix/$name"
-                collectDocumentFiles(f, out, nextPrefix)
+                collectDocumentFiles(f, out, "")
             } else if (f.isFile && isSupported(name)) {
-                val displayName = if (pathPrefix.isNotBlank()) "[$pathPrefix] $name" else name
-                out.add(ScannedFileItem(f.uri.toString(), displayName, f.length()))
+                out.add(ScannedFileItem(f.uri.toString(), name, f.length()))
             }
         }
     }
@@ -791,8 +954,8 @@ class LibraryRepository(private val context: Context) {
             if (f.isDirectory) {
                 val recursiveFiles = collectFilesRecursively(f, f)
                 if (recursiveFiles.isNotEmpty()) {
-                    subdirMap[f.name] = recursiveFiles.map { (file, dispName) ->
-                        ScannedFileItem(file.absolutePath, dispName, file.length())
+                    subdirMap[f.name] = recursiveFiles.map { (file, _) ->
+                        ScannedFileItem(file.absolutePath, file.name, file.length())
                     }
                 }
             } else if (f.isFile && isSupported(f.name)) {
@@ -804,16 +967,26 @@ class LibraryRepository(private val context: Context) {
 
     private fun collectLocalFiles(dir: File, out: MutableList<ScannedFileItem>) {
         val recursiveFiles = collectFilesRecursively(dir, dir)
-        for ((f, dispName) in recursiveFiles) {
-            out.add(ScannedFileItem(f.absolutePath, dispName, f.length()))
+        for ((f, _) in recursiveFiles) {
+            out.add(ScannedFileItem(f.absolutePath, f.name, f.length()))
         }
     }
 
     suspend fun scanRootDirectory(
         treeUri: Uri,
         onProgress: (current: Int, total: Int, currentItemName: String) -> Unit = { _, _, _ -> }
+    ): List<Novel> = scanRootDirectoryInternal(treeUri.toString(), treeUri, onProgress)
+
+    suspend fun scanRootDirectory(
+        folderPath: String,
+        onProgress: (current: Int, total: Int, currentItemName: String) -> Unit = { _, _, _ -> }
+    ): List<Novel> = scanRootDirectoryInternal(folderPath, null, onProgress)
+
+    private suspend fun scanRootDirectoryInternal(
+        treeUriStr: String,
+        safTreeUri: Uri?,
+        onProgress: (current: Int, total: Int, currentItemName: String) -> Unit
     ): List<Novel> = withContext(Dispatchers.IO) {
-        val treeUriStr = treeUri.toString()
         var rootName = "Imported Folder"
 
         var lastProgressTime = 0L
@@ -830,6 +1003,9 @@ class LibraryRepository(private val context: Context) {
         val subdirFilesMap = mutableMapOf<String, List<ScannedFileItem>>()
         val looseFiles = mutableListOf<ScannedFileItem>()
 
+        val safSubdirDocIds = mutableMapOf<String, String>()
+        var rootDocId: String? = null
+
         if (treeUriStr.startsWith("/") || treeUriStr.startsWith("file://")) {
             val dir = File(treeUriStr.removePrefix("file://"))
             if (dir.exists() && dir.isDirectory) {
@@ -839,29 +1015,42 @@ class LibraryRepository(private val context: Context) {
                 looseFiles.addAll(loose)
             }
         } else {
-            val rootDoc = try { DocumentFile.fromTreeUri(context, treeUri) } catch (_: Exception) { null }
+            val resolvedUri = safTreeUri ?: try { Uri.parse(treeUriStr) } catch (_: Exception) { null }
+            val rootDoc = resolvedUri?.let { uri ->
+                try { DocumentFile.fromTreeUri(context, uri) } catch (e: Exception) {
+                    AppLogger.w("LibraryRepository", "Failed resolving rootDoc for $treeUriStr", e)
+                    null
+                }
+            }
             if (rootDoc != null) {
                 rootName = rootDoc.name ?: "Imported Folder"
             }
 
             var scannedViaSafContract = false
-            val rootDocId = try {
-                if (DocumentsContract.isDocumentUri(context, treeUri)) {
-                    DocumentsContract.getDocumentId(treeUri)
-                } else {
-                    DocumentsContract.getTreeDocumentId(treeUri)
-                }
-            } catch (_: Exception) { null }
-
-            if (rootDocId != null) {
+            rootDocId = resolvedUri?.let { uri ->
                 try {
-                    val (subdirs, files) = querySafChildrenFast(treeUri, rootDocId)
+                    if (DocumentsContract.isDocumentUri(context, uri)) {
+                        DocumentsContract.getDocumentId(uri)
+                    } else {
+                        DocumentsContract.getTreeDocumentId(uri)
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w("LibraryRepository", "Failed extracting rootDocId for $treeUriStr", e)
+                    null
+                }
+            }
+
+            val targetDocId = rootDocId
+            if (targetDocId != null && resolvedUri != null) {
+                try {
+                    val (subdirs, files) = querySafChildrenFast(resolvedUri, targetDocId)
                     if (subdirs.isNotEmpty() || files.isNotEmpty()) {
                         scannedViaSafContract = true
                         looseFiles.addAll(files)
                         for ((subDocId, subName) in subdirs) {
+                            safSubdirDocIds[subName] = subDocId
                             val subFiles = mutableListOf<ScannedFileItem>()
-                            collectSafChildrenRecursivelyFast(treeUri, subDocId, subFiles)
+                            collectSafChildrenRecursivelyFast(resolvedUri, subDocId, subFiles)
                             if (subFiles.isNotEmpty()) {
                                 subdirFilesMap[subName] = subFiles
                             }
@@ -885,25 +1074,40 @@ class LibraryRepository(private val context: Context) {
         val newNovels = mutableListOf<Novel>()
         val chaptersMap = mutableMapOf<String, List<Chapter>>()
 
+        val rootDir = if (treeUriStr.startsWith("/") || treeUriStr.startsWith("file://")) {
+            File(treeUriStr.removePrefix("file://"))
+        } else null
+
         // 1. Process subdirectories as individual novel playlists
         for ((dirName, novelFiles) in subdirFilesMap) {
             val sortedFiles = novelFiles.sortedWith { a, b ->
                 NaturalOrderComparator.compare(a.displayName, b.displayName)
             }
 
+            val subfolderPath = rootDir?.let { File(it, dirName).absolutePath }
+            val folderDocId = safSubdirDocIds[dirName]
+
             val existingDbNovel = currentDb.novels.firstOrNull {
-                it.rootTreeUri == treeUriStr && it.title == dirName
+                (folderDocId != null && it.folderDocId == folderDocId) ||
+                (subfolderPath != null && it.subfolderPath == subfolderPath) ||
+                (it.rootTreeUri == treeUriStr && it.title == dirName)
             }
-            val novelId = existingDbNovel?.id ?: UUID.randomUUID().toString()
+            val novelId = existingDbNovel?.id ?: if (subfolderPath != null) {
+                "folder_${Math.abs(subfolderPath.hashCode())}"
+            } else if (folderDocId != null) {
+                "saf_${Math.abs(folderDocId.hashCode())}"
+            } else {
+                UUID.randomUUID().toString()
+            }
             val existingDbChapters = currentDb.chapters[novelId] ?: emptyList()
             val existingByUri = existingDbChapters.associateBy { it.fileUri }
             val existingByTitle = existingDbChapters.associateBy { it.title }
 
-            val folderProgress = readFolderProgress(treeUriStr, dirName)
+            val folderProgress = readFolderProgress(subfolderPath ?: treeUriStr, dirName, folderDocId)
             val progressByTitle = folderProgress?.chapters?.associateBy { it.title } ?: emptyMap()
             val progressByFile = folderProgress?.chapters?.associateBy { it.fileName } ?: emptyMap()
 
-            val chapters = sortedFiles.mapIndexed { index, file ->
+            val rawChapters = sortedFiles.mapIndexed { index, file ->
                 currentProgressIndex++
                 reportProgress(currentProgressIndex, totalFilesCount, "$dirName / ${file.displayName}")
                 val fTitle = file.displayName.substringBeforeLast('.')
@@ -914,7 +1118,7 @@ class LibraryRepository(private val context: Context) {
                 val isComp = prog?.isCompleted ?: existing?.isCompleted ?: false
                 val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
                 Chapter(
-                    id = existing?.id ?: UUID.randomUUID().toString(),
+                    id = existing?.id ?: generateCanonicalChapterId(novelId, file.displayName),
                     novelId = novelId,
                     title = fTitle,
                     fileUri = file.uriStr,
@@ -924,7 +1128,22 @@ class LibraryRepository(private val context: Context) {
                     lastScrollOffset = lastOffset,
                     isCompleted = isComp
                 )
-            }.sortedBy { it.orderIndex }.mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+            }
+            val chapters = deduplicateChapters(rawChapters)
+                .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
+                .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+
+            val targetChapterId = folderProgress?.currentChapterId ?: existingDbNovel?.currentChapterId
+            val targetChapterTitle = folderProgress?.currentChapterTitle
+            val resolvedIndex = if (targetChapterId != null) {
+                val idx = chapters.indexOfFirst { it.id == targetChapterId }
+                if (idx >= 0) idx else (folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0)
+            } else if (!targetChapterTitle.isNullOrBlank()) {
+                val idx = chapters.indexOfFirst { it.title.equals(targetChapterTitle, ignoreCase = true) }
+                if (idx >= 0) idx else (folderProgress.currentChapterIndex)
+            } else {
+                folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0
+            }.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
 
             val novel = Novel(
                 id = novelId,
@@ -932,7 +1151,11 @@ class LibraryRepository(private val context: Context) {
                 rootTreeUri = treeUriStr,
                 chapterCount = chapters.size,
                 completedCount = chapters.count { it.isCompleted },
-                currentChapterIndex = folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0
+                currentChapterIndex = resolvedIndex,
+                subfolderPath = subfolderPath,
+                folderDocId = folderDocId,
+                isLooseRootFiles = false,
+                currentChapterId = chapters.getOrNull(resolvedIndex)?.id
             )
 
             newNovels.add(novel)
@@ -946,19 +1169,29 @@ class LibraryRepository(private val context: Context) {
             }
             // If there are no subdirectories, the imported folder itself is the novel!
             val novelTitle = if (subdirFilesMap.isEmpty()) rootName else "$rootName (Chapters)"
+            val subfolderPath = rootDir?.absolutePath
+            val folderDocId = rootDocId
+
             val existingDbNovel = currentDb.novels.firstOrNull {
-                it.rootTreeUri == treeUriStr && it.title == novelTitle
+                (it.isLooseRootFiles && it.rootTreeUri == treeUriStr) ||
+                (it.rootTreeUri == treeUriStr && it.title == novelTitle)
             }
-            val novelId = existingDbNovel?.id ?: UUID.randomUUID().toString()
+            val novelId = existingDbNovel?.id ?: if (subfolderPath != null) {
+                "loose_${Math.abs(subfolderPath.hashCode())}"
+            } else if (folderDocId != null) {
+                "loose_saf_${Math.abs(folderDocId.hashCode())}"
+            } else {
+                UUID.randomUUID().toString()
+            }
             val existingDbChapters = currentDb.chapters[novelId] ?: emptyList()
             val existingByUri = existingDbChapters.associateBy { it.fileUri }
             val existingByTitle = existingDbChapters.associateBy { it.title }
 
-            val folderProgress = readFolderProgress(treeUriStr, novelTitle)
+            val folderProgress = readFolderProgress(subfolderPath ?: treeUriStr, novelTitle, folderDocId)
             val progressByTitle = folderProgress?.chapters?.associateBy { it.title } ?: emptyMap()
             val progressByFile = folderProgress?.chapters?.associateBy { it.fileName } ?: emptyMap()
 
-            val chapters = sortedFiles.mapIndexed { index, file ->
+            val rawChapters = sortedFiles.mapIndexed { index, file ->
                 currentProgressIndex++
                 reportProgress(currentProgressIndex, totalFilesCount, "$novelTitle / ${file.displayName}")
                 val fTitle = file.displayName.substringBeforeLast('.')
@@ -969,7 +1202,7 @@ class LibraryRepository(private val context: Context) {
                 val isComp = prog?.isCompleted ?: existing?.isCompleted ?: false
                 val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
                 Chapter(
-                    id = existing?.id ?: UUID.randomUUID().toString(),
+                    id = existing?.id ?: generateCanonicalChapterId(novelId, file.displayName),
                     novelId = novelId,
                     title = fTitle,
                     fileUri = file.uriStr,
@@ -979,7 +1212,22 @@ class LibraryRepository(private val context: Context) {
                     lastScrollOffset = lastOffset,
                     isCompleted = isComp
                 )
-            }.sortedBy { it.orderIndex }.mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+            }
+            val chapters = deduplicateChapters(rawChapters)
+                .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
+                .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+
+            val targetChapterId = folderProgress?.currentChapterId ?: existingDbNovel?.currentChapterId
+            val targetChapterTitle = folderProgress?.currentChapterTitle
+            val resolvedIndex = if (targetChapterId != null) {
+                val idx = chapters.indexOfFirst { it.id == targetChapterId }
+                if (idx >= 0) idx else (folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0)
+            } else if (!targetChapterTitle.isNullOrBlank()) {
+                val idx = chapters.indexOfFirst { it.title.equals(targetChapterTitle, ignoreCase = true) }
+                if (idx >= 0) idx else (folderProgress.currentChapterIndex)
+            } else {
+                folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0
+            }.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
 
             val novel = Novel(
                 id = novelId,
@@ -987,7 +1235,11 @@ class LibraryRepository(private val context: Context) {
                 rootTreeUri = treeUriStr,
                 chapterCount = chapters.size,
                 completedCount = chapters.count { it.isCompleted },
-                currentChapterIndex = folderProgress?.currentChapterIndex ?: existingDbNovel?.currentChapterIndex ?: 0
+                currentChapterIndex = resolvedIndex,
+                subfolderPath = subfolderPath,
+                folderDocId = folderDocId,
+                isLooseRootFiles = true,
+                currentChapterId = chapters.getOrNull(resolvedIndex)?.id
             )
 
             newNovels.add(novel)
@@ -999,7 +1251,8 @@ class LibraryRepository(private val context: Context) {
         val mergedNovels = dbMutex.withLock {
             val currentDb = loadDatabaseLocked()
             val mergedN = if (newNovels.isNotEmpty()) {
-                currentDb.novels.filter { it.rootTreeUri != treeUriStr } + newNovels
+                val newIds = newNovels.map { it.id }.toSet()
+                currentDb.novels.filterNot { it.rootTreeUri == treeUriStr || newIds.contains(it.id) } + newNovels
             } else {
                 currentDb.novels
             }
@@ -1015,6 +1268,7 @@ class LibraryRepository(private val context: Context) {
                 lastActiveNovelId = newNovels.firstOrNull()?.id ?: currentDb.lastActiveNovelId
             )
             saveDatabaseLocked(updatedDb)
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
             mergedN
         }
 
@@ -1047,7 +1301,7 @@ class LibraryRepository(private val context: Context) {
                 try {
                     val uri = Uri.parse(treeUriStr)
                     val files = mutableListOf<ScannedFileItem>()
-                    val rootDocId = try {
+                    val targetDocId = novel.folderDocId ?: try {
                         if (DocumentsContract.isDocumentUri(context, uri)) {
                             DocumentsContract.getDocumentId(uri)
                         } else {
@@ -1055,26 +1309,61 @@ class LibraryRepository(private val context: Context) {
                         }
                     } catch (_: Exception) { null }
 
-                    if (rootDocId != null) {
-                        collectSafChildrenRecursivelyFast(uri, rootDocId, files)
+                    if (targetDocId != null) {
+                        if (novel.isLooseRootFiles) {
+                            val (_, loose) = querySafChildrenFast(uri, targetDocId)
+                            files.addAll(loose)
+                        } else {
+                            collectSafChildrenRecursivelyFast(uri, targetDocId, files, pathPrefix = "")
+                        }
                     } else {
                         val rootDoc = DocumentFile.fromTreeUri(context, uri)
                         if (rootDoc != null && rootDoc.exists()) {
-                            collectDocumentFiles(rootDoc, files)
+                            if (novel.isLooseRootFiles) {
+                                for (f in rootDoc.listFiles()) {
+                                    if (f.isFile && isSupported(f.name)) {
+                                        files.add(ScannedFileItem(f.uri.toString(), f.name ?: "", f.length()))
+                                    }
+                                }
+                            } else {
+                                collectDocumentFiles(rootDoc, files, "")
+                            }
                         }
                     }
                     filesPerNovel[novel.id] = files
                     totalFilesToScan += files.size
                 } catch (e: Exception) {
-                    com.novelarrow.reader.util.AppLogger.w("LibraryRepository", "Failed scanning SAF novel ${novel.title} (${novel.id}): ${e.message}", e)
+                    AppLogger.w("LibraryRepository", "Failed scanning SAF novel ${novel.title} (${novel.id}): ${e.message}", e)
                 }
             } else if (treeUriStr.startsWith("/") || treeUriStr.startsWith("file://")) {
-                val dir = File(treeUriStr.removePrefix("file://"))
-                if (dir.exists() && dir.isDirectory) {
-                    val files = mutableListOf<ScannedFileItem>()
-                    collectLocalFiles(dir, files)
-                    filesPerNovel[novel.id] = files
-                    totalFilesToScan += files.size
+                try {
+                    val targetPath = novel.subfolderPath ?: treeUriStr.removePrefix("file://")
+                    val dir = File(targetPath)
+                    if (dir.exists() && dir.isDirectory) {
+                        val files = mutableListOf<ScannedFileItem>()
+                        if (novel.isLooseRootFiles) {
+                            val directFiles = dir.listFiles { f -> f.isFile && isSupported(f.name) } ?: emptyArray()
+                            for (f in directFiles) {
+                                files.add(ScannedFileItem(f.absolutePath, f.name, f.length()))
+                            }
+                        } else {
+                            val sharesRoot = novel.subfolderPath == null && novelsToRefresh.count { it.rootTreeUri == treeUriStr } > 1
+                            if (sharesRoot) {
+                                val sub = File(dir, novel.title)
+                                if (sub.exists() && sub.isDirectory) {
+                                    collectLocalFiles(sub, files)
+                                } else {
+                                    collectLocalFiles(dir, files)
+                                }
+                            } else {
+                                collectLocalFiles(dir, files)
+                            }
+                        }
+                        filesPerNovel[novel.id] = files
+                        totalFilesToScan += files.size
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w("LibraryRepository", "Failed scanning local novel ${novel.title} (${novel.id}): ${e.message}", e)
                 }
             }
         }
@@ -1093,11 +1382,11 @@ class LibraryRepository(private val context: Context) {
                 val existingByUri = existingChaps.associateBy { it.fileUri }
                 val existingByTitle = existingChaps.associateBy { it.title }
 
-                val folderProgress = readFolderProgress(novel.rootTreeUri, novel.title)
+                val folderProgress = readFolderProgress(novel.subfolderPath ?: novel.rootTreeUri, novel.title, novel.folderDocId)
                 val progressByTitle = folderProgress?.chapters?.associateBy { it.title } ?: emptyMap()
                 val progressByFile = folderProgress?.chapters?.associateBy { it.fileName } ?: emptyMap()
 
-                val newChaps = sortedFiles.mapIndexed { index, file ->
+                val rawChaps = sortedFiles.mapIndexed { index, file ->
                     processedFilesCount++
                     reportProgress(processedFilesCount, totalFilesToScan, "${novel.title} / ${file.displayName}")
                     val fTitle = file.displayName.substringBeforeLast('.')
@@ -1108,7 +1397,7 @@ class LibraryRepository(private val context: Context) {
                     val isComp = prog?.isCompleted ?: existing?.isCompleted ?: false
                     val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
                     Chapter(
-                        id = existing?.id ?: UUID.randomUUID().toString(),
+                        id = existing?.id ?: generateCanonicalChapterId(novel.id, file.displayName),
                         novelId = novel.id,
                         title = fTitle,
                         fileUri = file.uriStr,
@@ -1118,13 +1407,29 @@ class LibraryRepository(private val context: Context) {
                         lastScrollOffset = lastOffset,
                         isCompleted = isComp
                     )
-                }.sortedBy { it.orderIndex }.mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+                }
+                val newChaps = deduplicateChapters(rawChaps)
+                    .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
+                    .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+
+                val targetChapterId = folderProgress?.currentChapterId ?: novel.currentChapterId
+                val targetChapterTitle = folderProgress?.currentChapterTitle
+                val resolvedIndex = if (targetChapterId != null) {
+                    val idx = newChaps.indexOfFirst { it.id == targetChapterId }
+                    if (idx >= 0) idx else novel.currentChapterIndex
+                } else if (!targetChapterTitle.isNullOrBlank()) {
+                    val idx = newChaps.indexOfFirst { it.title.equals(targetChapterTitle, ignoreCase = true) }
+                    if (idx >= 0) idx else novel.currentChapterIndex
+                } else {
+                    folderProgress?.currentChapterIndex ?: novel.currentChapterIndex
+                }.coerceIn(0, (newChaps.size - 1).coerceAtLeast(0))
 
                 val completedCount = newChaps.count { it.isCompleted }
                 val refreshedNovel = novel.copy(
                     chapterCount = newChaps.size,
                     completedCount = completedCount,
-                    currentChapterIndex = folderProgress?.currentChapterIndex ?: novel.currentChapterIndex,
+                    currentChapterIndex = resolvedIndex,
+                    currentChapterId = newChaps.getOrNull(resolvedIndex)?.id,
                     lastUpdated = System.currentTimeMillis()
                 )
                 updatedNovels.add(refreshedNovel)
@@ -1141,6 +1446,7 @@ class LibraryRepository(private val context: Context) {
                 chapters = updatedChapters
             )
             saveDatabaseLocked(finalDb)
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryRefreshed)
             deduplicated.filter { !it.isArchived }
         }
         reportProgress(totalFilesToScan, totalFilesToScan, "Refresh complete!")
@@ -1150,8 +1456,11 @@ class LibraryRepository(private val context: Context) {
     suspend fun refreshEntireLibrary(
         onProgress: (current: Int, total: Int, currentItemName: String) -> Unit = { _, _, _ -> }
     ): List<Novel> = withContext(Dispatchers.IO) {
-        com.novelarrow.reader.util.AppLogger.i("LibraryRepository", "Refreshing entire library including linked folders and download directories...")
-        refreshAllLinkedFolders(onProgress)
+        AppLogger.i("LibraryRepository", "Refreshing entire library including linked folders and download directories...")
+        scanDownloadedWebNovels()
+        val refreshed = refreshAllLinkedFolders(onProgress)
+        _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryRefreshed)
+        refreshed
     }
 
     suspend fun deleteChapter(
@@ -1172,10 +1481,14 @@ class LibraryRepository(private val context: Context) {
                     } else if (targetChap.fileUri.startsWith("content://")) {
                         val uri = Uri.parse(targetChap.fileUri)
                         val doc = DocumentFile.fromSingleUri(context, uri)
-                        doc?.delete()
+                        if (doc != null && doc.exists()) {
+                            doc.delete()
+                        } else {
+                            DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        }
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    AppLogger.w("LibraryRepository", "Failed deleting chapter file ${targetChap.fileUri} from disk", e)
                 }
             }
 
@@ -1191,6 +1504,7 @@ class LibraryRepository(private val context: Context) {
                         chapterCount = reindexedChapters.size,
                         completedCount = reindexedChapters.count { it.isCompleted },
                         currentChapterIndex = newIdx,
+                        currentChapterId = reindexedChapters.getOrNull(newIdx)?.id,
                         lastUpdated = System.currentTimeMillis()
                     )
                 } else nov
@@ -1204,6 +1518,32 @@ class LibraryRepository(private val context: Context) {
             saveDatabaseLocked(updatedDb)
 
             val updatedNovel = updatedNovels.firstOrNull { it.id == novelId }
+            if (updatedNovel != null) {
+                writeFolderProgress(
+                    folderUriOrPath = updatedNovel.subfolderPath ?: updatedNovel.rootTreeUri,
+                    novelTitle = updatedNovel.title,
+                    progress = NovelFolderProgress(
+                        novelTitle = updatedNovel.title,
+                        currentChapterIndex = updatedNovel.currentChapterIndex,
+                        currentChapterTitle = reindexedChapters.getOrNull(updatedNovel.currentChapterIndex)?.title ?: "",
+                        currentParagraphIndex = reindexedChapters.getOrNull(updatedNovel.currentChapterIndex)?.lastReadParagraphIndex ?: 0,
+                        chapters = reindexedChapters.map { ch ->
+                            ChapterProgressEntry(
+                                title = ch.title,
+                                fileName = try { File(ch.fileUri).name } catch (e: Exception) { ch.title },
+                                lastReadParagraphIndex = ch.lastReadParagraphIndex,
+                                lastScrollOffset = ch.lastScrollOffset,
+                                isCompleted = ch.isCompleted,
+                                orderIndex = ch.orderIndex
+                            )
+                        },
+                        currentChapterId = updatedNovel.currentChapterId
+                    ),
+                    folderDocId = updatedNovel.folderDocId
+                )
+            }
+
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
             Pair(updatedNovel, reindexedChapters)
         }
     }
@@ -1236,8 +1576,10 @@ class LibraryRepository(private val context: Context) {
                         in toIndex until fromIndex -> currentIdx + 1
                         else -> currentIdx
                     }
+                    val boundedIdx = newCurrentIdx.coerceIn(0, (reindexedChapters.size - 1).coerceAtLeast(0))
                     nov.copy(
-                        currentChapterIndex = newCurrentIdx.coerceIn(0, (reindexedChapters.size - 1).coerceAtLeast(0)),
+                        currentChapterIndex = boundedIdx,
+                        currentChapterId = reindexedChapters.getOrNull(boundedIdx)?.id,
                         lastUpdated = System.currentTimeMillis()
                     )
                 } else nov
@@ -1253,7 +1595,7 @@ class LibraryRepository(private val context: Context) {
             val updatedNovel = updatedNovels.firstOrNull { it.id == novelId }
             if (updatedNovel != null) {
                 writeFolderProgress(
-                    folderUriOrPath = updatedNovel.rootTreeUri,
+                    folderUriOrPath = updatedNovel.subfolderPath ?: updatedNovel.rootTreeUri,
                     novelTitle = updatedNovel.title,
                     progress = NovelFolderProgress(
                         novelTitle = updatedNovel.title,
@@ -1263,17 +1605,20 @@ class LibraryRepository(private val context: Context) {
                         chapters = reindexedChapters.map { ch ->
                             ChapterProgressEntry(
                                 title = ch.title,
-                                fileName = try { File(ch.fileUri).name } catch (_: Exception) { ch.title },
+                                fileName = try { File(ch.fileUri).name } catch (e: Exception) { ch.title },
                                 lastReadParagraphIndex = ch.lastReadParagraphIndex,
                                 lastScrollOffset = ch.lastScrollOffset,
                                 isCompleted = ch.isCompleted,
                                 orderIndex = ch.orderIndex
                             )
-                        }
-                    )
+                        },
+                        currentChapterId = updatedNovel.currentChapterId
+                    ),
+                    folderDocId = updatedNovel.folderDocId
                 )
             }
 
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
             Pair(updatedNovel, reindexedChapters)
         }
     }
@@ -1296,8 +1641,8 @@ class LibraryRepository(private val context: Context) {
                 }
                 ChapterSortPreset.REVERSE -> chapterList.reversed()
                 ChapterSortPreset.FILE_NAME -> chapterList.sortedWith { a, b ->
-                    val aFile = try { File(a.fileUri).name } catch (_: Exception) { a.title }
-                    val bFile = try { File(b.fileUri).name } catch (_: Exception) { b.title }
+                    val aFile = try { File(a.fileUri).name } catch (e: Exception) { a.title }
+                    val bFile = try { File(b.fileUri).name } catch (e: Exception) { b.title }
                     aFile.compareTo(bFile, ignoreCase = true)
                 }
             }
@@ -1315,6 +1660,7 @@ class LibraryRepository(private val context: Context) {
                 if (nov.id == novelId) {
                     nov.copy(
                         currentChapterIndex = newActiveIndex,
+                        currentChapterId = reindexedChapters.getOrNull(newActiveIndex)?.id,
                         lastUpdated = System.currentTimeMillis()
                     )
                 } else nov
@@ -1330,7 +1676,7 @@ class LibraryRepository(private val context: Context) {
             val updatedNovel = updatedNovels.firstOrNull { it.id == novelId }
             if (updatedNovel != null) {
                 writeFolderProgress(
-                    folderUriOrPath = updatedNovel.rootTreeUri,
+                    folderUriOrPath = updatedNovel.subfolderPath ?: updatedNovel.rootTreeUri,
                     novelTitle = updatedNovel.title,
                     progress = NovelFolderProgress(
                         novelTitle = updatedNovel.title,
@@ -1340,17 +1686,20 @@ class LibraryRepository(private val context: Context) {
                         chapters = reindexedChapters.map { ch ->
                             ChapterProgressEntry(
                                 title = ch.title,
-                                fileName = try { File(ch.fileUri).name } catch (_: Exception) { ch.title },
+                                fileName = try { File(ch.fileUri).name } catch (e: Exception) { ch.title },
                                 lastReadParagraphIndex = ch.lastReadParagraphIndex,
                                 lastScrollOffset = ch.lastScrollOffset,
                                 isCompleted = ch.isCompleted,
                                 orderIndex = ch.orderIndex
                             )
-                        }
-                    )
+                        },
+                        currentChapterId = updatedNovel.currentChapterId
+                    ),
+                    folderDocId = updatedNovel.folderDocId
                 )
             }
 
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
             Pair(updatedNovel, reindexedChapters)
         }
     }
@@ -1388,7 +1737,7 @@ class LibraryRepository(private val context: Context) {
             val updatedNovel = updatedNovels.firstOrNull { it.id == novelId }
             if (updatedNovel != null) {
                 writeFolderProgress(
-                    folderUriOrPath = updatedNovel.rootTreeUri,
+                    folderUriOrPath = updatedNovel.subfolderPath ?: updatedNovel.rootTreeUri,
                     novelTitle = updatedNovel.title,
                     progress = NovelFolderProgress(
                         novelTitle = updatedNovel.title,
@@ -1398,17 +1747,20 @@ class LibraryRepository(private val context: Context) {
                         chapters = chapters.map { ch ->
                             ChapterProgressEntry(
                                 title = ch.title,
-                                fileName = try { File(ch.fileUri).name } catch (_: Exception) { ch.title },
+                                fileName = try { File(ch.fileUri).name } catch (e: Exception) { ch.title },
                                 lastReadParagraphIndex = ch.lastReadParagraphIndex,
                                 lastScrollOffset = ch.lastScrollOffset,
                                 isCompleted = ch.isCompleted,
                                 orderIndex = ch.orderIndex
                             )
-                        }
-                    )
+                        },
+                        currentChapterId = updatedNovel.currentChapterId
+                    ),
+                    folderDocId = updatedNovel.folderDocId
                 )
             }
 
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
             Pair(updatedNovel, chapters)
         }
     }
@@ -1451,7 +1803,7 @@ class LibraryRepository(private val context: Context) {
             }
             false
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.w("LibraryRepository", "Failed saving content to chapter ${chapter.fileUri}", e)
             false
         }
     }
@@ -1476,10 +1828,12 @@ class LibraryRepository(private val context: Context) {
             )
 
             val completedCount = chapters.count { it.isCompleted }
+            val targetChapterId = chapters.getOrNull(chapterIndex)?.id
             val updatedNovels = db.novels.map { novel ->
                 if (novel.id == novelId) {
                     novel.copy(
                         currentChapterIndex = chapterIndex,
+                        currentChapterId = targetChapterId,
                         completedCount = completedCount,
                         lastUpdated = System.currentTimeMillis()
                     )
@@ -1502,7 +1856,7 @@ class LibraryRepository(private val context: Context) {
 
             if (targetNovel != null) {
                 writeFolderProgress(
-                    folderUriOrPath = targetNovel.rootTreeUri,
+                    folderUriOrPath = targetNovel.subfolderPath ?: targetNovel.rootTreeUri,
                     novelTitle = targetNovel.title,
                     progress = NovelFolderProgress(
                         novelTitle = targetNovel.title,
@@ -1512,16 +1866,19 @@ class LibraryRepository(private val context: Context) {
                         chapters = chapters.map { ch ->
                             ChapterProgressEntry(
                                 title = ch.title,
-                                fileName = try { File(ch.fileUri).name } catch (_: Exception) { ch.title },
+                                fileName = try { File(ch.fileUri).name } catch (e: Exception) { ch.title },
                                 lastReadParagraphIndex = ch.lastReadParagraphIndex,
                                 lastScrollOffset = ch.lastScrollOffset,
                                 isCompleted = ch.isCompleted,
                                 orderIndex = ch.orderIndex
                             )
-                        }
-                    )
+                        },
+                        currentChapterId = targetNovel.currentChapterId
+                    ),
+                    folderDocId = targetNovel.folderDocId
                 )
             }
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
             targetNovel
         }
     }
@@ -1529,75 +1886,99 @@ class LibraryRepository(private val context: Context) {
     suspend fun deleteNovel(novelId: String, deleteFilesFromDisk: Boolean = false) = withContext(Dispatchers.IO) {
         dbMutex.withLock {
             val db = loadDatabaseLocked()
-            val targetNovel = db.novels.find { it.id == novelId }
-            val normTargetTitle = targetNovel?.title?.trim()?.lowercase(java.util.Locale.ROOT)
+            val targetNovel = db.novels.find { it.id == novelId } ?: return@withContext
 
-            // Match target novel and any duplicates sharing the same title
-            val matchingNovels = db.novels.filter {
-                it.id == novelId || (normTargetTitle != null && it.title.trim().lowercase(java.util.Locale.ROOT) == normTargetTitle)
-            }
-            val matchingIds = matchingNovels.map { it.id }.toSet()
-
-            // Only delete files on disk if explicitly requested by user (default is false)
             if (deleteFilesFromDisk) {
-                for (novel in matchingNovels) {
-                    deleteNovelFilesFromDisk(novel, db.chapters[novel.id])
-                }
+                deleteNovelFilesFromDisk(targetNovel, db.chapters[novelId])
             }
 
-            val updatedNovels = db.novels.filterNot { matchingIds.contains(it.id) }
+            val updatedNovels = db.novels.filterNot { it.id == novelId }
             val updatedChapters = db.chapters.toMutableMap().apply {
-                for (id in matchingIds) remove(id)
+                remove(novelId)
             }
-            val lastActive = if (matchingIds.contains(db.lastActiveNovelId)) updatedNovels.firstOrNull()?.id else db.lastActiveNovelId
+            val lastActive = if (db.lastActiveNovelId == novelId) updatedNovels.firstOrNull()?.id else db.lastActiveNovelId
             saveDatabaseLocked(db.copy(novels = updatedNovels, chapters = updatedChapters, lastActiveNovelId = lastActive))
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
         }
     }
 
     private fun deleteNovelFilesFromDisk(novel: Novel, chapters: List<Chapter>?) {
         try {
-            // 1. If novel has rootTreeUri pointing to local file path
-            if (novel.rootTreeUri.startsWith("/") || novel.rootTreeUri.startsWith("file://")) {
-                val path = novel.rootTreeUri.removePrefix("file://")
-                val dir = File(path)
-                if (dir.exists()) {
-                    dir.deleteRecursively()
+            AppLogger.i("LibraryRepository", "Deleting files from disk for novel: ${novel.title} (id=${novel.id}, loose=${novel.isLooseRootFiles}, subfolder=${novel.subfolderPath}, docId=${novel.folderDocId})")
+
+            // 1. If novel is loose root files, DO NOT delete the root folder! Only delete its chapters.
+            if (novel.isLooseRootFiles) {
+                AppLogger.i("LibraryRepository", "Novel is loose root files: preserving parent folder ${novel.rootTreeUri}")
+            } else if (novel.subfolderPath != null) {
+                // Partitioned local subfolder: delete ONLY the subfolder, preserving sibling folders and root
+                val subDir = File(novel.subfolderPath)
+                if (subDir.exists() && subDir.isDirectory) {
+                    AppLogger.i("LibraryRepository", "Deleting local subfolder: ${subDir.absolutePath}")
+                    subDir.deleteRecursively()
                 }
-            } else if (novel.rootTreeUri.startsWith("content://")) {
+            } else if (novel.folderDocId != null && novel.rootTreeUri.startsWith("content://")) {
+                // Partitioned SAF subfolder: delete ONLY the subfolder document, preserving sibling subfolders and root
                 try {
                     val treeUri = Uri.parse(novel.rootTreeUri)
-                    val docFile = DocumentFile.fromTreeUri(context, treeUri)
-                    docFile?.delete()
-                } catch (_: Exception) {}
-            }
-
-            // 2. Delete from standard NovelReader download locations by title
-            val safeTitle = WebNovelDownloader.sanitizeFileName(novel.title)
-            val dirCandidates = mutableListOf<File>()
-
-            try {
-                val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                dirCandidates.add(File(File(publicDownloads, "NovelReader"), safeTitle))
-                dirCandidates.add(File(File(publicDownloads, "NovelReader"), novel.title))
-            } catch (_: Exception) {}
-
-            val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            if (extDir != null) {
-                dirCandidates.add(File(File(extDir, "NovelReader"), safeTitle))
-                dirCandidates.add(File(File(extDir, "NovelReader"), novel.title))
-            }
-
-            val internalRoot = File(context.filesDir, "NovelReader")
-            dirCandidates.add(File(internalRoot, safeTitle))
-            dirCandidates.add(File(internalRoot, novel.title))
-
-            for (dir in dirCandidates) {
-                if (dir.exists()) {
-                    dir.deleteRecursively()
+                    val subfolderUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, novel.folderDocId)
+                    AppLogger.i("LibraryRepository", "Deleting SAF subfolder document: ${novel.folderDocId}")
+                    val deleted = DocumentsContract.deleteDocument(context.contentResolver, subfolderUri)
+                    if (!deleted) {
+                        AppLogger.w("LibraryRepository", "SAF deleteDocument returned false for ${novel.folderDocId}")
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w("LibraryRepository", "Failed deleting SAF subfolder document for ${novel.title}", e)
+                }
+            } else {
+                // Not a partitioned subfolder and not loose root files (e.g. single dedicated novel directory)
+                if (novel.rootTreeUri.startsWith("/") || novel.rootTreeUri.startsWith("file://")) {
+                    val path = novel.rootTreeUri.removePrefix("file://")
+                    val dir = File(path)
+                    if (dir.exists()) {
+                        dir.deleteRecursively()
+                    }
+                } else if (novel.rootTreeUri.startsWith("content://")) {
+                    try {
+                        val treeUri = Uri.parse(novel.rootTreeUri)
+                        val docFile = DocumentFile.fromTreeUri(context, treeUri)
+                        docFile?.delete()
+                    } catch (e: Exception) {
+                        AppLogger.w("LibraryRepository", "Failed deleting SAF root DocumentFile for ${novel.title}", e)
+                    }
                 }
             }
 
-            // 3. Delete any individual chapter files
+            // 2. Delete web novel downloaded directory if this is a web novel
+            if (novel.isWebNovel) {
+                val safeTitle = WebNovelDownloader.sanitizeFileName(novel.title)
+                val dirCandidates = mutableListOf<File>()
+
+                try {
+                    val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    dirCandidates.add(File(File(publicDownloads, "NovelReader"), safeTitle))
+                    dirCandidates.add(File(File(publicDownloads, "NovelReader"), novel.title))
+                } catch (e: Exception) {
+                    AppLogger.w("LibraryRepository", "Error resolving public downloads candidate dir", e)
+                }
+
+                val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                if (extDir != null) {
+                    dirCandidates.add(File(File(extDir, "NovelReader"), safeTitle))
+                    dirCandidates.add(File(File(extDir, "NovelReader"), novel.title))
+                }
+
+                val internalRoot = File(context.filesDir, "NovelReader")
+                dirCandidates.add(File(internalRoot, safeTitle))
+                dirCandidates.add(File(internalRoot, novel.title))
+
+                for (dir in dirCandidates) {
+                    if (dir.exists()) {
+                        dir.deleteRecursively()
+                    }
+                }
+            }
+
+            // 3. Delete any individual chapter files (especially important for loose files)
             if (chapters != null) {
                 for (ch in chapters) {
                     try {
@@ -1607,19 +1988,26 @@ class LibraryRepository(private val context: Context) {
                         } else if (ch.fileUri.startsWith("content://")) {
                             val uri = Uri.parse(ch.fileUri)
                             val doc = DocumentFile.fromSingleUri(context, uri)
-                            doc?.delete()
+                            if (doc != null && doc.exists()) {
+                                doc.delete()
+                            } else {
+                                DocumentsContract.deleteDocument(context.contentResolver, uri)
+                            }
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        AppLogger.w("LibraryRepository", "Failed deleting chapter file at ${ch.fileUri}", e)
+                    }
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("LibraryRepository", "Failed during deleteNovelFilesFromDisk for ${novel.title}", e)
         }
     }
 
     suspend fun clearAll() = withContext(Dispatchers.IO) {
         dbMutex.withLock {
             saveDatabaseLocked(LibraryDatabase())
+            _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
         }
     }
 
@@ -1655,7 +2043,7 @@ class LibraryRepository(private val context: Context) {
                 else json.decodeFromString<LibraryDatabase>(text)
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("LibraryRepository", "Error loading library database from disk", e)
             LibraryDatabase()
         }
         cachedDb = loaded
@@ -1680,9 +2068,11 @@ class LibraryRepository(private val context: Context) {
                         db.lastActiveNovelId
                     )
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                AppLogger.w("LibraryRepository", "Error initiating library backup", e)
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            AppLogger.e("LibraryRepository", "Error saving library database", e)
             if (fos != null) {
                 atomicDbFile.failWrite(fos)
             }

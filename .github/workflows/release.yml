@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.6.0"
+          DATE_TAG="v3.7.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.6.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.6.0 --no-daemon
+          APP_VERSION_NAME: "3.7.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.7.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,29 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.6.0 (Stable)
+          name: BookReader v3.7.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.6.0 (Stable) 🎙️⚡
+            ### BookReader v3.7.0 (Stable) 📚🔄
 
-            **BookReader v3.6.0** introduces native offline on-device neural Text-to-Speech powered by **sherpa-onnx** (`k2-fsa`)!
+            **BookReader v3.7.0** introduces a comprehensive overhaul of folder scanning, subfolder isolation, canonical chapter deduplication, reactive download visibility, and lifecycle-aware reading state preservation!
 
             #### Key Updates in this release:
+            - **Subfolder Isolation & Playlist Partitioning**:
+              - Automatically partitions nested subfolders (e.g., `Volume 1`, `Volume 2`) under imported root folders into distinct, isolated novel playlists.
+              - Subfolders maintain dedicated `.progress.json` metadata files ensuring reading progress never cross-pollinates between series volumes or sibling folders.
+              - Scoped deletion guarantees deleting a subfolder playlist only removes that subfolder from disk, keeping parent directories and sibling books completely untouched.
+            - **Deterministic Canonical Chapter Deduplication**:
+              - Eliminates duplicate chapter rows caused by Android multi-root file discovery across internal storage, MediaStore, and public Downloads directories.
+              - Merges duplicate files deterministically, preserving highest read paragraph progress and completed status.
+            - **Reading State & Active Chapter Preservation**:
+              - Persists `currentChapterId` across re-scans, natural/reverse sorting, and folder refreshes so playback pointers never jump or reset to chapter 1.
+              - Updates active chapter metadata seamlessly during background refreshes without interrupting ongoing TTS playback.
+            - **Reactive Download Visibility via Event Streams**:
+              - Real-time `LibraryUpdateEvent` SharedFlow instantly pushes newly downloaded web novel chapters and committed batches into the UI without requiring manual refreshes.
+            - **Lifecycle-Aware Auto & Manual Refresh**:
+              - Automatic background library refresh upon app resume (`ON_RESUME`) with intelligent debouncing.
+              - Manual "Refresh Folders" triggers an end-to-end scan across all linked directories and downloaded web novels.
             - **Integrated Offline On-Device Neural TTS (`sherpa-onnx`)**:
               - High-quality, zero-latency local speech synthesis using pre-trained VITS/Piper models (such as `vits-piper-en_US-lessac-medium`).
               - 64-bit native hardware acceleration targeting `arm64-v8a` and `x86_64` with bundled ONNX Runtime and JNI bindings.

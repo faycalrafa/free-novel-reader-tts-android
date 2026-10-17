@@ -13,7 +13,11 @@ data class Novel(
     val lastUpdated: Long = System.currentTimeMillis(),
     val isWebNovel: Boolean = false,
     val webUrl: String? = null,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val subfolderPath: String? = null,
+    val folderDocId: String? = null,
+    val isLooseRootFiles: Boolean = false,
+    val currentChapterId: String? = null
 )
 
 @Serializable
