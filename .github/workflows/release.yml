@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.5.4"
+          DATE_TAG="v3.6.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.5.4"
-        run: ./gradlew assembleRelease -PappVersionName=3.5.4 --no-daemon
+          APP_VERSION_NAME: "3.6.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.6.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,22 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.5.4 (Stable)
+          name: BookReader v3.6.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.5.4 (Stable) 📚🎨
+            ### BookReader v3.6.0 (Stable) 🎙️⚡
 
-            **BookReader v3.5.4** brings unified **BookReader** branding across the entire app and resolves launcher adaptive icon styling on modern Android devices (Android 8.0 through Android 16)!
+            **BookReader v3.6.0** introduces native offline on-device neural Text-to-Speech powered by **sherpa-onnx** (`k2-fsa`)!
 
             #### Key Updates in this release:
+            - **Integrated Offline On-Device Neural TTS (`sherpa-onnx`)**:
+              - High-quality, zero-latency local speech synthesis using pre-trained VITS/Piper models (such as `vits-piper-en_US-lessac-medium`).
+              - 64-bit native hardware acceleration targeting `arm64-v8a` and `x86_64` with bundled ONNX Runtime and JNI bindings.
+              - Thread-safe `LocalTtsEngine` wrapping `OfflineTts` with coroutine isolation (`Dispatchers.Default`) and cancellation safety.
+              - Direct PCM float streaming via Android `AudioTrack` with dynamic chunking and sample-rate matching.
+              - `AudioData` encapsulation supporting normalized float samples, 16-bit PCM conversion, little-endian byte buffers, and WAV file export.
+              - Automated recursive asset extractor for nested phoneme data (`espeak-ng-data`) supporting direct POSIX filesystem access on internal storage.
+              - Configured `androidResources.noCompress` for `.onnx`, `.ort`, and `.bin` model files to optimize memory mapping and load times.
             - **Complete BookReader App Rebranding**:
               - Updated all in-app mentions, headers, settings, notifications, toasts, and logs from NovelArrow to **BookReader** (keeping package name `com.novelarrow.reader` consistent).
               - Replaced `Theme.NovelArrowReader` with `Theme.BookReader` and updated Compose themes to `BookReaderTheme`.

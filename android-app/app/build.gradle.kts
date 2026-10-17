@@ -9,14 +9,18 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("3.5.4")
+        .getOrElse("3.6.0")
 
     defaultConfig {
         applicationId = "com.novelarrow.reader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 31
+        versionCode = 32
         versionName = appVersionName
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     signingConfigs {
@@ -70,6 +74,10 @@ android {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
+    }
+
+    androidResources {
+        noCompress += listOf("onnx", "ort", "bin")
     }
 }
 
@@ -131,4 +139,7 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.markwon.core)
   implementation(libs.jump3r)
+
+  // Native on-device TTS engine (sherpa-onnx)
+  implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 }
