@@ -2,7 +2,7 @@
 
   <!-- Animated Banner: Replace "./assets/banner.webp" with your repo file path or drag-and-drop your animated WebP/GIF here in the GitHub editor -->
   <a href="https://faycalrafa.github.io/projects/bookreader">
-    <img src="./banner.webp" alt="BookReader — Offline Novel Reader & Multi-Engine TTS Banner" width="100%" style="max-width: 720px; border-radius: 16px;" />
+    <img src="./App_loading_screen_animation_loop_20261016161404.gif" alt="BookReader — Offline Novel Reader & Multi-Engine TTS Banner" width="100%" style="max-width: 720px; border-radius: 16px;" />
   </a>
 
   <br /><br />
