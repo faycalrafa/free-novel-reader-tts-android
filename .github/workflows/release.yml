@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.5.1"
+          DATE_TAG="v3.5.2"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.5.1"
-        run: ./gradlew assembleRelease -PappVersionName=3.5.1 --no-daemon
+          APP_VERSION_NAME: "3.5.2"
+        run: ./gradlew assembleRelease -PappVersionName=3.5.2 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,20 +53,25 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v3.5.1 (Stable)
+          name: NovelArrow Reader v3.5.2 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v3.5.1 (Stable) 📖✨
+            ### NovelArrow Reader v3.5.2 (Stable) 📖✨
 
-            **NovelArrow Reader v3.5.1** brings lookahead multi-paragraph queue buffering for seamless zero-gap TTS listening, instant lossless WAV audio exports, persistent neural model storage across app updates, resilient batch web scraping, and drawer dev log shortcuts!
+            **NovelArrow Reader v3.5.2** brings direct system share sheet popups for quick exports, resolves false duplicate DOM stalling during multi-chapter downloads, adds custom text synthesis testing in offline voice settings, and provides clear user alerts and fuzzy voice mapping for offline TTS engines!
 
             #### Key Updates in this release:
-            - **TTS Lookahead Queue Buffering & Zero Pause**:
-              - Dual-paragraph lookahead buffering (`QUEUE_ADD`) eliminates dead-air pause between paragraphs and sentences.
-              - Auto-recovery watchdog detects dropped TTS callbacks and seamlessly resumes playback.
-            - **Instant WAV Audio Export**:
-              - Fast WAV audio generation in Audio Studio bypassing slow MP3 compression.
-              - Automatically defaults to WAV for single paragraph and quick text/chapter sharing.
+            - **Direct Share Sheet for Small Chapter & Paragraph Audio**:
+              - Automatically launches the native Android share view (`Intent.ACTION_SEND` chooser) directly on the screen as soon as fast WAV generation completes.
+              - Eliminates unnecessary navigation to the Audio Studio or pulling down the notification shade for quick shares.
+            - **Multi-Chapter Batch Downloader False-Duplicate Fix**:
+              - Enhanced `DomContentVerifier` with multi-point structural chapter fingerprinting (`createChapterFingerprint`), inspecting middle and end paragraphs.
+              - Pages sharing static novel title headers (`<h1>Book Title</h1>`) are no longer falsely flagged as duplicates once URL transition is confirmed.
+              - Automatic chapter title resolution ensures clean naming (`Novel Title Chapter N`) instead of repetitive book title prefixes.
+            - **In-App Offline Voice Engine Testing & Diagnostics**:
+              - Added dedicated "TEST VOICE SYNTHESIS" card in `OfflineEngineVoiceScreen` with an editable text input and play/stop test button.
+              - Audible voice previews using selected voice or best matching voice with proactive notifications.
+              - Explicit user toasts and warning logs (`AppLogger.w`) when an offline voice is not registered in the active system TTS engine, preventing silent default fallbacks.
             - **Persistent Neural Models Across App Updates**:
               - Models are stored in persistent external app storage with legacy filename alias scanning. Never re-download existing models after updating!
               - Resolved voice-not-found warnings when selecting neural voices.

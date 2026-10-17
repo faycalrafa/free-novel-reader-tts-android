@@ -318,7 +318,11 @@ class TtsManager(
             }
             return
         }
-        val voice = getAvailableVoices().firstOrNull { it.name == voiceName }
+        val availableVoices = getAvailableVoices()
+        val voice = availableVoices.firstOrNull { it.name == voiceName }
+            ?: availableVoices.firstOrNull { it.name.equals(voiceName, ignoreCase = true) }
+            ?: availableVoices.firstOrNull { it.name.contains(voiceName, ignoreCase = true) }
+
         if (voice != null) {
             activeCustomVoice = voice
             // Apply locale first, then set explicit voice so setLanguage does not reset voice
@@ -343,15 +347,38 @@ class TtsManager(
         } else {
             // Check if this is an offline neural voice from NeuralVoiceCatalog
             val neuralVoice = com.novelarrow.reader.data.model.NeuralVoiceCatalog.getVoiceById(voiceName, context)
-            if (neuralVoice != null) {
-                AppLogger.i(TAG, "Voice \"$voiceName\" is an offline neural voice (${neuralVoice.engine} - ${neuralVoice.name}). Safely adapting locale for system TTS playback fallback.")
-                val matchingLocale = neuralVoice.language.locale
-                configureLanguageSafely(matchingLocale.displayLanguage)
-                return
-            }
+            val displayName = neuralVoice?.name ?: voiceName
+            val engineName = tts?.defaultEngine ?: "System TTS"
 
-            AppLogger.w(TAG, "Requested voice \"$voiceName\" was not found in TTS engine, falling back to default voice")
-            configureLanguageSafely()
+            val matchingVoice = if (neuralVoice != null) {
+                availableVoices.firstOrNull { it.name.contains(neuralVoice.name, ignoreCase = true) }
+                    ?: availableVoices.firstOrNull { it.locale == neuralVoice.language.locale }
+            } else null
+
+            if (matchingVoice != null) {
+                activeCustomVoice = matchingVoice
+                try {
+                    matchingVoice.locale?.let { loc ->
+                        if ((tts?.isLanguageAvailable(loc) ?: -1) >= TextToSpeech.LANG_AVAILABLE) {
+                            tts?.language = loc
+                        }
+                    }
+                    tts?.voice = matchingVoice
+                    AppLogger.i(TAG, "Mapped offline voice \"$voiceName\" ($displayName) to engine voice: ${matchingVoice.name}")
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to apply mapped voice ${matchingVoice.name}: ${e.message}", e)
+                }
+            } else {
+                configureLanguageSafely(neuralVoice?.language?.locale?.displayLanguage)
+                AppLogger.w(TAG, "Requested voice \"$voiceName\" ($displayName) was not found in TTS engine ($engineName). Engine voices: ${availableVoices.size}")
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    Toast.makeText(
+                        context,
+                        "Voice \"$displayName\" is not available in TTS engine ($engineName). Using default voice.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
         }
     }
 

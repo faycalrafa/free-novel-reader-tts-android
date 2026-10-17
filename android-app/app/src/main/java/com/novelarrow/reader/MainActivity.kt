@@ -85,6 +85,7 @@ import com.novelarrow.reader.ui.reader.UpdateAvailableDialog
 import com.novelarrow.reader.ui.reader.UpdateDownloadingDialog
 import com.novelarrow.reader.playback.AudioExportService
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
+import com.novelarrow.reader.data.export.FileFusionManager
 import com.novelarrow.reader.ui.about.ChangelogScreen
 import com.novelarrow.reader.ui.common.IncomingLinkShareDialog
 import com.novelarrow.reader.ui.common.IncomingTextShareDialog
@@ -194,6 +195,17 @@ class MainActivity : ComponentActivity() {
                 QuickToolbarNotificationManager.updateToolbar(context)
                 if (intent?.getBooleanExtra(EXTRA_RESUME_PLAYBACK, false) == true) {
                     AudioPlaybackCoordinator.restoreLastHearingSession(autoPlay = true)
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                AudioExportService.directShareEvent.collect { req ->
+                    try {
+                        val shareIntent = FileFusionManager.createShareIntent(this@MainActivity, req.file, req.mimeType)
+                        startActivity(Intent.createChooser(shareIntent, "Share ${req.title}"))
+                    } catch (e: Exception) {
+                        AppLogger.e("MainActivity", "Failed to launch direct share chooser: ${e.message}", e)
+                    }
                 }
             }
 

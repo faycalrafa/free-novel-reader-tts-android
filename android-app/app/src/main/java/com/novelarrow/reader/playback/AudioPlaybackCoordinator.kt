@@ -7,6 +7,7 @@ import android.os.Looper
 import android.speech.tts.Voice
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.novelarrow.reader.data.model.NeuralVoiceInfo
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
@@ -1090,6 +1091,45 @@ object AudioPlaybackCoordinator {
     fun getDefaultTtsEngine(): String? = ttsManager?.getDefaultEngineName()
 
     fun getInstalledTtsEngines(): List<android.speech.tts.TextToSpeech.EngineInfo> = ttsManager?.getEngines().orEmpty()
+
+    fun getAvailableVoices(): List<Voice> = ttsManager?.getAvailableVoices().orEmpty()
+
+    fun testNeuralVoice(voiceInfo: NeuralVoiceInfo, text: String) {
+        if (_previewingVoiceName.value == voiceInfo.id) {
+            stopVoicePreview()
+            return
+        }
+
+        if (_isPlayingState.value) {
+            pause()
+        }
+        stopVoicePreview()
+
+        _previewingVoiceName.value = voiceInfo.id
+        AppLogger.d(TAG, "Testing neural voice ${voiceInfo.name} (${voiceInfo.id}) with custom text: \"$text\"")
+
+        val availableVoices = ttsManager?.getAvailableVoices().orEmpty()
+        val matchingVoice = availableVoices.firstOrNull { it.name.equals(voiceInfo.id, ignoreCase = true) }
+            ?: availableVoices.firstOrNull { it.name.contains(voiceInfo.name, ignoreCase = true) }
+            ?: availableVoices.firstOrNull { it.locale == voiceInfo.language.locale }
+
+        if (matchingVoice != null) {
+            ttsManager?.speakPreview(matchingVoice, text)
+        } else {
+            val engine = getDefaultTtsEngine() ?: "System TTS"
+            AppLogger.w(TAG, "Voice \"${voiceInfo.name}\" not registered in engine $engine. Using best matching voice for preview.")
+            showToast("Voice \"${voiceInfo.name}\" not registered in engine $engine. Previewing with best matching voice.")
+            ttsManager?.configureLanguageSafely(voiceInfo.language.locale.displayLanguage)
+            val fallbackVoice = availableVoices.firstOrNull { it.locale.language == voiceInfo.language.locale.language }
+                ?: availableVoices.firstOrNull()
+            if (fallbackVoice != null) {
+                ttsManager?.speakPreview(fallbackVoice, text)
+            } else {
+                showToast("No TTS voice available on device for language ${voiceInfo.language.displayName}")
+                _previewingVoiceName.value = null
+            }
+        }
+    }
 
     private fun applyTtsSettings() {
         ttsManager?.setRate(currentSpeechRate)

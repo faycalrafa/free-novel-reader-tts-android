@@ -753,7 +753,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 if (rawResult != null && rawResult != "null") {
                     val extracted = WebContentExtractor.extractChapterContent(rawResult, _uiState.value.pageTitle)
                     val currentHeading = extracted.title
-                    val currentSample = DomContentVerifier.createSample(extracted.paragraphs)
+                    val currentSample = DomContentVerifier.createChapterFingerprint(extracted.paragraphs)
 
                     if (extracted.paragraphs.isNotEmpty() || currentHeading.isNotBlank()) {
                         val headingChanged = currentHeading.isNotBlank() && currentHeading != lastExtractedHeading
@@ -953,12 +953,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val novelTitle = state.downloadNovelTitle
             val chapterNum = state.downloadCurrentChapter
             val remaining = state.downloadRemainingCount
-            val chapterTitle = title.ifBlank { "$novelTitle Chapter $chapterNum" }
+            val isTitleJustNovelTitle = title.equals(novelTitle, ignoreCase = true) || title.isBlank()
+            val chapterTitle = if (isTitleJustNovelTitle) "$novelTitle Chapter $chapterNum" else title
+
+            val urlChanged = lastBatchDownloadedUrl.isNotBlank() && currentUrl != lastBatchDownloadedUrl
+
+            if (paragraphs.isEmpty()) {
+                AppLogger.w(TAG, "Extracted 0 paragraphs for Chapter $chapterNum. Waiting for DOM content to load...")
+                _uiState.update { it.copy(downloadStatus = "Waiting for chapter content to render...") }
+                startDomContentVerification()
+                return
+            }
 
             // Dynamic duplicate capture prevention: check if extracted content matches previous chapter signature
             if (lastExtractedHeading.isNotBlank() || lastExtractedSample.isNotBlank()) {
-                val currentSample = DomContentVerifier.createSample(paragraphs)
-                if (DomContentVerifier.isDuplicateContent(title, currentSample, lastExtractedHeading, lastExtractedSample)) {
+                val currentSample = DomContentVerifier.createChapterFingerprint(paragraphs)
+                if (DomContentVerifier.isDuplicateContent(title, currentSample, lastExtractedHeading, lastExtractedSample, urlChanged = urlChanged)) {
                     AppLogger.w(TAG, "Duplicate DOM content detected in handleExtractedChapter for Chapter $chapterNum. Heading='$title'. Content has not transitioned yet. Waiting for DOM update...")
                     _uiState.update { it.copy(downloadStatus = "Waiting for DOM re-render...") }
                     startDomContentVerification()
@@ -971,7 +981,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 val newRemaining = remaining - 1
                 val nextChapterNum = chapterNum + 1
                 lastExtractedHeading = title
-                lastExtractedSample = DomContentVerifier.createSample(paragraphs)
+                lastExtractedSample = DomContentVerifier.createChapterFingerprint(paragraphs)
                 _uiState.update {
                     it.copy(
                         downloadRemainingCount = newRemaining,
@@ -1018,7 +1028,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     lastBatchDownloadedUrl = currentUrl
                     lastBatchDownloadedChapterNum = chapterNum
                     lastExtractedHeading = title
-                    lastExtractedSample = DomContentVerifier.createSample(paragraphs)
+                    lastExtractedSample = DomContentVerifier.createChapterFingerprint(paragraphs)
 
                     val newRemaining = remaining - 1
                     val nextChapterNum = chapterNum + 1

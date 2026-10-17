@@ -298,11 +298,19 @@ fun OfflineEngineVoiceScreen(
                                     AudioPlaybackCoordinator.setSelectedEngineType(engineType.uppercase())
                                     AudioPlaybackCoordinator.setVoice(voiceToSave.id)
                                     AppLogger.i("OfflineEngineVoiceScreen", "Saved ${voiceToSave.name} as default voice for $engineType")
-                                    Toast.makeText(
-                                        context,
-                                        "Saved ${voiceToSave.name} as active voice",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    val isRegisteredInEngine = AudioPlaybackCoordinator.getAvailableVoices().any {
+                                        it.name.equals(voiceToSave.id, ignoreCase = true) || it.name.contains(voiceToSave.name, ignoreCase = true)
+                                    }
+                                    if (isRegisteredInEngine) {
+                                        Toast.makeText(context, "Activated ${voiceToSave.name} as TTS voice", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val defaultEngine = AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "System"
+                                        Toast.makeText(
+                                            context,
+                                            "Saved ${voiceToSave.name}. Note: Active engine ($defaultEngine) will use best matching voice.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
                                     AudioPlaybackCoordinator.stopVoicePreview()
                                     onNavigateBack()
                                 } catch (e: Exception) {
@@ -421,6 +429,23 @@ fun OfflineEngineVoiceScreen(
                                 NeuralModelDownloader.deleteModel(context, voice)
                                 downloadStatusRefreshKey++
                                 Toast.makeText(context, "Model deleted", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+
+                // Voice Synthesis Test Card with editable test text
+                item(key = "voice_test_card_${selectedVoice?.id}") {
+                    selectedVoice?.let { voice ->
+                        VoiceSynthesisTestCard(
+                            voice = voice,
+                            isModelDownloaded = isModelDownloaded,
+                            isPlaying = (previewingVoiceName == voice.id),
+                            onPlayTest = { text ->
+                                AudioPlaybackCoordinator.testNeuralVoice(voice, text)
+                            },
+                            onStopTest = {
+                                AudioPlaybackCoordinator.stopVoicePreview()
                             }
                         )
                     }
@@ -1107,5 +1132,96 @@ fun ImportCustomModelDialog(
             }
         }
     )
+}
+
+@Composable
+private fun VoiceSynthesisTestCard(
+    voice: NeuralVoiceInfo,
+    isModelDownloaded: Boolean,
+    isPlaying: Boolean,
+    onPlayTest: (String) -> Unit,
+    onStopTest: () -> Unit
+) {
+    var sampleText by remember(voice.id) {
+        val defaultText = when (voice.language) {
+            SupportedLanguage.ARABIC -> "مرحباً بكم في قارئ الروايات بالصوت الذكي."
+            SupportedLanguage.FRENCH -> "Bienvenue dans NovelArrow Reader avec synthèse vocale neuronale."
+            else -> "NovelArrow Reader provides natural offline text-to-speech for your novels."
+        }
+        mutableStateOf(defaultText)
+    }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.GraphicEq,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "TEST VOICE SYNTHESIS (${voice.name})",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = sampleText,
+                onValueChange = { sampleText = it },
+                label = { Text("Speech synthesis test text") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                maxLines = 4,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isPlaying) {
+                    Button(
+                        onClick = onStopTest,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Stop Audio")
+                    }
+                } else {
+                    Button(
+                        onClick = { onPlayTest(sampleText.ifBlank { "Testing voice output" }) },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Test Voice")
+                    }
+                }
+            }
+        }
+    }
 }
 

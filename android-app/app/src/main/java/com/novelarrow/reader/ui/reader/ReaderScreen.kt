@@ -744,11 +744,11 @@ fun ReaderContentView(
                                 title = "${chapterTitle}_selection",
                                 text = text,
                                 speed = speechRate,
-                                audioFormat = AudioExportEngine.AudioExportFormat.WAV
+                                audioFormat = AudioExportEngine.AudioExportFormat.WAV,
+                                directShare = true
                             )
-                            Toast.makeText(context, "Audifying ${selectedIndices.size} paragraphs in background...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Exporting ${selectedIndices.size} paragraphs...", Toast.LENGTH_SHORT).show()
                             selectedIndices = emptySet()
-                            onOpenAudioStudio?.invoke()
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
@@ -2043,7 +2043,7 @@ fun LibraryDrawerContent(
                 },
                 onAudifyAndShare = { speed ->
                     val novId = currentNovel?.id ?: chapToShare.novelId
-                    Toast.makeText(context, "Audifying chapter in background...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Exporting chapter...", Toast.LENGTH_SHORT).show()
                     AudioExportService.startExportNovel(
                         context = context,
                         novelId = novId,
@@ -2051,9 +2051,9 @@ fun LibraryDrawerContent(
                         endChap = chapToShare.orderIndex,
                         splitMode = AudioExportEngine.SplitMode.SINGLE_FILE,
                         speed = speed,
-                        audioFormat = AudioExportEngine.AudioExportFormat.WAV
+                        audioFormat = AudioExportEngine.AudioExportFormat.WAV,
+                        directShare = true
                     )
-                    onOpenAudioStudio()
                 }
             )
         }

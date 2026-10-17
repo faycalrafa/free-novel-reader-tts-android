@@ -206,4 +206,59 @@ class DomContentVerificationTest {
         )
         assertFalse("Empty DOM must NOT report content transitioned", transitioned)
     }
+
+    @Test
+    fun testCreateChapterFingerprintDifferentiatesChaptersWithIdenticalHeaders() {
+        val chapter1Paras = listOf(
+            "Second Life as a Soldier",
+            "Author: Studio Red",
+            "Translator: WebNovel Team",
+            "Dave swung his sword against the training dummy.",
+            "He wiped the sweat from his brow and gasped."
+        )
+        val chapter2Paras = listOf(
+            "Second Life as a Soldier",
+            "Author: Studio Red",
+            "Translator: WebNovel Team",
+            "The commander called the platoon together at dawn.",
+            "Their first scouting mission had finally arrived."
+        )
+
+        // createSample(take 3) would produce identical samples!
+        val sample1 = DomContentVerifier.createSample(chapter1Paras)
+        val sample2 = DomContentVerifier.createSample(chapter2Paras)
+        assertEquals("Standard 3-paragraph sample fails to differentiate pages with shared headers", sample1, sample2)
+
+        // createChapterFingerprint inspects middle and end paragraphs, successfully differentiating them
+        val fp1 = DomContentVerifier.createChapterFingerprint(chapter1Paras)
+        val fp2 = DomContentVerifier.createChapterFingerprint(chapter2Paras)
+        assertTrue("Fingerprints must be distinct for chapters with different body text", fp1 != fp2)
+    }
+
+    @Test
+    fun testDuplicateContentWhenUrlChangedWithMatchingNovelTitleHeader() {
+        val genericHeading = "Second Life as a Soldier"
+        val sample1 = "10:Header1::MidParagraphChapter1::EndParagraphChapter1"
+        val sample2 = "12:Header1::MidParagraphChapter2::EndParagraphChapter2"
+
+        // When urlChanged is true and body samples differ, identical heading MUST NOT be marked duplicate
+        val isDuplicate = DomContentVerifier.isDuplicateContent(
+            currentHeading = genericHeading,
+            currentSample = sample2,
+            lastHeading = genericHeading,
+            lastSample = sample1,
+            urlChanged = true
+        )
+        assertFalse("Different body content with changed URL must not be flagged duplicate even with identical book title heading", isDuplicate)
+
+        // Stale DOM where body sample is identical must still be flagged duplicate
+        val isStaleDuplicate = DomContentVerifier.isDuplicateContent(
+            currentHeading = genericHeading,
+            currentSample = sample1,
+            lastHeading = genericHeading,
+            lastSample = sample1,
+            urlChanged = true
+        )
+        assertTrue("Stale DOM with matching body sample must still be flagged duplicate even if URL changed", isStaleDuplicate)
+    }
 }
