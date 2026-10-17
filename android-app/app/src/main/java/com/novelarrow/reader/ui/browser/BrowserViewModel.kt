@@ -1386,7 +1386,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         _uiState.update { it.copy(isVoiceTesting = true) }
-        val sampleText = "Hello, this is a preview of the selected voice for NovelArrow Reader."
+        val sampleText = "Hello, this is a preview of the selected voice for BookReader."
         val settings = _uiState.value.settings
         val previewPara = Paragraph(
             index = 0,
@@ -1646,7 +1646,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     it.copy(
                         showCodeMirrorEditor = false,
                         editingUserscript = null,
-                        toastMessage = "Saved ${saved.name} to Downloads/NovelArrow_Scripts"
+                        toastMessage = "Saved ${saved.name} to Downloads/BookReader_Scripts"
                     )
                 }
             } catch (e: Exception) {

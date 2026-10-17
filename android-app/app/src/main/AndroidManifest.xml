@@ -22,11 +22,11 @@
         android:requestLegacyExternalStorage="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:windowSoftInputMode="adjustResize"
-        android:theme="@style/Theme.NovelArrowReader">
+        android:theme="@style/Theme.BookReader">
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -45,7 +45,7 @@
             android:name=".ui.browser.DocumentationActivity"
             android:exported="false"
             android:label="Userscript Documentation"
-            android:theme="@style/Theme.NovelArrowReader" />
+            android:theme="@style/Theme.BookReader" />
 
         <service
             android:name=".playback.NovelAudioPlaybackService"
@@ -67,7 +67,7 @@
         </service>
 
         <service
-            android:name=".playback.NovelArrowAccessibilityService"
+            android:name=".playback.BookReaderAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true"
             android:label="@string/accessibility_service_label">

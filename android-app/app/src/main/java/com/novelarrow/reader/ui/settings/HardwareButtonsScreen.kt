@@ -65,7 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.novelarrow.reader.data.model.HardwareButtonAction
 import com.novelarrow.reader.data.model.HardwareButtonScreenCondition
 import com.novelarrow.reader.data.model.HardwareButtonSettings
-import com.novelarrow.reader.playback.NovelArrowAccessibilityService
+import com.novelarrow.reader.playback.BookReaderAccessibilityService
 
 private enum class EditingButtonSlot {
     VOL_UP_SINGLE,
@@ -86,13 +86,13 @@ fun HardwareButtonsScreen(
 ) {
     var editingSlot by remember { mutableStateOf<EditingButtonSlot?>(null) }
     val context = LocalContext.current
-    var isAccessibilityActive by remember { mutableStateOf(NovelArrowAccessibilityService.isEnabled(context)) }
+    var isAccessibilityActive by remember { mutableStateOf(BookReaderAccessibilityService.isEnabled(context)) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                isAccessibilityActive = NovelArrowAccessibilityService.isEnabled(context)
+                isAccessibilityActive = BookReaderAccessibilityService.isEnabled(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -210,9 +210,9 @@ fun HardwareButtonsScreen(
 
                         Text(
                             text = if (isAccessibilityActive) {
-                                "NovelArrow Accessibility Service is active. Volume button shortcuts work everywhere across the system, in other apps, on the lock screen, and when the screen is turned off."
+                                "BookReader Accessibility Service is active. Volume button shortcuts work everywhere across the system, in other apps, on the lock screen, and when the screen is turned off."
                             } else {
-                                "To detect volume buttons outside the app, on the home screen, and when the screen is turned off, Android requires you to enable NovelArrow Reader in Accessibility settings."
+                                "To detect volume buttons outside the app, on the home screen, and when the screen is turned off, Android requires you to enable BookReader in Accessibility settings."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -285,7 +285,7 @@ fun HardwareButtonsScreen(
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     ConditionOptionRow(
                         title = "Only when Screen is ON",
-                        subtitle = "Shortcuts trigger only while actively using the NovelArrow app",
+                        subtitle = "Shortcuts trigger only while actively using the BookReader app",
                         selected = settings.screenCondition == HardwareButtonScreenCondition.SCREEN_ON_ONLY,
                         onClick = { onUpdateSettings(settings.copy(screenCondition = HardwareButtonScreenCondition.SCREEN_ON_ONLY)) }
                     )

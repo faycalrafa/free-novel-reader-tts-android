@@ -146,7 +146,7 @@ object AppLogger {
 
     fun formatForExport(appVersion: String): String {
         val sb = StringBuilder()
-        sb.appendLine("=== NovelArrow Reader Debug Logs ===")
+        sb.appendLine("=== BookReader Debug Logs ===")
         sb.appendLine("App Version: $appVersion")
         sb.appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})")
         sb.appendLine("Exported At: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")

@@ -151,7 +151,7 @@ fun UserscriptManagerDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Storage: Downloads/NovelArrow_Scripts/*.user.js",
+                            text = "Storage: Downloads/BookReader_Scripts/*.user.js",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -176,7 +176,7 @@ fun UserscriptManagerDialog(
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                "Tap '+' above to create a new userscript, or place .user.js files into your phone's Downloads/NovelArrow_Scripts folder.",
+                                "Tap '+' above to create a new userscript, or place .user.js files into your phone's Downloads/BookReader_Scripts folder.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center

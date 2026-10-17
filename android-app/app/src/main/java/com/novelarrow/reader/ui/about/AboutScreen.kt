@@ -202,7 +202,7 @@ fun AboutScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Explore the complete chronological changelog from the latest v3.2.1 release down to v1.0.0.",
+                            text = "Explore the complete chronological changelog from the latest v3.5.4 release down to v1.0.0.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

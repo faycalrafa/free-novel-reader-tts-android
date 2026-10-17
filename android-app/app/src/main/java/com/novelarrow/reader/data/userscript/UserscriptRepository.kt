@@ -35,7 +35,8 @@ class UserscriptRepository(private val context: Context) {
 
     companion object {
         private const val TAG = "UserscriptRepo"
-        private const val FOLDER_NAME = "NovelArrow_Scripts"
+        private const val FOLDER_NAME = "BookReader_Scripts"
+        private const val LEGACY_FOLDER_NAME = "NovelArrow_Scripts"
         private val repoMutex = Mutex()
         private var sharedFlowInternal: MutableStateFlow<List<UserscriptEntity>>? = null
 
@@ -142,8 +143,19 @@ class UserscriptRepository(private val context: Context) {
     fun getScriptsDirectory(): File {
         val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val target = File(publicDir, FOLDER_NAME)
+        val legacyTarget = File(publicDir, LEGACY_FOLDER_NAME)
         if (target.exists() && target.isDirectory && target.canWrite()) {
             return target
+        }
+        // If legacy folder exists, migrate files or rename if possible
+        if (legacyTarget.exists() && legacyTarget.isDirectory && !target.exists()) {
+            try {
+                if (legacyTarget.renameTo(target)) {
+                    return target
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to rename legacy scripts folder: ${e.message}", e)
+            }
         }
         try {
             if (target.mkdirs() || target.exists()) {

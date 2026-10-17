@@ -1702,7 +1702,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun updatePlaybackServiceNotification() {
         val state = _uiState.value
-        val novel = state.currentNovel?.title ?: "NovelArrow Reader"
+        val novel = state.currentNovel?.title ?: "BookReader"
         val chapter = state.currentChapter?.title ?: "No chapter loaded"
         val total = state.paragraphs.size
         val currentChapIdx = state.currentChapter?.orderIndex ?: 0

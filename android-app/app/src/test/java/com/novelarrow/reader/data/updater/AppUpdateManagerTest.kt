@@ -34,8 +34,8 @@ class AppUpdateManagerTest {
         val sampleJson = """
         {
           "tag_name": "v1.0.20261013154205",
-          "name": "NovelArrow Reader v1.0.20261013154205",
-          "body": "### NovelArrow Reader Release\n- Offline TTS\n- Background Audio",
+          "name": "BookReader v1.0.20261013154205",
+          "body": "### BookReader Release\n- Offline TTS\n- Background Audio",
           "html_url": "https://github.com/faycalrafa/free-novel-reader-tts-android/releases/tag/v1.0.20261013154205",
           "assets": [
             {
@@ -51,7 +51,7 @@ class AppUpdateManagerTest {
         val release = AppUpdateManager.parseReleaseJson(sampleJson)
         assertNotNull(release)
         assertEquals("v1.0.20261013154205", release?.tagName)
-        assertEquals("NovelArrow Reader v1.0.20261013154205", release?.title)
+        assertEquals("BookReader v1.0.20261013154205", release?.title)
         assertEquals("app-release.apk", release?.apkName)
         assertEquals(15889351L, release?.apkSize)
         assertEquals("15.2 MB", release?.formattedSize)

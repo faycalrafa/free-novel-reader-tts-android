@@ -13,7 +13,7 @@ class UserscriptMetadataParserTest {
             // @name         NovelBin Ad Cleaner
             // @version      2.1.0
             // @description  Removes banner ads and sidebars
-            // @author       NovelArrow Team
+            // @author       BookReader Team
             // @match        *://*.novelbin.me/*
             // @match        *://*.novelbin.com/*
             // @run-at       document-end
@@ -29,7 +29,7 @@ class UserscriptMetadataParserTest {
         assertEquals("NovelBin Ad Cleaner", parsed.name)
         assertEquals("2.1.0", parsed.version)
         assertEquals("Removes banner ads and sidebars", parsed.description)
-        assertEquals("NovelArrow Team", parsed.author)
+        assertEquals("BookReader Team", parsed.author)
         assertEquals(listOf("*://*.novelbin.me/*", "*://*.novelbin.com/*"), parsed.matchPatterns)
         assertEquals("document-end", parsed.runAt)
         assertEquals(listOf("GM_notification"), parsed.grantList)

@@ -52,7 +52,7 @@ data class PlaybackProgress(
     val isPlaying: Boolean = false,
     val source: PlaybackSource = PlaybackSource.NONE,
     val novelId: String? = null,
-    val novelTitle: String = "NovelArrow Reader",
+    val novelTitle: String = "BookReader",
     val chapterId: String? = null,
     val chapterTitle: String = "No chapter loaded",
     val chapterIndex: Int = 0,
@@ -81,7 +81,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
     private var currentAudioFile: File? = null
     private var silenceMediaSource: SilenceMediaSource? = null
 
-    private var currentNovelTitle: String = "NovelArrow Reader"
+    private var currentNovelTitle: String = "BookReader"
     private var currentChapterTitle: String = "No chapter loaded"
     private var currentProgressText: String = "Ready"
     private var currentChapterIndex: Int = 0
@@ -582,7 +582,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
             .build()
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "NovelArrow::PlaybackWakeLock")
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BookReader::PlaybackWakeLock")
     }
 
     private fun handleSeekTo(positionMs: Long) {
@@ -756,10 +756,10 @@ class NovelAudioPlaybackService : MediaSessionService() {
         val (coverBitmap, coverArtworkBytes) = getBookCoverArtwork()
 
         val metadata = MediaMetadata.Builder()
-            .setTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
+            .setTitle(chapterTitle.ifBlank { "BookReader" })
             .setArtist(novelTitle.ifBlank { "Text-to-Speech" })
-            .setAlbumTitle(novelTitle.ifBlank { "NovelArrow Reader" })
-            .setDisplayTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
+            .setAlbumTitle(novelTitle.ifBlank { "BookReader" })
+            .setDisplayTitle(chapterTitle.ifBlank { "BookReader" })
             .setSubtitle(paragraphProgress)
             .setArtworkData(coverArtworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
             .build()
@@ -1063,8 +1063,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
         ).build()
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(chapterTitle.ifBlank { "NovelArrow Reader" })
-            .setContentText(novelTitle.ifBlank { "NovelArrow Reader" })
+            .setContentTitle(chapterTitle.ifBlank { "BookReader" })
+            .setContentText(novelTitle.ifBlank { "BookReader" })
             .setSubText(progressText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openAppPendingIntent)

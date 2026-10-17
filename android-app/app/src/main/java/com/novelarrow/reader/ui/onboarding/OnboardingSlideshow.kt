@@ -257,7 +257,7 @@ private fun SlideWelcome() {
         Spacer(Modifier.height(20.dp))
 
         Text(
-            text = "Welcome to NovelArrow",
+            text = "Welcome to BookReader",
             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurface
@@ -417,7 +417,7 @@ private fun SlideStorage(
         Spacer(Modifier.height(8.dp))
 
         Text(
-            text = "Storage access allows NovelArrow to load your novel chapters from Downloads/NovelReader and save hidden configuration files (.novelreader_preferences.json and .progress.json) so your reading progress survives app updates and reinstalls.",
+            text = "Storage access allows BookReader to load your novel chapters from Downloads/NovelReader and save hidden configuration files (.novelreader_preferences.json and .progress.json) so your reading progress survives app updates and reinstalls.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant

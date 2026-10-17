@@ -1,19 +1,19 @@
-# NovelArrow Userscript API & Development Guide
+# BookReader Userscript API & Development Guide
 
-Welcome to the **NovelArrow Userscript Engine**! Userscripts allow you to customize, automate, style, and enhance novel reading websites directly in NovelArrow Reader's integrated browser.
+Welcome to the **BookReader Userscript Engine**! Userscripts allow you to customize, automate, style, and enhance novel reading websites directly in BookReader's integrated browser.
 
 ---
 
 ## 1. Script Metadata Header Block
 
-Every userscript must begin with a metadata block enclosed between `// ==UserScript==` and `// ==/UserScript==`. NovelArrow parses these directives to configure when, where, and how your script runs.
+Every userscript must begin with a metadata block enclosed between `// ==UserScript==` and `// ==/UserScript==`. BookReader parses these directives to configure when, where, and how your script runs.
 
 ```javascript
 // ==UserScript==
 // @name         My Novel Helper
 // @version      1.0.0
 // @description  Custom userscript for enhanced reading
-// @author       NovelArrow Reader
+// @author       BookReader
 // @match        *://novelbin.me/*
 // @match        *://*.novelfull.com/*
 // @run-at       document-end
@@ -53,14 +53,14 @@ Displays a native Android Toast notification on the user's screen.
   ```javascript
   GM_notification({
       text: "Next chapter detected automatically.",
-      title: "NovelArrow"
+      title: "BookReader"
   });
   ```
 
 ---
 
 ### `window.BrowserBridge` / `window.AndroidBridge`
-NovelArrow exposes native JavaScript interfaces for deep reader integration:
+BookReader exposes native JavaScript interfaces for deep reader integration:
 
 - `window.BrowserBridge.gmNotification(message: string)`
   Directly triggers a native Android Toast.
@@ -75,17 +75,17 @@ NovelArrow exposes native JavaScript interfaces for deep reader integration:
 
 ## 3. Storage & Physical File Location
 
-Unlike other browsers that hide scripts in internal databases, NovelArrow stores your physical script code directly in your public **Downloads** directory:
+Unlike other browsers that hide scripts in internal databases, BookReader stores your physical script code directly in your public **Downloads** directory:
 
 ```text
-/storage/emulated/0/Download/NovelArrow_Scripts/
+/storage/emulated/0/Download/BookReader_Scripts/
   ├── NovelBin_Cleaner.user.js
   ├── Auto_Scroller.user.js
   └── Font_Customizer.user.js
 ```
 
 - You can edit scripts inside the app using the built-in **Monaco Editor**, or use an external editor on your phone/PC.
-- Any `.user.js` files dropped into `Download/NovelArrow_Scripts/` will be automatically detected!
+- Any `.user.js` files dropped into `Download/BookReader_Scripts/` will be automatically detected!
 - Deleting a script in the Userscript Manager will delete both the database entry and the physical file.
 
 ---

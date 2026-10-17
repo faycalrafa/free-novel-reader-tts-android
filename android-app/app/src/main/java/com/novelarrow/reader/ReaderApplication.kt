@@ -11,7 +11,7 @@ class ReaderApplication : Application() {
         super.onCreate()
         instance = this
 
-        AppLogger.i("ReaderApp", "NovelArrow Reader starting up...")
+        AppLogger.i("ReaderApp", "BookReader starting up...")
 
         setupCrashHandler()
         checkForPreviousCrash()

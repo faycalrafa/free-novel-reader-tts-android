@@ -1242,8 +1242,8 @@ private fun VoiceSynthesisTestCard(
     var sampleText by remember(voice.id) {
         val defaultText = when (voice.language) {
             SupportedLanguage.ARABIC -> "مرحباً بكم في قارئ الروايات بالصوت الذكي."
-            SupportedLanguage.FRENCH -> "Bienvenue dans NovelArrow Reader avec synthèse vocale neuronale."
-            else -> "NovelArrow Reader provides natural offline text-to-speech for your novels."
+            SupportedLanguage.FRENCH -> "Bienvenue dans BookReader avec synthèse vocale neuronale."
+            else -> "BookReader provides natural offline text-to-speech for your novels."
         }
         mutableStateOf(defaultText)
     }

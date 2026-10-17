@@ -75,7 +75,7 @@ object AppUpdateManager {
                 readTimeout = 15000
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
-                setRequestProperty("User-Agent", "NovelArrowReaderPro-Android")
+                setRequestProperty("User-Agent", "BookReaderPro-Android")
             }
 
             val responseCode = connection.responseCode
@@ -250,7 +250,7 @@ object AppUpdateManager {
                 connectTimeout = 15000
                 readTimeout = 30000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "NovelArrowReaderPro-Android")
+                setRequestProperty("User-Agent", "BookReaderPro-Android")
             }
 
             val code = connection.responseCode
@@ -374,9 +374,9 @@ object AppUpdateManager {
                 @Suppress("DEPRECATION")
                 context.packageManager.getPackageInfo(context.packageName, 0)
             }
-            pInfo.versionName ?: "3.5.3"
+            pInfo.versionName ?: "3.5.4"
         } catch (e: Exception) {
-            "3.5.3"
+            "3.5.4"
         }
     }
 

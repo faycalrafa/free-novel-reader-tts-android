@@ -244,7 +244,7 @@ fun GlobalSettingsScreen(
             ) {
                 SettingsNavigationItem(
                     icon = Icons.Default.Info,
-                    title = "About NovelArrow",
+                    title = "About BookReader",
                     subtitle = "App info, license, changelog and software updates",
                     onClick = onNavigateToAbout
                 )

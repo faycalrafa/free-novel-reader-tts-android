@@ -177,7 +177,7 @@ fun DevLogsScreen(
                                 val text = AppLogger.formatForExport(installedVersionName)
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
-                                    putExtra(Intent.EXTRA_SUBJECT, "NovelArrow Reader Logs")
+                                    putExtra(Intent.EXTRA_SUBJECT, "BookReader Logs")
                                     putExtra(Intent.EXTRA_TEXT, text)
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "Share Debug Logs"))

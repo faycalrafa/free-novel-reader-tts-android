@@ -116,13 +116,13 @@ class HardwareButtonCoordinatorTest {
             }
         }
 
-        val target = "NovelArrowAccessibilityService"
+        val target = "BookReaderAccessibilityService"
 
         // Single service
-        assertTrue(isServiceInList("com.novelarrow.reader/.playback.NovelArrowAccessibilityService", target))
+        assertTrue(isServiceInList("com.novelarrow.reader/.playback.BookReaderAccessibilityService", target))
 
         // Multiple services separated by colon
-        val multiServices = "com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService:com.novelarrow.reader/.playback.NovelArrowAccessibilityService:com.example.other/OtherService"
+        val multiServices = "com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService:com.novelarrow.reader/.playback.BookReaderAccessibilityService:com.example.other/OtherService"
         assertTrue(isServiceInList(multiServices, target))
 
         // Not in list

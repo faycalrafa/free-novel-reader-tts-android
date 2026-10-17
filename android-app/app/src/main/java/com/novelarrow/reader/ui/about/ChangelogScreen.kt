@@ -48,8 +48,20 @@ data class ReleaseItem(
 
 val FullReleaseHistory = listOf(
     ReleaseItem(
-        version = "v3.3.0",
+        version = "v3.5.4",
         date = "Latest Release",
+        title = "BookReader Rebranding & Adaptive Launcher Icon Fix",
+        changes = listOf(
+            "Unified app-wide branding under BookReader across UI headers, settings, notifications, toasts, and logs",
+            "Fixed adaptive icon on Android 8.0 through Android 16 with rich terracotta lighting gradient background",
+            "Bound roundIcon to dedicated circular terracotta assets, resolving the double-border rounded-inside-square issue",
+            "Upgraded userscripts directory to Downloads/BookReader_Scripts with backward-compatible migration",
+            "Renamed accessibility service to BookReaderAccessibilityService with full backward compatibility"
+        )
+    ),
+    ReleaseItem(
+        version = "v3.3.0",
+        date = "2026-10-17",
         title = "Loading Animation Overhaul & Squircle Launcher App Icon",
         changes = listOf(
             "Integrated high-definition animated WebP loading indicator (turning pages & pulsating sound wave) replacing circular progress indicators app-wide",
@@ -112,7 +124,7 @@ val FullReleaseHistory = listOf(
         date = "2026-10-16",
         title = "Screen-Off & System-Wide Hardware Volume Shortcuts",
         changes = listOf(
-            "Added system-wide and screen-off hardware volume button mapping via NovelArrowAccessibilityService",
+            "Added system-wide and screen-off hardware volume button mapping via BookReaderAccessibilityService",
             "Integrated MediaSession key interception for locked device controls",
             "Configurable hardware button actions for single and double clicks"
         )
@@ -370,13 +382,13 @@ fun ChangelogScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = if (release.version == "v3.3.0") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+                                    color = if (release.version == "v3.5.4") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
                                 ) {
                                     Text(
                                         text = release.version,
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             fontWeight = FontWeight.Bold,
-                                            color = if (release.version == "v3.3.0") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                                            color = if (release.version == "v3.5.4") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
                                         ),
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
                                     )
@@ -388,7 +400,7 @@ fun ChangelogScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (release.version == "v3.3.0") {
+                            if (release.version == "v3.5.4") {
                                 Surface(
                                     shape = CircleShape,
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)

@@ -62,7 +62,7 @@ object AudioPlaybackCoordinator {
 
     private var currentSource: PlaybackSource = PlaybackSource.NONE
     private var currentNovelId: String? = null
-    private var currentNovelTitle: String = "NovelArrow Reader"
+    private var currentNovelTitle: String = "BookReader"
     private var currentChapterId: String? = null
     private var currentChapterTitle: String = "No chapter loaded"
     private var currentProgressText: String = "Ready"

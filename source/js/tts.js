@@ -50,8 +50,8 @@ window.updateMediaSessionMetadata = function(title, sub) {
         const total = window.TTS.paragraphs ? window.TTS.paragraphs.length : 0;
         const cur = window.TTS.index + 1;
         navigator.mediaSession.metadata = new MediaMetadata({
-            title: title || 'NovelArrow Reader',
-            artist: total > 0 ? `¶ ${cur} / ${total}` : 'NovelArrow Reader Pro',
+            title: title || 'BookReader',
+            artist: total > 0 ? `¶ ${cur} / ${total}` : 'BookReader Pro',
             album: chapterName,
             artwork: [{ src: window.makeAlbumArt(), sizes: '512x512', type: 'image/png' }]
         });
@@ -67,7 +67,7 @@ window.makeAlbumArt = function() {
         const g = ctx.createLinearGradient(0, 0, 512, 512); g.addColorStop(0, '#2563eb'); g.addColorStop(1, '#7c3aed');
         ctx.fillStyle = g; ctx.fillRect(0, 0, 512, 512);
         ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.font = 'bold 260px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('📖', 256, 256); ctx.font = 'bold 46px system-ui, sans-serif'; ctx.fillText('NovelArrow', 256, 460);
+        ctx.fillText('📖', 256, 256); ctx.font = 'bold 46px system-ui, sans-serif'; ctx.fillText('BookReader', 256, 460);
         window._cachedArtwork = c.toDataURL('image/png'); return window._cachedArtwork;
     } catch (e) { return ''; }
 };
@@ -340,9 +340,9 @@ window.TTS = {
         if (!voice) voice = voices.find(v => v.localService && /Microsoft Mark/i.test(v.name)) || voices.find(v => v.localService && v.lang && v.lang.startsWith('en')) || voices.find(v => v.lang && v.lang.startsWith('en'));
         if (voice) u.voice = voice;
         u.onstart = () => { this.speaking = true; this.paused = false; this.updateUI(); try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; } catch(e) {} };
-        u.onend = () => { this.speaking = false; this.updateUI(); if (this.active && window._novelArrowU === u) this.onUtteranceEnd(); };
+        u.onend = () => { this.speaking = false; this.updateUI(); if (this.active && window._bookReaderU === u) this.onUtteranceEnd(); };
         u.onerror = (e) => { this.speaking = false; if (this.active && e.error !== 'interrupted' && e.error !== 'canceled') setTimeout(() => this.speakAt(this.index + 1), 300); };
-        window._novelArrowU = u;
+        window._bookReaderU = u;
         if (isJump) setTimeout(() => { if (this.active) speechSynthesis.speak(u); }, 100); else speechSynthesis.speak(u);
         
         if (this._keepAliveTimer) clearInterval(this._keepAliveTimer);

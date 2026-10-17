@@ -72,7 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.novelarrow.reader.playback.NovelAudioPlaybackService
-import com.novelarrow.reader.theme.NovelArrowReaderTheme
+import com.novelarrow.reader.theme.BookReaderTheme
 import com.novelarrow.reader.ui.about.AboutScreen
 import com.novelarrow.reader.ui.archive.ArchiveScreen
 import com.novelarrow.reader.ui.browser.BrowserScreen
@@ -302,7 +302,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (!isOnboardingCompleted) {
-                NovelArrowReaderTheme(themeMode = uiState.settings.theme) {
+                BookReaderTheme(themeMode = uiState.settings.theme) {
                     OnboardingSlideshow(
                         onFinish = {
                             prefs.edit().putBoolean("has_completed_onboarding", true).apply()
@@ -316,7 +316,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             } else {
-                NovelArrowReaderTheme(themeMode = uiState.settings.theme) {
+                BookReaderTheme(themeMode = uiState.settings.theme) {
                     ModalNavigationDrawer(
                     drawerState = drawerState,
                     gesturesEnabled = currentScreen != AppScreen.BROWSER,
@@ -910,7 +910,7 @@ class MainActivity : ComponentActivity() {
                                             onClick = {
                                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                                 val clip = ClipData.newPlainText(
-                                                    "NovelArrow Error Log",
+                                                    "BookReader Error Log",
                                                     "ERROR: ${err.title}\nMessage: ${err.message}\n\nStackTrace:\n${err.stackTrace.ifBlank { "N/A" }}"
                                                 )
                                                 clipboard.setPrimaryClip(clip)
@@ -1158,7 +1158,7 @@ private fun SignatureMismatchDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    "This update uses NovelArrow's permanent official signing key for all future releases. Because older versions were built with temporary CI keys, Android requires a one-time reinstall.",
+                    "This update uses BookReader's permanent official signing key for all future releases. Because older versions were built with temporary CI keys, Android requires a one-time reinstall.",
                     style = MaterialTheme.typography.bodyMedium
                 )
 
@@ -1190,7 +1190,7 @@ private fun SignatureMismatchDialog(
                 )
                 Text(
                     "1. Tap 'Export / Save APK' to save update-latest.apk to your Downloads folder.\n" +
-                    "2. Uninstall your current NovelArrow Reader app.\n" +
+                    "2. Uninstall your current BookReader app.\n" +
                     "3. Open the saved APK in your file manager to install it.\n\n" +
                     "All future updates will then install smoothly with a single tap!",
                     style = MaterialTheme.typography.bodySmall,

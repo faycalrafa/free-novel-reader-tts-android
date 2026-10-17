@@ -93,7 +93,7 @@ object UserscriptMetadataParser {
             // ==UserScript==
             // @name         $scriptName
             // @version      1.0.0
-            // @description  Custom userscript for NovelArrow
+            // @description  Custom userscript for BookReader
             // @match        $matchPattern
             // @run-at       document-end
             // @grant        GM_notification
@@ -101,7 +101,7 @@ object UserscriptMetadataParser {
 
             (function() {
                 'use strict';
-                console.log('NovelArrow userscript [$scriptName] executed on ' + window.location.href);
+                console.log('BookReader userscript [$scriptName] executed on ' + window.location.href);
                 if (typeof GM_notification === 'function') {
                     GM_notification('Userscript [$scriptName] loaded successfully!');
                 }

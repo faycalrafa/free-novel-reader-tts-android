@@ -44,7 +44,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun NovelArrowReaderTheme(
+fun BookReaderTheme(
     themeMode: ThemeMode = ThemeMode.DARK,
     content: @Composable () -> Unit
 ) {
@@ -60,3 +60,10 @@ fun NovelArrowReaderTheme(
         content = content
     )
 }
+
+@Composable
+fun NovelArrowReaderTheme(
+    themeMode: ThemeMode = ThemeMode.DARK,
+    content: @Composable () -> Unit
+) = BookReaderTheme(themeMode = themeMode, content = content)
+

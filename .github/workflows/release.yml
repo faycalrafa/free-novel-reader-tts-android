@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.5.3"
+          DATE_TAG="v3.5.4"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.5.3"
-        run: ./gradlew assembleRelease -PappVersionName=3.5.3 --no-daemon
+          APP_VERSION_NAME: "3.5.4"
+        run: ./gradlew assembleRelease -PappVersionName=3.5.4 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,24 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: NovelArrow Reader v3.5.3 (Stable)
+          name: BookReader v3.5.4 (Stable)
           prerelease: false
           body: |
-            ### NovelArrow Reader v3.5.3 (Stable) 🎙️⚡
+            ### BookReader v3.5.4 (Stable) 📚🎨
 
-            **NovelArrow Reader v3.5.3** delivers dynamic Android Text-To-Speech engine switching, device engine discovery, honest neural voice testing and routing, and direct engine readiness status for offline Piper, Kokoro, and KittenTTS models!
+            **BookReader v3.5.4** brings unified **BookReader** branding across the entire app and resolves launcher adaptive icon styling on modern Android devices (Android 8.0 through Android 16)!
 
             #### Key Updates in this release:
+            - **Complete BookReader App Rebranding**:
+              - Updated all in-app mentions, headers, settings, notifications, toasts, and logs from NovelArrow to **BookReader** (keeping package name `com.novelarrow.reader` consistent).
+              - Replaced `Theme.NovelArrowReader` with `Theme.BookReader` and updated Compose themes to `BookReaderTheme`.
+              - Upgraded userscript paths and storage to `Downloads/BookReader_Scripts` with automatic migration for existing user scripts.
+              - Updated accessibility service to `BookReaderAccessibilityService` with full backwards compatibility for existing system settings.
+            - **Adaptive Launcher Icon Fix (Rich 3D Claymorphic Terracotta)**:
+              - Resolved the double-border "rounded inside square" issue where modern Android systems (Android 8.0+ / Android 16) rendered a flat cream square with a circular emblem instead of the terracotta icon.
+              - Upgraded `ic_launcher_background.xml` to a rich terracotta lighting gradient matching the 3D claymorphic cushion.
+              - Bound `android:roundIcon` to `@mipmap/ic_launcher_round` with circular terracotta assets across all screen densities.
+              - Whether your launcher masks icons as a square, squircle, pebble, or circle, the icon fills its bounds with high-fidelity terracotta styling and crisp safe-zone book artwork.
             - **Dynamic Speech Engine Switching & Device Discovery**:
               - Query all installed Android TTS engines on the device (`com.google.android.tts`, `rhasspy.piper`, `com.k2fsa.sherpa.onnx.tts`, `com.samsung.SMT`, etc.).
               - Switch active TTS engines on the fly with 1-tap in `VoiceEngineScreen` without needing app restarts.

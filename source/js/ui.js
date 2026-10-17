@@ -521,7 +521,7 @@ window.addEventListener('load', async () => {
         
         window.setLoopButtonState(false);
         if (window.settings.mediaSessionEnabled && 'mediaSession' in navigator) {
-            try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'NovelArrow Reader Pro', artist: 'Ready to read', album: 'Local HTML Reader', artwork: [{ src: window.makeAlbumArt(), sizes: '512x512', type: 'image/png' }] }); } catch(e) {}
+            try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'BookReader Pro', artist: 'Ready to read', album: 'Local HTML Reader', artwork: [{ src: window.makeAlbumArt(), sizes: '512x512', type: 'image/png' }] }); } catch(e) {}
         }
     } catch(err) {
         console.error('Init error', err); window.toast('Startup issue: ' + err.message, 'error');

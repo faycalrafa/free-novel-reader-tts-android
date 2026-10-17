@@ -205,7 +205,7 @@ object NeuralModelDownloader {
                 connectTimeout = 20000
                 readTimeout = 60000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "NovelArrowReaderPro-Android")
+                setRequestProperty("User-Agent", "BookReaderPro-Android")
             }
 
             val code = connection.responseCode

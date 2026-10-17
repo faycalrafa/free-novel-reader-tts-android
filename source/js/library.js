@@ -359,7 +359,7 @@ window.removeLibraryEntry = async function(id) {
     if (window.state.currentLibId === id) {
         window.state.currentLibId = null; window.state.currentPlaylist = null; window.state.currentEntryIndex = -1;
         window.shadow.innerHTML = ''; window.$('empty-state').classList.remove('hidden');
-        window.$('page-title').textContent = 'NovelArrow Reader Pro'; window.$('page-sub').textContent = 'Ready to read';
+        window.$('page-title').textContent = 'BookReader Pro'; window.$('page-sub').textContent = 'Ready to read';
     }
     await window.saveLibraryIndex();
     window.renderDrawer();

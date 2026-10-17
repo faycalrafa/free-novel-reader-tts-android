@@ -122,8 +122,8 @@ object WebScriptInjector {
                 }
 
                 // 2. Interactive paragraph click to seek TTS (do NOT block clicks on links/buttons)
-                if (!window.__novelArrowClickBound) {
-                    window.__novelArrowClickBound = true;
+                if (!window.__bookReaderClickBound) {
+                    window.__bookReaderClickBound = true;
                     document.addEventListener('click', function(e) {
                         if (e.target && e.target.closest('a, button, input, select, textarea, [role="button"]')) {
                             return; // Let user interact with buttons and links normally
@@ -142,8 +142,8 @@ object WebScriptInjector {
                 }
 
                 // 3. Scroll to bottom detector for auto-next on scroll
-                if (!window.__novelArrowScrollBound) {
-                    window.__novelArrowScrollBound = true;
+                if (!window.__bookReaderScrollBound) {
+                    window.__bookReaderScrollBound = true;
                     window.addEventListener('scroll', function() {
                         if ((window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 16)) {
                             if (window.AndroidBridge && window.AndroidBridge.onScrolledToBottom) {

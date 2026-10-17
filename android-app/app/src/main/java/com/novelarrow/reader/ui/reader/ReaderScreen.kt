@@ -1110,7 +1110,7 @@ fun EmptyState(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "NovelArrow Reader Pro",
+            text = "BookReader Pro",
             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onBackground
         )

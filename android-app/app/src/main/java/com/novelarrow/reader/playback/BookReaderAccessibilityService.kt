@@ -10,7 +10,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 
-class NovelArrowAccessibilityService : AccessibilityService() {
+class BookReaderAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -18,7 +18,7 @@ class NovelArrowAccessibilityService : AccessibilityService() {
             val info = serviceInfo ?: AccessibilityServiceInfo()
             info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
             serviceInfo = info
-            Log.d(TAG, "NovelArrowAccessibilityService connected with FLAG_REQUEST_FILTER_KEY_EVENTS")
+            Log.d(TAG, "BookReaderAccessibilityService connected with FLAG_REQUEST_FILTER_KEY_EVENTS")
         } catch (e: Exception) {
             Log.e(TAG, "Failed configuring AccessibilityServiceInfo", e)
         }
@@ -46,15 +46,16 @@ class NovelArrowAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        Log.d(TAG, "NovelArrowAccessibilityService interrupted")
+        Log.d(TAG, "BookReaderAccessibilityService interrupted")
     }
 
     companion object {
-        private const val TAG = "NovelArrowA11y"
+        private const val TAG = "BookReaderA11y"
 
         fun isEnabled(context: Context): Boolean {
             return try {
-                val expected = ComponentName(context, NovelArrowAccessibilityService::class.java).flattenToString()
+                val expected = ComponentName(context, BookReaderAccessibilityService::class.java).flattenToString()
+                val legacyExpected = "com.novelarrow.reader/.playback.NovelArrowAccessibilityService"
                 val enabledServices = Settings.Secure.getString(
                     context.contentResolver,
                     Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
@@ -64,8 +65,10 @@ class NovelArrowAccessibilityService : AccessibilityService() {
                 while (colonSplitter.hasNext()) {
                     val comp = colonSplitter.next()
                     if (comp.equals(expected, ignoreCase = true) ||
-                        comp.endsWith("/" + NovelArrowAccessibilityService::class.java.name) ||
-                        comp.endsWith("/.playback.NovelArrowAccessibilityService") ||
+                        comp.equals(legacyExpected, ignoreCase = true) ||
+                        comp.endsWith("/" + BookReaderAccessibilityService::class.java.name) ||
+                        comp.endsWith("/.playback.BookReaderAccessibilityService") ||
+                        comp.contains("BookReaderAccessibilityService") ||
                         comp.contains("NovelArrowAccessibilityService")
                     ) {
                         return true
@@ -78,3 +81,6 @@ class NovelArrowAccessibilityService : AccessibilityService() {
         }
     }
 }
+
+typealias NovelArrowAccessibilityService = BookReaderAccessibilityService
+

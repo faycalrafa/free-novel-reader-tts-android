@@ -103,8 +103,8 @@ class WebScriptInjectorTest {
     fun testBuildHelperScript() {
         val script = WebScriptInjector.buildHelperScript()
         assertTrue(script.contains("na-tts-styles"))
-        assertTrue(script.contains("__novelArrowClickBound"))
-        assertTrue(script.contains("__novelArrowScrollBound"))
+        assertTrue(script.contains("__bookReaderClickBound"))
+        assertTrue(script.contains("__bookReaderScrollBound"))
         assertTrue(script.contains("window.AndroidBridge.onParagraphClicked"))
         assertTrue(script.contains("window.AndroidBridge.onScrolledToBottom"))
         assertTrue(script.contains("window.GM_notification"))
