@@ -1,4 +1,4 @@
-# Test Infrastructure & Verification Plan: NovelArrow Reader TTS
+# Test Infrastructure & Verification Plan: BookReader TTS
 
 ## Test Philosophy
 - Requirement-driven verification derived from ORIGINAL_REQUEST.md and GEMINI.md.

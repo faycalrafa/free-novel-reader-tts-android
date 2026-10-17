@@ -178,7 +178,7 @@ jobs:
             - **Boot Flow Improvement**:
               - App boots into the Home screen (`EmptyState`) with the "CONTINUE READING" quick-play card instead of forcing the last chapter directly into the reader.
 
-            **NovelArrow Reader v3.2.0** is a comprehensive UX overhaul: dedicated settings routes, voice engine & selection screens, audio studio library with granular MP3 generation progress, smarter web downloads, and branding refinements.
+            **BookReader v3.2.0** is a comprehensive UX overhaul: dedicated settings routes, voice engine & selection screens, audio studio library with granular MP3 generation progress, smarter web downloads, and branding refinements.
 
             #### Key Updates in this release:
 

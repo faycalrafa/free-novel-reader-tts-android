@@ -1,7 +1,7 @@
-# Project: NovelArrow Reader TTS — UX Refactor & Feature Expansion
+# Project: BookReader TTS — UX Refactor & Feature Expansion
 
 ## Architecture
-NovelArrow Reader TTS follows Modern Android Architecture (MVVM) with Jetpack Compose (Material 3), AndroidX Media3, Native Android TTS, and a Userscript Web Engine.
+BookReader TTS follows Modern Android Architecture (MVVM) with Jetpack Compose (Material 3), AndroidX Media3, Native Android TTS, and a Userscript Web Engine.
 
 Key architectural boundaries:
 - **Navigation & Routing**: In `MainActivity.kt`, managed via `AppScreen` enum state and explicit `BackHandler`s.

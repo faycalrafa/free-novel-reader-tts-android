@@ -1,6 +1,6 @@
 # AI Agent & Contributor Engineering Guidelines
 
-> **Target Audience**: AI Coding Agents (LLMs) and human contributors modifying or extending the **NovelArrow Reader TTS** codebase.
+> **Target Audience**: AI Coding Agents (LLMs) and human contributors modifying or extending the **BookReader TTS** codebase.
 > **Primary Rule 1 (Git Synchronization - Start & Finish)**:
 > - **Before starting**: ALWAYS run `git pull origin main` BEFORE starting any research, planning, or code implementation to ensure your branch is never working behind `main`.
 > - **When done**: ALWAYS run `git push origin main` AFTER completing implementation, verifying test passes, and updating versions so that changes are never left unpushed on local branches.
@@ -11,7 +11,7 @@
 
 ## 1. Architectural Overview & Philosophy
 
-NovelArrow Reader TTS is built with **Modern Android Architecture (MVVM)**, **Jetpack Compose (Material 3)**, **AndroidX Media3**, **Android Native Text-To-Speech (TTS)**, and an extensible **Userscript Web Engine**.
+BookReader TTS is built with **Modern Android Architecture (MVVM)**, **Jetpack Compose (Material 3)**, **AndroidX Media3**, **Android Native Text-To-Speech (TTS)**, and an extensible **Userscript Web Engine**.
 
 ```mermaid
 flowchart TD
@@ -122,7 +122,7 @@ The browser subsystem allows live in-browser TTS reading, batch chapter scraping
 
 ### E. Logging & Error Capture Architecture (`com.novelarrow.reader.util.AppLogger`)
 
-NovelArrow Reader includes an integrated diagnostic logging engine ([`AppLogger.kt`](file:///android-app/app/src/main/java/com/novelarrow/reader/util/AppLogger.kt)) and in-app developer logs viewer (`DevLogsScreen`) with real-time log capturing and export capabilities.
+BookReader includes an integrated diagnostic logging engine ([`AppLogger.kt`](file:///android-app/app/src/main/java/com/novelarrow/reader/util/AppLogger.kt)) and in-app developer logs viewer (`DevLogsScreen`) with real-time log capturing and export capabilities.
 
 * **Proximity Logging ("Near Logging")**: Log errors, state transitions, and warnings immediately at the callsite / failure point where the event originates. Do not postpone logging to distant outer callers where original context (parameters, filenames, chapter indexes, raw responses) is lost.
 * **Dual-Target Logging via `AppLogger`**: Use `AppLogger.e(TAG, message, throwable)`, `AppLogger.w(TAG, message, throwable)`, `AppLogger.i(TAG, message)`, or `AppLogger.d(TAG, message)` across ViewModels, repositories, and managers. This logs to standard Android Logcat AND automatically captures entries into the in-memory rolling buffer for user export and developer diagnostics.
@@ -202,7 +202,7 @@ When bumping the version, you must update the following three files synchronousl
    - Update `DATE_TAG="v2.4.0"`
    - Update `APP_VERSION_NAME: "2.4.0"`
    - Update `run: ./gradlew assembleRelease -PappVersionName=2.4.0 --no-daemon`
-   - Update `name: NovelArrow Reader v2.4.0 (Stable)`
+   - Update `name: BookReader v2.4.0 (Stable)`
    - Update the release markdown `body` summarizing the newly added features and bug fixes.
 3. **`android-app/app/src/main/java/com/novelarrow/reader/data/updater/AppUpdateManager.kt`**:
    - Update the fallback version string in `getInstalledVersionName()`:

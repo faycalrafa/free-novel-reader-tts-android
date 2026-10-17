@@ -11,7 +11,7 @@
 
 ## 🌟 What is BookReader?
 
-**BookReader** (NovelArrow Reader) is a personal hobby project created and maintained by Faycal Rafa. It is a high-performance Android reader and offline Text-to-Speech (TTS) audiobook player built for readers of web novels, light novels, eBooks, and multi-file text collections.
+**BookReader** is a personal hobby project created and maintained by Faycal Rafa. It is a high-performance Android reader and offline Text-to-Speech (TTS) audiobook player built for readers of web novels, light novels, eBooks, and multi-file text collections.
 
 Unlike standard e-readers that treat individual chapters as disconnected documents, BookReader treats your **local folders as dynamic audio playlists**:
 1. Simply select any root novel directory on your device.
