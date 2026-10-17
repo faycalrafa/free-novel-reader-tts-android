@@ -185,6 +185,7 @@ fun AudioStudioScreen(
     var splitMode by remember { mutableStateOf(AudioExportEngine.SplitMode.BY_CHAPTER) }
     var maxMinutes by remember { mutableIntStateOf(30) }
     var generatorSpeechRate by remember { mutableFloatStateOf(1.0f) }
+    var exportAudioFormat by remember { mutableStateOf(AudioExportEngine.AudioExportFormat.MP3) }
     var isProgressDismissedLocally by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -916,6 +917,60 @@ fun AudioStudioScreen(
                         }
                     }
 
+                    // Audio Format Picker (MP3 vs WAV)
+                    item {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Audiotrack,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "5. Audio Format",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    FilterChip(
+                                        selected = exportAudioFormat == AudioExportEngine.AudioExportFormat.MP3,
+                                        onClick = { exportAudioFormat = AudioExportEngine.AudioExportFormat.MP3 },
+                                        label = { Text("MP3 (Compressed)") }
+                                    )
+                                    FilterChip(
+                                        selected = exportAudioFormat == AudioExportEngine.AudioExportFormat.WAV,
+                                        onClick = { exportAudioFormat = AudioExportEngine.AudioExportFormat.WAV },
+                                        label = { Text("WAV (Fast Export)") }
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = if (exportAudioFormat == AudioExportEngine.AudioExportFormat.WAV) {
+                                        "Lossless WAV bypasses MP3 encoding for near-instant rendering."
+                                    } else {
+                                        "MP3 compresses audio into smaller files, requiring an encoding step."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
                     // Action Button
                     item {
                         Button(
@@ -929,7 +984,8 @@ fun AudioStudioScreen(
                                     endChap = endChapterIndex,
                                     splitMode = splitMode,
                                     maxMinutes = maxMinutes,
-                                    speed = generatorSpeechRate
+                                    speed = generatorSpeechRate,
+                                    audioFormat = exportAudioFormat
                                 )
                                 currentMode = AudioStudioMode.LIBRARY
                             },
@@ -942,7 +998,7 @@ fun AudioStudioScreen(
                             Icon(Icons.Default.Audiotrack, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Generate MP3s (${endChapterIndex - startChapterIndex + 1} Chapters)",
+                                text = "Generate ${exportAudioFormat.name} (${endChapterIndex - startChapterIndex + 1} Chapters)",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )

@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.5.0"
+          DATE_TAG="v3.5.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.5.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.5.0 --no-daemon
+          APP_VERSION_NAME: "3.5.1"
+        run: ./gradlew assembleRelease -PappVersionName=3.5.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,12 +53,32 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.5.0 (Stable)
+          name: NovelArrow Reader v3.5.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.5.0 (Stable) 📖✨
+            ### NovelArrow Reader v3.5.1 (Stable) 📖✨
 
-            **BookReader v3.5.0** introduces custom neural voice model importing, Monaco editor clipboard integration, refined browser settings subroutes, library archiving and refresh enhancements, Audio Studio playlist navigation, and paragraph percentage progress in the persistent toolbar!
+            **NovelArrow Reader v3.5.1** brings lookahead multi-paragraph queue buffering for seamless zero-gap TTS listening, instant lossless WAV audio exports, persistent neural model storage across app updates, resilient batch web scraping, and drawer dev log shortcuts!
+
+            #### Key Updates in this release:
+            - **TTS Lookahead Queue Buffering & Zero Pause**:
+              - Dual-paragraph lookahead buffering (`QUEUE_ADD`) eliminates dead-air pause between paragraphs and sentences.
+              - Auto-recovery watchdog detects dropped TTS callbacks and seamlessly resumes playback.
+            - **Instant WAV Audio Export**:
+              - Fast WAV audio generation in Audio Studio bypassing slow MP3 compression.
+              - Automatically defaults to WAV for single paragraph and quick text/chapter sharing.
+            - **Persistent Neural Models Across App Updates**:
+              - Models are stored in persistent external app storage with legacy filename alias scanning. Never re-download existing models after updating!
+              - Resolved voice-not-found warnings when selecting neural voices.
+            - **Multi-Chapter Batch Downloader Stalling Fix**:
+              - Prioritized URL and navigation transition detection to eliminate stalls during cross-chapter scraping.
+            - **Adaptive FlowRow Layouts**:
+              - Resolved button and chip vertical overflow on narrow screens.
+            - **Library Refresh Archive Isolation & New Chapter Discovery**:
+              - Refresh now exclusively rescans active visible folders and detects newly added chapters, never touching or resurrecting archived novels.
+            - **Quick Dev Logs Shortcut & Browser Settings Reorganization**:
+              - Direct Dev Logs button in the navigation drawer next to About.
+              - Reorganized browser settings with Selectors & Extraction first styled like quick TTS settings.
 
             #### Key Updates in this release:
             - **Custom Neural Model Import & Engine Upgrades**:

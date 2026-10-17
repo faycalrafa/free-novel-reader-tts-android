@@ -70,6 +70,11 @@ object AudioExportEngine {
         SINGLE_FILE
     }
 
+    enum class AudioExportFormat {
+        MP3,
+        WAV
+    }
+
     data class ExportRequest(
         val novel: Novel,
         val chapters: List<Chapter>,
@@ -78,7 +83,8 @@ object AudioExportEngine {
         val speechRate: Float = 1.0f,
         val speechPitch: Float = 1.0f,
         val voiceName: String? = null,
-        val customTitle: String? = null
+        val customTitle: String? = null,
+        val audioFormat: AudioExportFormat = AudioExportFormat.MP3
     )
 
     data class ExportResult(
@@ -163,13 +169,23 @@ object AudioExportEngine {
                         )
 
                         if (chapterWav != null && chapterWav.exists() && chapterWav.length() > 44) {
-                            val mp3Name = String.format("%s_Ch%03d_%s.mp3", safeNovelTitle, index + 1, sanitizeFilename(chapter.title))
-                            val mp3File = File(tempDir, mp3Name)
-                            encodeWavToMp3(chapterWav, mp3File)
-                            chapterWav.delete()
+                            if (request.audioFormat == AudioExportFormat.WAV) {
+                                val wavName = String.format("%s_Ch%03d_%s.wav", safeNovelTitle, index + 1, sanitizeFilename(chapter.title))
+                                val wavFile = File(tempDir, wavName)
+                                if (!chapterWav.renameTo(wavFile)) {
+                                    chapterWav.copyTo(wavFile, overwrite = true)
+                                    chapterWav.delete()
+                                }
+                                finalOutputFiles.add(saveToDownloadsDirectory(context, wavFile, safeNovelTitle))
+                            } else {
+                                val mp3Name = String.format("%s_Ch%03d_%s.mp3", safeNovelTitle, index + 1, sanitizeFilename(chapter.title))
+                                val mp3File = File(tempDir, mp3Name)
+                                encodeWavToMp3(chapterWav, mp3File)
+                                chapterWav.delete()
 
-                            if (mp3File.exists()) {
-                                finalOutputFiles.add(saveToDownloadsDirectory(context, mp3File, safeNovelTitle))
+                                if (mp3File.exists()) {
+                                    finalOutputFiles.add(saveToDownloadsDirectory(context, mp3File, safeNovelTitle))
+                                }
                             }
                         }
                     }
@@ -183,7 +199,7 @@ object AudioExportEngine {
                 }
 
                 SplitMode.SINGLE_FILE -> {
-                    // Collect all chapters into a single WAV and encode
+                    // Collect all chapters into a single WAV and encode or save
                     val chapterWavs = mutableListOf<File>()
                     request.chapters.forEachIndexed { index, chapter ->
                         if (isCancelled()) return@forEachIndexed
@@ -220,14 +236,25 @@ object AudioExportEngine {
                     concatenateWavFiles(chapterWavs, combinedWav)
                     chapterWavs.forEach { it.delete() }
 
-                    onProgress?.invoke(totalChapters, totalChapters, 0, 0, 95, "Encoding MP3 audio...")
-                    val finalMp3 = File(tempDir, "${safeNovelTitle}.mp3")
-                    encodeWavToMp3(combinedWav, finalMp3)
-                    combinedWav.delete()
+                    if (request.audioFormat == AudioExportFormat.WAV) {
+                        val finalWav = File(tempDir, "${safeNovelTitle}.wav")
+                        if (!combinedWav.renameTo(finalWav)) {
+                            combinedWav.copyTo(finalWav, overwrite = true)
+                            combinedWav.delete()
+                        }
+                        val exportedFile = saveToDownloadsDirectory(context, finalWav, safeNovelTitle)
+                        onProgress?.invoke(totalChapters, totalChapters, 0, 0, 100, "WAV Export complete")
+                        ExportResult(listOf(exportedFile), isCancelled = isCancelled())
+                    } else {
+                        onProgress?.invoke(totalChapters, totalChapters, 0, 0, 95, "Encoding MP3 audio...")
+                        val finalMp3 = File(tempDir, "${safeNovelTitle}.mp3")
+                        encodeWavToMp3(combinedWav, finalMp3)
+                        combinedWav.delete()
 
-                    val exportedFile = saveToDownloadsDirectory(context, finalMp3, safeNovelTitle)
-                    onProgress?.invoke(totalChapters, totalChapters, 0, 0, 100, "Export complete")
-                    ExportResult(listOf(exportedFile), isCancelled = isCancelled())
+                        val exportedFile = saveToDownloadsDirectory(context, finalMp3, safeNovelTitle)
+                        onProgress?.invoke(totalChapters, totalChapters, 0, 0, 100, "Export complete")
+                        ExportResult(listOf(exportedFile), isCancelled = isCancelled())
+                    }
                 }
 
                 SplitMode.BY_MINUTES -> {
@@ -266,12 +293,21 @@ object AudioExportEngine {
                                 currentPartWavs.forEach { it.delete() }
                                 currentPartWavs.clear()
 
-                                val partMp3 = File(tempDir, String.format("%s_Part%02d.mp3", safeNovelTitle, partNumber))
-                                encodeWavToMp3(partWav, partMp3)
-                                partWav.delete()
+                                if (request.audioFormat == AudioExportFormat.WAV) {
+                                    val partFinalWav = File(tempDir, String.format("%s_Part%02d.wav", safeNovelTitle, partNumber))
+                                    if (!partWav.renameTo(partFinalWav)) {
+                                        partWav.copyTo(partFinalWav, overwrite = true)
+                                        partWav.delete()
+                                    }
+                                    finalOutputFiles.add(saveToDownloadsDirectory(context, partFinalWav, safeNovelTitle))
+                                } else {
+                                    val partMp3 = File(tempDir, String.format("%s_Part%02d.mp3", safeNovelTitle, partNumber))
+                                    encodeWavToMp3(partWav, partMp3)
+                                    partWav.delete()
 
-                                if (partMp3.exists()) {
-                                    finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3, safeNovelTitle))
+                                    if (partMp3.exists()) {
+                                        finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3, safeNovelTitle))
+                                    }
                                 }
                                 partNumber++
                                 currentPartDurationSeconds = 0.0
@@ -288,12 +324,21 @@ object AudioExportEngine {
                         concatenateWavFiles(currentPartWavs, partWav)
                         currentPartWavs.forEach { it.delete() }
 
-                        val partMp3 = File(tempDir, String.format("%s_Part%02d.mp3", safeNovelTitle, partNumber))
-                        encodeWavToMp3(partWav, partMp3)
-                        partWav.delete()
+                        if (request.audioFormat == AudioExportFormat.WAV) {
+                            val partFinalWav = File(tempDir, String.format("%s_Part%02d.wav", safeNovelTitle, partNumber))
+                            if (!partWav.renameTo(partFinalWav)) {
+                                partWav.copyTo(partFinalWav, overwrite = true)
+                                partWav.delete()
+                            }
+                            finalOutputFiles.add(saveToDownloadsDirectory(context, partFinalWav, safeNovelTitle))
+                        } else {
+                            val partMp3 = File(tempDir, String.format("%s_Part%02d.mp3", safeNovelTitle, partNumber))
+                            encodeWavToMp3(partWav, partMp3)
+                            partWav.delete()
 
-                        if (partMp3.exists()) {
-                            finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3, safeNovelTitle))
+                            if (partMp3.exists()) {
+                                finalOutputFiles.add(saveToDownloadsDirectory(context, partMp3, safeNovelTitle))
+                            }
                         }
                     }
 
@@ -324,6 +369,7 @@ object AudioExportEngine {
         speechRate: Float = 1.0f,
         speechPitch: Float = 1.0f,
         voiceName: String? = null,
+        audioFormat: AudioExportFormat = AudioExportFormat.WAV,
         onProgress: ((percent: Int, statusText: String) -> Unit)? = null
     ): File? = withContext(Dispatchers.IO) {
         val tempDir = File(context.cacheDir, "audio_export_${UUID.randomUUID()}").apply { mkdirs() }
@@ -371,13 +417,23 @@ object AudioExportEngine {
             concatenateWavFiles(chunkWavs, combinedWav)
             chunkWavs.forEach { it.delete() }
 
-            onProgress?.invoke(90, "Encoding MP3...")
             val safeTitle = sanitizeFilename(title)
-            val mp3File = File(tempDir, "${safeTitle}.mp3")
-            encodeWavToMp3(combinedWav, mp3File)
-            combinedWav.delete()
+            if (audioFormat == AudioExportFormat.WAV) {
+                val finalWav = File(tempDir, "${safeTitle}.wav")
+                if (!combinedWav.renameTo(finalWav)) {
+                    combinedWav.copyTo(finalWav, overwrite = true)
+                    combinedWav.delete()
+                }
+                onProgress?.invoke(100, "WAV generation complete")
+                saveToDownloadsDirectory(context, finalWav, subFolder = null)
+            } else {
+                onProgress?.invoke(90, "Encoding MP3...")
+                val mp3File = File(tempDir, "${safeTitle}.mp3")
+                encodeWavToMp3(combinedWav, mp3File)
+                combinedWav.delete()
 
-            saveToDownloadsDirectory(context, mp3File, subFolder = null)
+                saveToDownloadsDirectory(context, mp3File, subFolder = null)
+            }
         } finally {
             withContext(Dispatchers.Main) {
                 try {

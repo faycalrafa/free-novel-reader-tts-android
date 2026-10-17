@@ -66,15 +66,19 @@ class AudioExportService : Service() {
                 val splitMode = try { AudioExportEngine.SplitMode.valueOf(splitModeStr) } catch (_: Exception) { AudioExportEngine.SplitMode.BY_CHAPTER }
                 val maxMinutes = intent.getIntExtra(EXTRA_MAX_MINUTES, 30)
                 val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+                val formatStr = intent.getStringExtra(EXTRA_AUDIO_FORMAT) ?: AudioExportEngine.AudioExportFormat.MP3.name
+                val audioFormat = try { AudioExportEngine.AudioExportFormat.valueOf(formatStr) } catch (_: Exception) { AudioExportEngine.AudioExportFormat.MP3 }
 
-                startNovelExport(novelId, startChap, endChap, splitMode, maxMinutes, speed)
+                startNovelExport(novelId, startChap, endChap, splitMode, maxMinutes, speed, audioFormat)
             }
             ACTION_EXPORT_TEXT -> {
                 val title = intent.getStringExtra(EXTRA_TITLE) ?: "Shared_Text"
                 val text = intent.getStringExtra(EXTRA_TEXT) ?: return START_NOT_STICKY
                 val speed = intent.getFloatExtra(EXTRA_SPEED, 1.0f)
+                val formatStr = intent.getStringExtra(EXTRA_AUDIO_FORMAT) ?: AudioExportEngine.AudioExportFormat.WAV.name
+                val audioFormat = try { AudioExportEngine.AudioExportFormat.valueOf(formatStr) } catch (_: Exception) { AudioExportEngine.AudioExportFormat.WAV }
 
-                startTextExport(title, text, speed)
+                startTextExport(title, text, speed, audioFormat)
             }
             ACTION_FUSE_NOVEL -> {
                 val novelId = intent.getStringExtra(EXTRA_NOVEL_ID) ?: return START_NOT_STICKY
@@ -95,7 +99,8 @@ class AudioExportService : Service() {
         endChap: Int,
         splitMode: AudioExportEngine.SplitMode,
         maxMinutes: Int,
-        speed: Float
+        speed: Float,
+        audioFormat: AudioExportEngine.AudioExportFormat = AudioExportEngine.AudioExportFormat.MP3
     ) {
         isCancelled = false
         val initialNotification = buildNotification("Preparing export...", 0)
@@ -130,7 +135,8 @@ class AudioExportService : Service() {
                 chapters = subChapters,
                 splitMode = splitMode,
                 maxMinutesPerFile = maxMinutes,
-                speechRate = speed
+                speechRate = speed,
+                audioFormat = audioFormat
             )
 
             val result = AudioExportEngine.exportToMp3(
@@ -160,11 +166,16 @@ class AudioExportService : Service() {
 
             if (!result.isCancelled && result.outputFiles.isNotEmpty()) {
                 _exportProgressState.value = ExportState.Success(result.outputFiles)
+                val mimeType = when {
+                    result.playlistFile != null -> "audio/x-mpegurl"
+                    audioFormat == AudioExportEngine.AudioExportFormat.WAV -> "audio/wav"
+                    else -> "audio/mpeg"
+                }
                 showCompletionNotification(
                     title = "Audifying Complete!",
-                    content = "${result.outputFiles.size} MP3 file(s) saved to Downloads/BookReader",
+                    content = "${result.outputFiles.size} ${audioFormat.name} file(s) saved to Downloads/BookReader",
                     fileToShare = result.playlistFile ?: result.outputFiles.first(),
-                    mimeType = if (result.playlistFile != null) "audio/x-mpegurl" else "audio/mpeg"
+                    mimeType = mimeType
                 )
             } else {
                 _exportProgressState.value = ExportState.Idle
@@ -174,7 +185,12 @@ class AudioExportService : Service() {
         }
     }
 
-    private fun startTextExport(title: String, text: String, speed: Float) {
+    private fun startTextExport(
+        title: String,
+        text: String,
+        speed: Float,
+        audioFormat: AudioExportEngine.AudioExportFormat = AudioExportEngine.AudioExportFormat.WAV
+    ) {
         isCancelled = false
         val initialNotification = buildNotification("Audifying text...", 0)
         startForeground(NOTIFICATION_ID, initialNotification)
@@ -183,7 +199,7 @@ class AudioExportService : Service() {
             _exportProgressState.value = ExportState.Running(
                 title = title,
                 percent = 0,
-                statusText = "Synthesizing text to MP3..."
+                statusText = "Synthesizing text to ${audioFormat.name}..."
             )
 
             val file = AudioExportEngine.synthesizeTextToMp3(
@@ -191,6 +207,7 @@ class AudioExportService : Service() {
                 title = title,
                 text = text,
                 speechRate = speed,
+                audioFormat = audioFormat,
                 onProgress = { pct, statusText ->
                     _exportProgressState.value = ExportState.Running(
                         title = title,
@@ -203,11 +220,12 @@ class AudioExportService : Service() {
 
             if (file != null && file.exists()) {
                 _exportProgressState.value = ExportState.Success(listOf(file))
+                val mimeType = if (audioFormat == AudioExportEngine.AudioExportFormat.WAV) "audio/wav" else "audio/mpeg"
                 showCompletionNotification(
-                    title = "Text MP3 Created!",
+                    title = "Text ${audioFormat.name} Created!",
                     content = "${file.name} saved to Downloads/BookReader",
                     fileToShare = file,
-                    mimeType = "audio/mpeg"
+                    mimeType = mimeType
                 )
             } else {
                 _exportProgressState.value = ExportState.Idle
@@ -440,6 +458,7 @@ class AudioExportService : Service() {
         const val EXTRA_SPEED = "speed"
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"
+        const val EXTRA_AUDIO_FORMAT = "audio_format"
 
         private val _exportProgressState = MutableStateFlow<ExportState>(ExportState.Idle)
         val exportProgressState: StateFlow<ExportState> = _exportProgressState.asStateFlow()
@@ -458,7 +477,8 @@ class AudioExportService : Service() {
             endChap: Int = Int.MAX_VALUE,
             splitMode: AudioExportEngine.SplitMode = AudioExportEngine.SplitMode.BY_CHAPTER,
             maxMinutes: Int = 30,
-            speed: Float = 1.0f
+            speed: Float = 1.0f,
+            audioFormat: AudioExportEngine.AudioExportFormat = AudioExportEngine.AudioExportFormat.MP3
         ) {
             val intent = Intent(context, AudioExportService::class.java).apply {
                 action = ACTION_EXPORT_NOVEL
@@ -468,6 +488,7 @@ class AudioExportService : Service() {
                 putExtra(EXTRA_SPLIT_MODE, splitMode.name)
                 putExtra(EXTRA_MAX_MINUTES, maxMinutes)
                 putExtra(EXTRA_SPEED, speed)
+                putExtra(EXTRA_AUDIO_FORMAT, audioFormat.name)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -476,12 +497,19 @@ class AudioExportService : Service() {
             }
         }
 
-        fun startExportText(context: Context, title: String, text: String, speed: Float = 1.0f) {
+        fun startExportText(
+            context: Context,
+            title: String,
+            text: String,
+            speed: Float = 1.0f,
+            audioFormat: AudioExportEngine.AudioExportFormat = AudioExportEngine.AudioExportFormat.WAV
+        ) {
             val intent = Intent(context, AudioExportService::class.java).apply {
                 action = ACTION_EXPORT_TEXT
                 putExtra(EXTRA_TITLE, title)
                 putExtra(EXTRA_TEXT, text)
                 putExtra(EXTRA_SPEED, speed)
+                putExtra(EXTRA_AUDIO_FORMAT, audioFormat.name)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

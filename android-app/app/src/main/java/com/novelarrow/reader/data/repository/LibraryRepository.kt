@@ -497,6 +497,7 @@ class LibraryRepository(private val context: Context) {
                     subdirs.add(0, root)
                 }
                 for (sub in subdirs) {
+                    if (sub.name.equals("archive", ignoreCase = true) || sub.name.startsWith(".")) continue
                     if (seenPaths.contains(sub.canonicalPath)) continue
                     seenPaths.add(sub.canonicalPath)
 
@@ -1023,9 +1024,9 @@ class LibraryRepository(private val context: Context) {
     suspend fun refreshAllLinkedFolders(
         onProgress: (current: Int, total: Int, currentItemName: String) -> Unit = { _, _, _ -> }
     ): List<Novel> = withContext(Dispatchers.IO) {
-        // 1. Scan downloaded web novels first to sync disk changes
-        scanDownloadedWebNovels()
         val reloadedDb = dbMutex.withLock { loadDatabaseLocked() }
+        val activeNovels = reloadedDb.novels.filter { !it.isArchived }
+        val archivedNovels = reloadedDb.novels.filter { it.isArchived }
 
         var lastProgressTime = 0L
         fun reportProgress(cur: Int, total: Int, name: String) {
@@ -1036,7 +1037,7 @@ class LibraryRepository(private val context: Context) {
             }
         }
 
-        val novelsToRefresh = reloadedDb.novels
+        val novelsToRefresh = activeNovels
         var totalFilesToScan = 0
         val filesPerNovel = mutableMapOf<String, List<ScannedFileItem>>()
 
@@ -1134,13 +1135,13 @@ class LibraryRepository(private val context: Context) {
         }
 
         val deduplicatedNovels = dbMutex.withLock {
-            val deduplicated = deduplicateNovels(updatedNovels, updatedChapters)
+            val deduplicated = deduplicateNovels(updatedNovels + archivedNovels, updatedChapters)
             val finalDb = reloadedDb.copy(
                 novels = deduplicated,
                 chapters = updatedChapters
             )
             saveDatabaseLocked(finalDb)
-            deduplicated
+            deduplicated.filter { !it.isArchived }
         }
         reportProgress(totalFilesToScan, totalFilesToScan, "Refresh complete!")
         deduplicatedNovels

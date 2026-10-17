@@ -18,6 +18,11 @@ object NeuralModelDownloader {
     private const val MAX_REDIRECTS = 5
 
     fun getModelDirectory(context: Context, engine: String): File {
+        val extDir = context.getExternalFilesDir("neural_tts")?.let { File(it, engine.lowercase()) }
+        if (extDir != null) {
+            if (!extDir.exists()) extDir.mkdirs()
+            return extDir
+        }
         val dir = File(context.filesDir, "neural_tts/${engine.lowercase()}")
         if (!dir.exists()) {
             dir.mkdirs()
@@ -25,13 +30,79 @@ object NeuralModelDownloader {
         return dir
     }
 
+    fun findExistingModelFile(context: Context, voiceInfo: NeuralVoiceInfo): File? {
+        val internalDir = File(context.filesDir, "neural_tts/${voiceInfo.engine.lowercase()}")
+        val externalDir = context.getExternalFilesDir("neural_tts")?.let { File(it, voiceInfo.engine.lowercase()) }
+
+        val searchDirs = listOfNotNull(externalDir, internalDir, context.filesDir)
+
+        val namesToCheck = mutableListOf(voiceInfo.modelFileName)
+        when (voiceInfo.engine.uppercase()) {
+            "KITTEN" -> {
+                namesToCheck.addAll(listOf(
+                    "kitten_tts_micro_v0_8.onnx",
+                    "kitten_tts_micro_0.8.onnx",
+                    "kitten-nano-female.onnx",
+                    "kitten-nano-male.onnx",
+                    "kitten-micro-expressive.onnx",
+                    "kitten-nano-clear.onnx",
+                    "model.onnx"
+                ))
+            }
+            "KOKORO" -> {
+                namesToCheck.addAll(listOf(
+                    "kokoro-v1.0-q8.onnx",
+                    "kokoro-v0_19.onnx",
+                    "model_q8.onnx",
+                    "model.onnx"
+                ))
+            }
+            "PIPER" -> {
+                namesToCheck.add(voiceInfo.modelFileName.replace("-", "_"))
+            }
+        }
+
+        for (dir in searchDirs) {
+            if (!dir.exists()) continue
+            for (name in namesToCheck) {
+                val candidate = File(dir, name)
+                if (candidate.exists() && candidate.length() > 1024L) {
+                    return candidate
+                }
+            }
+        }
+        return null
+    }
+
     fun getModelFile(context: Context, voiceInfo: NeuralVoiceInfo): File {
-        return File(getModelDirectory(context, voiceInfo.engine), voiceInfo.modelFileName)
+        val primary = File(getModelDirectory(context, voiceInfo.engine), voiceInfo.modelFileName)
+        if (primary.exists() && primary.length() > 1024L) return primary
+
+        val existing = findExistingModelFile(context, voiceInfo)
+        if (existing != null && existing.exists() && existing.length() > 1024L) {
+            // If located elsewhere, copy or return existing
+            if (existing.name != primary.name || existing.parentFile != primary.parentFile) {
+                try {
+                    existing.copyTo(primary, overwrite = true)
+                    AppLogger.i(TAG, "Migrated existing neural model from ${existing.absolutePath} to ${primary.absolutePath}")
+                    return primary
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Using existing model file directly: ${existing.absolutePath} (${e.message})")
+                    return existing
+                }
+            }
+            return existing
+        }
+        return primary
     }
 
     fun isModelDownloaded(context: Context, voiceInfo: NeuralVoiceInfo): Boolean {
         val file = getModelFile(context, voiceInfo)
         if (file.exists() && file.length() > 1024L) return true
+
+        val existing = findExistingModelFile(context, voiceInfo)
+        if (existing != null && existing.exists() && existing.length() > 1024L) return true
+
         return try {
             context.assets.open("neural/${voiceInfo.modelFileName}").use { true }
         } catch (_: Exception) {
@@ -50,6 +121,12 @@ object NeuralModelDownloader {
         if (configFile.exists()) {
             configFile.delete()
             AppLogger.i(TAG, "Deleted neural config file: ${configFile.name}")
+        }
+
+        // Also check legacy/internal location if deleted
+        val internalFile = File(context.filesDir, "neural_tts/${voiceInfo.engine.lowercase()}/${voiceInfo.modelFileName}")
+        if (internalFile.exists()) {
+            internalFile.delete()
         }
         return deleted
     }

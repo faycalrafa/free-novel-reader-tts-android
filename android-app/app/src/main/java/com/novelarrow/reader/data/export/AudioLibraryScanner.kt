@@ -93,7 +93,7 @@ object AudioLibraryScanner {
                     val mp3s = child.listFiles { f ->
                         f.isFile && f.extension.equals("mp3", ignoreCase = true) && f.length() > 0L
                     }?.map { AudioFileItem(it) }
-                        ?.sortedBy { it.file.name.lowercase() }
+                        ?.sortedWith { a, b -> com.novelarrow.reader.data.util.NaturalOrderComparator.compare(a.file.name, b.file.name) }
                         ?: emptyList()
 
                     if (mp3s.isNotEmpty()) {

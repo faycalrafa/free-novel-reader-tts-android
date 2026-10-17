@@ -383,6 +383,10 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = AppScreen.ABOUT
                                     scope.launch { drawerState.close() }
                                 },
+                                onOpenDevLogs = {
+                                    currentScreen = AppScreen.DEV_LOGS
+                                    scope.launch { drawerState.close() }
+                                },
                                 onOpenAudioStudio = {
                                     currentScreen = AppScreen.TEXT_TO_MP3
                                     scope.launch { drawerState.close() }
@@ -997,7 +1001,8 @@ class MainActivity : ComponentActivity() {
                                         context = context,
                                         title = "Shared_Note",
                                         text = text,
-                                        speed = speed
+                                        speed = speed,
+                                        audioFormat = com.novelarrow.reader.data.export.AudioExportEngine.AudioExportFormat.WAV
                                     )
                                 }
                             )

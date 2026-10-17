@@ -495,6 +495,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         // 1. If batch download is active, trigger sequence/verification and NEVER trigger TTS
         if (_uiState.value.isDownloading) {
             AppLogger.d(TAG, "onPageFinished during batch download for URL: $url")
+            if (lastBatchDownloadedUrl.isNotBlank() && url != lastBatchDownloadedUrl) {
+                AppLogger.i(TAG, "onPageFinished: URL changed from '$lastBatchDownloadedUrl' to '$url'. Triggering download directly!")
+                domVerificationJob?.cancel()
+                _uiState.update { it.copy(downloadStatus = "New chapter URL loaded, downloading...") }
+                triggerBatchDownloadSequence(isDomTransitionVerified = true)
+                return
+            }
             domVerificationJob?.cancel()
             startDomContentVerification()
             return
@@ -732,6 +739,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 val currentUrl = _uiState.value.currentUrl
                 val urlChanged = lastBatchDownloadedUrl.isNotBlank() && currentUrl != lastBatchDownloadedUrl
 
+                if (urlChanged) {
+                    AppLogger.i(TAG, "DOM transition verified via URL change: '$lastBatchDownloadedUrl' -> '$currentUrl'")
+                    contentTransitioned = true
+                    isNavigatingNextChapter = false
+                    break
+                }
+
                 val settings = _uiState.value.settings
                 val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
                 val rawResult = evaluateJsWithTimeout(script, 2000L)
@@ -745,8 +759,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         val headingChanged = currentHeading.isNotBlank() && currentHeading != lastExtractedHeading
                         val bodyChanged = currentSample.isNotBlank() && currentSample != lastExtractedSample
 
-                        if (urlChanged || headingChanged || bodyChanged) {
-                            AppLogger.i(TAG, "DOM transition verified! urlChanged=$urlChanged, headingChanged=$headingChanged, bodyChanged=$bodyChanged (heading='$currentHeading')")
+                        if (headingChanged || bodyChanged) {
+                            AppLogger.i(TAG, "DOM transition verified! headingChanged=$headingChanged, bodyChanged=$bodyChanged (heading='$currentHeading')")
                             contentTransitioned = true
                             isNavigatingNextChapter = false
                             break

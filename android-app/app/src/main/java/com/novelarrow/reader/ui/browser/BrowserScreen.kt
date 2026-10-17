@@ -1382,6 +1382,94 @@ private fun BrowserSettingsDialog(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
+                    text = "SELECTORS & EXTRACTION",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                // Content Container Selector Button
+                BrowserSettingsNavCard(
+                    icon = Icons.Default.Code,
+                    title = "Content Container Selector",
+                    subtitle = if (settings.contentSelector.isBlank()) "Autodetect main article container" else settings.contentSelector,
+                    onClick = {
+                        onDismiss()
+                        onNavigateToContentSelector?.invoke()
+                    }
+                )
+
+                // Next Chapter Selector Button
+                BrowserSettingsNavCard(
+                    icon = Icons.Default.SkipNext,
+                    title = "Next Chapter Selector",
+                    subtitle = if (settings.nextSelector.isBlank()) "Default multi-selector active" else settings.nextSelector,
+                    onClick = {
+                        onDismiss()
+                        onNavigateToNextSelector?.invoke()
+                    }
+                )
+
+                // Ignored Elements (Filter) Button
+                BrowserSettingsNavCard(
+                    icon = Icons.Default.FilterList,
+                    title = "Ignored Elements (Filter)",
+                    subtitle = if (settings.ignoredSelectors.isEmpty()) "Filter unwanted elements, ads, and navigation from speech" else "${settings.ignoredSelectors.size} elements filtered from TTS",
+                    badge = if (settings.ignoredSelectors.isNotEmpty()) "${settings.ignoredSelectors.size}" else null,
+                    onClick = {
+                        onDismiss()
+                        onNavigateToIgnoredSelectors?.invoke()
+                    }
+                )
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Text(
+                    text = "BATCH LOOP & DELAYS",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                Text(
+                    text = "Auto-Loop Chapters Count: ${settings.loopCount}",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(10, 25, 50, 100, 200).forEach { preset ->
+                        FilterChip(
+                            selected = settings.loopCount == preset,
+                            onClick = { onUpdateLoopCount(preset) },
+                            label = { Text("$preset") }
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Delay Between Chapters: ${settings.countdownDelayMs / 1000f}s",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(500L, 1000L, 1500L, 2000L, 3000L).forEach { ms ->
+                        FilterChip(
+                            selected = settings.countdownDelayMs == ms,
+                            onClick = { onUpdateDelay(ms) },
+                            label = { Text("${ms / 1000f}s") }
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Text(
                     text = "READING AUTOMATION",
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
@@ -1459,169 +1547,6 @@ private fun BrowserSettingsDialog(
                         onCheckedChange = onToggleAutoClickOnScroll
                     )
                 }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                Text(
-                    text = "BATCH LOOP & DELAYS",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                )
-
-                Text(
-                    text = "Auto-Loop Chapters Count: ${settings.loopCount}",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(10, 25, 50, 100, 200).forEach { preset ->
-                        FilterChip(
-                            selected = settings.loopCount == preset,
-                            onClick = { onUpdateLoopCount(preset) },
-                            label = { Text("$preset") }
-                        )
-                    }
-                }
-
-                Text(
-                    text = "Delay Between Chapters: ${settings.countdownDelayMs / 1000f}s",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(500L, 1000L, 1500L, 2000L, 3000L).forEach { ms ->
-                        FilterChip(
-                            selected = settings.countdownDelayMs == ms,
-                            onClick = { onUpdateDelay(ms) },
-                            label = { Text("${ms / 1000f}s") }
-                        )
-                    }
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                Text(
-                    text = "SELECTORS & EXTRACTION",
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                )
-
-                // Next Chapter Selector Button
-                OutlinedCard(
-                    onClick = {
-                        onDismiss()
-                        onNavigateToNextSelector?.invoke()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Next Chapter Selector",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                if (settings.nextSelector.isBlank()) "Default multi-selector active" else settings.nextSelector,
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Configure Next Selector",
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                // Content Container Selector Button
-                OutlinedCard(
-                    onClick = {
-                        onDismiss()
-                        onNavigateToContentSelector?.invoke()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Content Container Selector",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                if (settings.contentSelector.isBlank()) "Autodetect main article container" else settings.contentSelector,
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Configure Content Container",
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                // Ignored Elements (Filter) Button
-                OutlinedCard(
-                    onClick = {
-                        onDismiss()
-                        onNavigateToIgnoredSelectors?.invoke()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Ignored Elements (Filter)",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Text(
-                                "${settings.ignoredSelectors.size} elements filtered from TTS",
-                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Configure Ignored Elements",
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
             }
         },
         confirmButton = {
@@ -1635,6 +1560,74 @@ private fun BrowserSettingsDialog(
             }
         }
     )
+}
+
+@Composable
+private fun BrowserSettingsNavCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    badge: String? = null,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (badge != null) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    modifier = Modifier.padding(horizontal = 6.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")

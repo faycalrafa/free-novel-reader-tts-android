@@ -54,6 +54,7 @@ import com.novelarrow.reader.ui.common.ChapterShareDialog
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -203,7 +204,15 @@ fun ReaderScreen(
         topBar = {
             val progressText = if (uiState.chapters.isNotEmpty()) {
                 val chapIdx = (uiState.currentChapter?.orderIndex ?: 0) + 1
-                "$chapIdx/${uiState.chapters.size}"
+                val base = "$chapIdx/${uiState.chapters.size}"
+                val totalParas = uiState.paragraphs.size
+                if (totalParas > 0) {
+                    val curPara = (uiState.currentParagraphIndex + 1).coerceIn(1, totalParas)
+                    val pct = ((curPara.toFloat() / totalParas.toFloat()) * 100).toInt().coerceIn(0, 100)
+                    "$base • ¶ $curPara/$totalParas ($pct%)"
+                } else {
+                    base
+                }
             } else {
                 ""
             }
@@ -734,7 +743,8 @@ fun ReaderContentView(
                                 context = context,
                                 title = "${chapterTitle}_selection",
                                 text = text,
-                                speed = speechRate
+                                speed = speechRate,
+                                audioFormat = AudioExportEngine.AudioExportFormat.WAV
                             )
                             Toast.makeText(context, "Audifying ${selectedIndices.size} paragraphs in background...", Toast.LENGTH_SHORT).show()
                             selectedIndices = emptySet()
@@ -1236,6 +1246,7 @@ fun LibraryDrawerContent(
     onCloseTab: (String) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onOpenAbout: () -> Unit,
+    onOpenDevLogs: () -> Unit = {},
     onOpenAudioStudio: () -> Unit = {},
     onOpenArchive: () -> Unit = {},
     onArchiveNovel: (Novel) -> Unit = {},
@@ -1851,6 +1862,18 @@ fun LibraryDrawerContent(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                IconButton(
+                    onClick = onOpenDevLogs,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.BugReport,
+                        contentDescription = "Developer Logs",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
@@ -2027,7 +2050,8 @@ fun LibraryDrawerContent(
                         startChap = chapToShare.orderIndex,
                         endChap = chapToShare.orderIndex,
                         splitMode = AudioExportEngine.SplitMode.SINGLE_FILE,
-                        speed = speed
+                        speed = speed,
+                        audioFormat = AudioExportEngine.AudioExportFormat.WAV
                     )
                     onOpenAudioStudio()
                 }

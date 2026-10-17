@@ -360,6 +360,12 @@ object AudioPlaybackCoordinator {
         }
     }
 
+    private fun isSupportedAudioFile(name: String?): Boolean {
+        if (name == null || name.startsWith(".")) return false
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return ext in setOf("mp3", "wav", "m4a", "aac", "ogg", "flac")
+    }
+
     fun playAudioFile(file: File, playlist: List<File> = listOf(file), index: Int = 0) {
         ttsManager?.stop()
 
@@ -368,9 +374,23 @@ object AudioPlaybackCoordinator {
         }
 
         currentSource = PlaybackSource.AUDIO_FILE
-        currentPlaylist = if (playlist.isNotEmpty()) playlist else listOf(file)
-        val validIndex = index.coerceIn(0, currentPlaylist.size - 1)
-        val activeFile = currentPlaylist.getOrNull(validIndex) ?: file
+        // If playlist has only 1 file, automatically discover siblings in same folder so Next/Back buttons always navigate
+        val effectivePlaylist = if (playlist.size > 1) {
+            playlist
+        } else {
+            val siblings = file.parentFile?.listFiles { f -> f.isFile && f.length() > 0 && f.extension.equals(file.extension, ignoreCase = true) }
+                ?.sortedWith { a, b -> com.novelarrow.reader.data.util.NaturalOrderComparator.compare(a.name, b.name) }
+            if (!siblings.isNullOrEmpty()) siblings else listOf(file)
+        }
+
+        currentPlaylist = effectivePlaylist
+        val resolvedIndex = if (playlist.size > 1) {
+            index.coerceIn(0, currentPlaylist.size - 1)
+        } else {
+            currentPlaylist.indexOfFirst { it.canonicalPath == file.canonicalPath }.coerceAtLeast(0)
+        }
+
+        val activeFile = currentPlaylist.getOrNull(resolvedIndex) ?: file
         currentAudioFile = activeFile
 
         val albumName = activeFile.parentFile?.name ?: "Audio Studio"
@@ -381,9 +401,9 @@ object AudioPlaybackCoordinator {
         currentChapterIndex = 0
         totalChaptersCount = 1
         currentParagraphs = emptyList()
-        currentParagraphIndex = validIndex
+        currentParagraphIndex = resolvedIndex
         totalParagraphsCount = currentPlaylist.size
-        currentProgressText = "Track ${validIndex + 1}/${currentPlaylist.size} • ${activeFile.name}"
+        currentProgressText = "Track ${resolvedIndex + 1}/${currentPlaylist.size} • ${activeFile.name}"
 
         _playbackProgressState.update {
             it.copy(
@@ -395,7 +415,7 @@ object AudioPlaybackCoordinator {
                 chapterTitle = activeFile.nameWithoutExtension,
                 chapterIndex = 0,
                 totalChapters = 1,
-                currentParagraphIndex = validIndex,
+                currentParagraphIndex = resolvedIndex,
                 totalParagraphs = currentPlaylist.size,
                 currentParagraphText = activeFile.name
             )
@@ -423,7 +443,7 @@ object AudioPlaybackCoordinator {
 
         startAudioFileProgressTicker()
 
-        AppLogger.i(TAG, "playAudioFile: Playing '${activeFile.name}' (track ${validIndex + 1}/${currentPlaylist.size})")
+        AppLogger.i(TAG, "playAudioFile: Playing '${activeFile.name}' (track ${resolvedIndex + 1}/${currentPlaylist.size})")
     }
 
     fun playAudioFolder(folder: File) {
@@ -431,8 +451,8 @@ object AudioPlaybackCoordinator {
             AppLogger.w(TAG, "playAudioFolder: Directory does not exist or is not a directory: ${folder.absolutePath}")
             return
         }
-        val mp3Files = folder.listFiles { f -> f.isFile && f.extension.equals("mp3", ignoreCase = true) }
-            ?.sortedBy { it.name.lowercase() }
+        val mp3Files = folder.listFiles { f -> f.isFile && f.length() > 0 && f.extension.equals("mp3", ignoreCase = true) }
+            ?.sortedWith { a, b -> com.novelarrow.reader.data.util.NaturalOrderComparator.compare(a.name, b.name) }
             ?.toList() ?: emptyList()
 
         if (mp3Files.isNotEmpty()) {
@@ -678,6 +698,8 @@ object AudioPlaybackCoordinator {
     }
 
     fun pause() {
+        stopWatchdog()
+        lastEnqueuedParagraphIndex = -1
         ttsManager?.stop()
         sleepTimerJob?.cancel()
         audioFileProgressJob?.cancel()
@@ -695,6 +717,8 @@ object AudioPlaybackCoordinator {
 
     fun stop() {
         pause()
+        stopWatchdog()
+        lastEnqueuedParagraphIndex = -1
         sleepTimerJob?.cancel()
         audioFileProgressJob?.cancel()
         _sleepTimerRemainingSecondsState.value = 0
@@ -740,6 +764,7 @@ object AudioPlaybackCoordinator {
             return
         }
         if (currentParagraphIndex + 1 < currentParagraphs.size) {
+            lastEnqueuedParagraphIndex = -1
             currentParagraphIndex++
             _playbackProgressState.update { it.copy(currentParagraphIndex = currentParagraphIndex) }
             speakCurrentParagraph()
@@ -757,6 +782,7 @@ object AudioPlaybackCoordinator {
             return
         }
         if (currentParagraphIndex - 1 >= 0) {
+            lastEnqueuedParagraphIndex = -1
             currentParagraphIndex--
             _playbackProgressState.update { it.copy(currentParagraphIndex = currentParagraphIndex) }
             speakCurrentParagraph()
@@ -771,6 +797,7 @@ object AudioPlaybackCoordinator {
             return
         }
         if (targetPara in currentParagraphs.indices) {
+            lastEnqueuedParagraphIndex = -1
             currentParagraphIndex = targetPara
             _playbackProgressState.update { it.copy(currentParagraphIndex = targetPara) }
             speakCurrentParagraph()
@@ -1070,15 +1097,42 @@ object AudioPlaybackCoordinator {
         ttsManager?.setVoiceByName(currentVoiceName)
     }
 
-    private fun speakCurrentParagraph() {
+    private var lastEnqueuedParagraphIndex = -1
+    private var lastProgressTimestamp = System.currentTimeMillis()
+    private var ttsWatchdogJob: Job? = null
+
+    private fun startWatchdog() {
+        ttsWatchdogJob?.cancel()
+        ttsWatchdogJob = coordinatorScope.launch(Dispatchers.Main) {
+            while (_isPlayingState.value && (currentSource == PlaybackSource.READER || currentSource == PlaybackSource.BROWSER)) {
+                delay(3000L)
+                if (!_isPlayingState.value) break
+                val now = System.currentTimeMillis()
+                val isSpeaking = ttsManager?.isSpeaking() == true
+                if (!isSpeaking && (now - lastProgressTimestamp) > 4500L && currentParagraphs.isNotEmpty()) {
+                    AppLogger.w(TAG, "Watchdog detected TTS stall at paragraph $currentParagraphIndex. Auto-recovering...")
+                    lastProgressTimestamp = now
+                    speakCurrentParagraph()
+                }
+            }
+        }
+    }
+
+    private fun stopWatchdog() {
+        ttsWatchdogJob?.cancel()
+        ttsWatchdogJob = null
+    }
+
+    private fun enqueueParagraph(idx: Int, queueMode: Int) {
         val paras = currentParagraphs
-        val idx = currentParagraphIndex
         if (idx !in paras.indices) return
 
         val p = paras[idx]
         val spoken = p.spokenText.ifBlank { p.rawText }.trim()
         if (spoken.isBlank()) {
-            handleParagraphDone(idx)
+            if (queueMode == android.speech.tts.TextToSpeech.QUEUE_FLUSH) {
+                handleParagraphDone(idx)
+            }
             return
         }
 
@@ -1096,11 +1150,35 @@ object AudioPlaybackCoordinator {
             index = idx,
             text = spoken,
             rate = currentSpeechRate,
-            pitch = currentSpeechPitch
+            pitch = currentSpeechPitch,
+            queueMode = queueMode
         )
+        lastEnqueuedParagraphIndex = maxOf(lastEnqueuedParagraphIndex, idx)
+    }
+
+    private fun speakCurrentParagraph() {
+        val paras = currentParagraphs
+        val idx = currentParagraphIndex
+        if (idx !in paras.indices) return
+
+        ttsManager?.stop()
+        lastEnqueuedParagraphIndex = idx
+        lastProgressTimestamp = System.currentTimeMillis()
+
+        // 1. Enqueue current paragraph with QUEUE_FLUSH
+        enqueueParagraph(idx, android.speech.tts.TextToSpeech.QUEUE_FLUSH)
+
+        // 2. Lookahead: Enqueue next paragraph with QUEUE_ADD for seamless 0-gap transition
+        val lookaheadIdx = idx + 1
+        if (lookaheadIdx < paras.size) {
+            enqueueParagraph(lookaheadIdx, android.speech.tts.TextToSpeech.QUEUE_ADD)
+        }
+
+        startWatchdog()
     }
 
     private fun handleParagraphStart(index: Int) {
+        lastProgressTimestamp = System.currentTimeMillis()
         currentParagraphIndex = index
         _isPlayingState.value = true
         _playbackProgressState.update {
@@ -1119,7 +1197,7 @@ object AudioPlaybackCoordinator {
     }
 
     private fun handleParagraphDone(index: Int) {
-        if (index != currentParagraphIndex) return
+        lastProgressTimestamp = System.currentTimeMillis()
         val total = currentParagraphs.size
         val nextIndex = index + 1
 
@@ -1137,11 +1215,14 @@ object AudioPlaybackCoordinator {
             }
         }
 
+        if (!_isPlayingState.value) return
+
         if (nextIndex < total) {
-            if (_isPlayingState.value) {
-                currentParagraphIndex = nextIndex
-                _playbackProgressState.update { it.copy(currentParagraphIndex = nextIndex) }
-                speakCurrentParagraph()
+            // Paragraph (index + 1) is already speaking or enqueued via lookahead buffer!
+            // Enqueue paragraph (lastEnqueuedParagraphIndex + 1) to maintain the lookahead pipeline
+            val nextLookahead = lastEnqueuedParagraphIndex + 1
+            if (nextLookahead < total) {
+                enqueueParagraph(nextLookahead, android.speech.tts.TextToSpeech.QUEUE_ADD)
             }
         } else {
             if (currentSource == PlaybackSource.READER && autoNextChapterEnabled) {

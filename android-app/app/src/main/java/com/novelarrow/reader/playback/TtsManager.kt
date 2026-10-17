@@ -142,6 +142,10 @@ class TtsManager(
                             onParagraphStart?.invoke(index)
                         }
                     }
+                } else if (utteranceId.startsWith("para_")) {
+                    val parts = utteranceId.split("_")
+                    val index = parts.getOrNull(1)?.toIntOrNull() ?: return
+                    onParagraphStart?.invoke(index)
                 } else {
                     val index = utteranceId.toIntOrNull() ?: return
                     onParagraphStart?.invoke(index)
@@ -165,6 +169,10 @@ class TtsManager(
                             onParagraphDone?.invoke(index)
                         }
                     }
+                } else if (utteranceId.startsWith("para_")) {
+                    val parts = utteranceId.split("_")
+                    val index = parts.getOrNull(1)?.toIntOrNull() ?: return
+                    onParagraphDone?.invoke(index)
                 } else {
                     val index = utteranceId.toIntOrNull() ?: return
                     onParagraphDone?.invoke(index)
@@ -195,6 +203,8 @@ class TtsManager(
             private fun parseIndexFromUtteranceId(utteranceId: String?): Int {
                 if (utteranceId == null) return -1
                 return if (utteranceId.startsWith("chunk_")) {
+                    utteranceId.split("_").getOrNull(1)?.toIntOrNull() ?: -1
+                } else if (utteranceId.startsWith("para_")) {
                     utteranceId.split("_").getOrNull(1)?.toIntOrNull() ?: -1
                 } else {
                     utteranceId.toIntOrNull() ?: -1
@@ -236,7 +246,13 @@ class TtsManager(
         return chunks.ifEmpty { listOf(text) }
     }
 
-    fun speak(index: Int, text: String, rate: Float = 1.0f, pitch: Float = 1.0f) {
+    fun speak(
+        index: Int,
+        text: String,
+        rate: Float = 1.0f,
+        pitch: Float = 1.0f,
+        queueMode: Int = TextToSpeech.QUEUE_FLUSH
+    ) {
         if (!isInitialized) return
         configureLanguageSafely(text)
         activeCustomVoice?.let { voice ->
@@ -261,17 +277,21 @@ class TtsManager(
         val chunks = chunkText(text, safeMaxLen)
         for (i in chunks.indices) {
             val chunk = chunks[i]
-            val utteranceId = if (chunks.size == 1) "$index" else "chunk_${index}_${i}_${chunks.size}"
-            val queueMode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            val utteranceId = if (chunks.size == 1) "para_${index}_0_1" else "chunk_${index}_${i}_${chunks.size}"
+            val effectiveQueueMode = if (i == 0) queueMode else TextToSpeech.QUEUE_ADD
             val params = Bundle().apply {
                 putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
             }
-            tts?.speak(chunk, queueMode, params, utteranceId)
+            tts?.speak(chunk, effectiveQueueMode, params, utteranceId)
         }
     }
 
     fun stop() {
         tts?.stop()
+    }
+
+    fun isSpeaking(): Boolean {
+        return isInitialized && tts?.isSpeaking == true
     }
 
     fun setRate(rate: Float) {
@@ -321,10 +341,17 @@ class TtsManager(
                 }
             }
         } else {
-            AppLogger.e(TAG, "Requested voice \"$voiceName\" was not found in TTS engine")
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                Toast.makeText(context, "Voice \"$voiceName\" is not available in TTS engine", Toast.LENGTH_SHORT).show()
+            // Check if this is an offline neural voice from NeuralVoiceCatalog
+            val neuralVoice = com.novelarrow.reader.data.model.NeuralVoiceCatalog.getVoiceById(voiceName, context)
+            if (neuralVoice != null) {
+                AppLogger.i(TAG, "Voice \"$voiceName\" is an offline neural voice (${neuralVoice.engine} - ${neuralVoice.name}). Safely adapting locale for system TTS playback fallback.")
+                val matchingLocale = neuralVoice.language.locale
+                configureLanguageSafely(matchingLocale.displayLanguage)
+                return
             }
+
+            AppLogger.w(TAG, "Requested voice \"$voiceName\" was not found in TTS engine, falling back to default voice")
+            configureLanguageSafely()
         }
     }
 
