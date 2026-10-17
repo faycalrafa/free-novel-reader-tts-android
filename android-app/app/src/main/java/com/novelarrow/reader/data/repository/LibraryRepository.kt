@@ -185,13 +185,14 @@ class LibraryRepository(private val context: Context) {
     )
 
     fun readFolderProgress(
-        folderUriOrPath: String,
+        folderUriOrPath: String?,
         novelTitle: String,
         folderDocId: String? = null
     ): NovelFolderProgress? {
         try {
-            if (folderUriOrPath.startsWith("/") || folderUriOrPath.startsWith("file://")) {
-                val dir = File(folderUriOrPath.removePrefix("file://"))
+            if (!folderUriOrPath.isNullOrBlank()) {
+                if (folderUriOrPath.startsWith("/") || folderUriOrPath.startsWith("file://")) {
+                    val dir = File(folderUriOrPath.removePrefix("file://"))
                 val progressFile = File(dir, ".progress.json")
                 if (progressFile.exists() && progressFile.isFile) {
                     val text = progressFile.readText(Charsets.UTF_8)
@@ -226,6 +227,7 @@ class LibraryRepository(private val context: Context) {
                     }
                 }
             }
+        }
 
             // Fallback: check standard NovelReader directory for this novel title
             val safeTitle = WebNovelDownloader.sanitizeFileName(novelTitle)
@@ -254,19 +256,20 @@ class LibraryRepository(private val context: Context) {
     }
 
     fun writeFolderProgress(
-        folderUriOrPath: String,
+        folderUriOrPath: String?,
         novelTitle: String,
         progress: NovelFolderProgress,
         folderDocId: String? = null
     ) {
         try {
             val jsonText = json.encodeToString(progress)
-            if (folderUriOrPath.startsWith("/") || folderUriOrPath.startsWith("file://")) {
-                val dir = File(folderUriOrPath.removePrefix("file://"))
-                if (dir.exists() && dir.isDirectory) {
-                    File(dir, ".progress.json").writeText(jsonText, Charsets.UTF_8)
-                }
-            } else if (folderUriOrPath.startsWith("content://")) {
+            if (!folderUriOrPath.isNullOrBlank()) {
+                if (folderUriOrPath.startsWith("/") || folderUriOrPath.startsWith("file://")) {
+                    val dir = File(folderUriOrPath.removePrefix("file://"))
+                    if (dir.exists() && dir.isDirectory) {
+                        File(dir, ".progress.json").writeText(jsonText, Charsets.UTF_8)
+                    }
+                } else if (folderUriOrPath.startsWith("content://")) {
                 val uri = Uri.parse(folderUriOrPath)
                 if (folderDocId != null) {
                     try {
@@ -304,6 +307,7 @@ class LibraryRepository(private val context: Context) {
                     }
                 }
             }
+        }
 
             val safeTitle = WebNovelDownloader.sanitizeFileName(novelTitle)
             val candidateDirs = mutableListOf<File>()
