@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
@@ -98,6 +99,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
@@ -157,7 +159,9 @@ fun BrowserScreen(
     onNavigateToSkipWords: (() -> Unit)? = null,
     onNavigateToVoiceEngine: (() -> Unit)? = null,
     onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
-    onNavigateToContentSelector: (() -> Unit)? = null
+    onNavigateToContentSelector: (() -> Unit)? = null,
+    onNavigateToNextSelector: (() -> Unit)? = null,
+    onNavigateToIgnoredSelectors: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
@@ -242,6 +246,8 @@ fun BrowserScreen(
                 onSaveFrozenHtmlClicked = { viewModel.saveSingleChapter() },
                 onRawCodeClicked = { viewModel.extractAndShowRawHtml() },
                 onNextChapterClicked = { viewModel.clickNextChapter() },
+                onNextSelectorClicked = onNavigateToNextSelector,
+                onIgnoredSelectorsClicked = onNavigateToIgnoredSelectors,
                 onUrlChanged = { viewModel.setInputUrl(it) },
                 onUrlSubmitted = {
                     keyboardController?.hide()
@@ -506,15 +512,12 @@ fun BrowserScreen(
                 onToggleAutoReadNextChapter = { viewModel.toggleAutoReadNextChapter(it) },
                 onToggleTtsAutoScroll = { viewModel.toggleTtsAutoScroll(it) },
                 onToggleTtsAutoStart = { viewModel.toggleTtsAutoStart(it) },
-                onToggleTtsSynthByParagraph = { viewModel.toggleTtsSynthByParagraph(it) },
-                onUpdateNextSelector = { viewModel.updateNextSelector(it) },
-                onUpdateContentSelector = { viewModel.updateContentSelector(it) },
                 onToggleAutoClickOnScroll = { viewModel.toggleAutoClickOnScroll(it) },
                 onUpdateLoopCount = { viewModel.updateLoopCount(it) },
                 onUpdateDelay = { viewModel.updateCountdownDelayMs(it) },
-                onAddIgnoredSelector = { viewModel.addIgnoredSelector(it) },
-                onRemoveIgnoredSelector = { viewModel.removeIgnoredSelector(it) },
-                onResetIgnoredSelectors = { viewModel.resetIgnoredSelectors() },
+                onNavigateToContentSelector = onNavigateToContentSelector,
+                onNavigateToNextSelector = onNavigateToNextSelector,
+                onNavigateToIgnoredSelectors = onNavigateToIgnoredSelectors,
                 onResetDefaults = { viewModel.resetSettingsToDefaults() },
                 onDismiss = { viewModel.dismissSettingsDialog() }
             )
@@ -592,6 +595,8 @@ private fun BrowserTopBar(
     onSaveFrozenHtmlClicked: () -> Unit,
     onRawCodeClicked: () -> Unit,
     onNextChapterClicked: () -> Unit,
+    onNextSelectorClicked: (() -> Unit)? = null,
+    onIgnoredSelectorsClicked: (() -> Unit)? = null,
     onUrlChanged: (String) -> Unit,
     onUrlSubmitted: (String) -> Unit,
     onLiveReadClicked: () -> Unit,
@@ -851,6 +856,34 @@ private fun BrowserTopBar(
                         contentDescription = "Next Chapter (Click in Page)",
                         modifier = Modifier.size(19.dp)
                     )
+                }
+
+                // Next Chapter Selector Settings
+                if (onNextSelectorClicked != null) {
+                    IconButton(
+                        onClick = onNextSelectorClicked,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Next Chapter Selector Settings",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // Ignored Elements (Filter) Settings
+                if (onIgnoredSelectorsClicked != null) {
+                    IconButton(
+                        onClick = onIgnoredSelectorsClicked,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.FilterList,
+                            contentDescription = "Ignored Elements Filter Settings",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
 
                 // Read Aloud / TTS - Matching ReaderTopBar design
@@ -1319,25 +1352,15 @@ private fun BrowserSettingsDialog(
     onToggleAutoReadNextChapter: (Boolean) -> Unit = {},
     onToggleTtsAutoScroll: (Boolean) -> Unit,
     onToggleTtsAutoStart: (Boolean) -> Unit,
-    onToggleTtsSynthByParagraph: (Boolean) -> Unit,
-    onUpdateNextSelector: (String) -> Unit,
-    onUpdateContentSelector: (String) -> Unit,
     onToggleAutoClickOnScroll: (Boolean) -> Unit,
     onUpdateLoopCount: (Int) -> Unit,
     onUpdateDelay: (Long) -> Unit,
-    onAddIgnoredSelector: (String) -> Unit,
-    onRemoveIgnoredSelector: (String) -> Unit,
-    onResetIgnoredSelectors: () -> Unit,
+    onNavigateToContentSelector: (() -> Unit)? = null,
+    onNavigateToNextSelector: (() -> Unit)? = null,
+    onNavigateToIgnoredSelectors: (() -> Unit)? = null,
     onResetDefaults: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    var nextSelectorText by remember(settings.nextSelector) { mutableStateOf(settings.nextSelector) }
-    var contentSelectorText by remember(settings.contentSelector) { mutableStateOf(settings.contentSelector) }
-
-    // Ignored selector input
-    var newIgnoredSelector by remember { mutableStateOf("") }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1355,254 +1378,248 @@ private fun BrowserSettingsDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Scrollable Tab Row
-                ScrollableTabRow(
-                    selectedTabIndex = selectedTab,
-                    edgePadding = 8.dp,
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    text = "READING AUTOMATION",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                // Auto-scroll switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Auto-Run & Loop", fontSize = 13.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Reading", fontSize = 13.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("Filter (Ignored)", fontSize = 13.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-Scroll to Text", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                        Text("Scrolls page to follow currently spoken sentence", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    }
+                    Switch(
+                        checked = settings.ttsAutoScroll,
+                        onCheckedChange = onToggleTtsAutoScroll
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                // Auto-read when next chapter loads switch (default Off)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    when (selectedTab) {
-                        0 -> {
-                            // --- AUTO-RUN / LOOP TAB ---
-                            OutlinedTextField(
-                                value = nextSelectorText,
-                                onValueChange = {
-                                    nextSelectorText = it
-                                    onUpdateNextSelector(it)
-                                },
-                                label = { Text("Next Chapter Selector") },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                minLines = 2,
-                                maxLines = 3
-                            )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-read when next chapter loads", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                        Text("Wait for user input before reading new page when Off", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    }
+                    Switch(
+                        checked = settings.autoReadNextChapter,
+                        onCheckedChange = onToggleAutoReadNextChapter
+                    )
+                }
 
-                            OutlinedTextField(
-                                value = contentSelectorText,
-                                onValueChange = {
-                                    contentSelectorText = it
-                                    onUpdateContentSelector(it)
-                                },
-                                label = { Text("Content Container (Optional)") },
-                                placeholder = { Text("e.g. #chapter-content or blank") },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                singleLine = true
-                            )
+                // Auto-start TTS switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-Start TTS on Page Load", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                        Text("Immediately begins reading aloud after page finishes loading", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    }
+                    Switch(
+                        checked = settings.ttsAutoStart,
+                        onCheckedChange = onToggleTtsAutoStart
+                    )
+                }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Auto-next on scroll bottom",
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                                    )
-                                    Text(
-                                        text = "Click next when scrolling to bottom of page",
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                                Switch(
-                                    checked = settings.autoClickOnScroll,
-                                    onCheckedChange = onToggleAutoClickOnScroll
-                                )
-                            }
+                // Auto-next on scroll bottom
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto-next on scroll bottom",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = "Click next when scrolling to bottom of page",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = settings.autoClickOnScroll,
+                        onCheckedChange = onToggleAutoClickOnScroll
+                    )
+                }
 
-                            HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
+                Text(
+                    text = "BATCH LOOP & DELAYS",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                Text(
+                    text = "Auto-Loop Chapters Count: ${settings.loopCount}",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(10, 25, 50, 100, 200).forEach { preset ->
+                        FilterChip(
+                            selected = settings.loopCount == preset,
+                            onClick = { onUpdateLoopCount(preset) },
+                            label = { Text("$preset") }
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Delay Between Chapters: ${settings.countdownDelayMs / 1000f}s",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(500L, 1000L, 1500L, 2000L, 3000L).forEach { ms ->
+                        FilterChip(
+                            selected = settings.countdownDelayMs == ms,
+                            onClick = { onUpdateDelay(ms) },
+                            label = { Text("${ms / 1000f}s") }
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Text(
+                    text = "SELECTORS & EXTRACTION",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                // Next Chapter Selector Button
+                OutlinedCard(
+                    onClick = {
+                        onDismiss()
+                        onNavigateToNextSelector?.invoke()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Auto-Loop Chapters Count: ${settings.loopCount}",
+                                "Next Chapter Selector",
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
                             )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(10, 25, 50, 100, 200).forEach { preset ->
-                                    FilterChip(
-                                        selected = settings.loopCount == preset,
-                                        onClick = { onUpdateLoopCount(preset) },
-                                        label = { Text("$preset") }
-                                    )
-                                }
-                            }
-
                             Text(
-                                text = "Delay Between Chapters: ${settings.countdownDelayMs / 1000f}s",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(500L, 1000L, 1500L, 2000L, 3000L).forEach { ms ->
-                                    FilterChip(
-                                        selected = settings.countdownDelayMs == ms,
-                                        onClick = { onUpdateDelay(ms) },
-                                        label = { Text("${ms / 1000f}s") }
-                                    )
-                                }
-                            }
-                        }
-
-                        1 -> {
-                            // --- READING AUTOMATION TAB ---
-                            // Auto-scroll switch
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Auto-Scroll to Text", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("Scrolls page to follow currently spoken sentence", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                                }
-                                Switch(
-                                    checked = settings.ttsAutoScroll,
-                                    onCheckedChange = onToggleTtsAutoScroll
-                                )
-                            }
-
-                            // Auto-read when next chapter loads switch (default Off)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Auto-read when next chapter loads", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("Wait for user input before reading new page when Off", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                                }
-                                Switch(
-                                    checked = settings.autoReadNextChapter,
-                                    onCheckedChange = onToggleAutoReadNextChapter
-                                )
-                            }
-
-                            // Auto-start TTS switch
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Auto-Start TTS on Page Load", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
-                                    Text("Immediately begins reading aloud after page finishes loading", style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                                }
-                                Switch(
-                                    checked = settings.ttsAutoStart,
-                                    onCheckedChange = onToggleTtsAutoStart
-                                )
-                            }
-                        }
-
-                        2 -> {
-                            // --- FILTER / IGNORED SELECTORS TAB ---
-                            Text(
-                                text = "Ignored Elements (Skipped by TTS)",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "Elements matching these CSS selectors will be stripped out when extracting chapter text.",
+                                if (settings.nextSelector.isBlank()) "Default multi-selector active" else settings.nextSelector,
                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-
-                            // Add selector input
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedTextField(
-                                    value = newIgnoredSelector,
-                                    onValueChange = { newIgnoredSelector = it },
-                                    label = { Text("CSS Selector (e.g. .author-note)") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Button(
-                                    onClick = {
-                                        if (newIgnoredSelector.isNotBlank()) {
-                                            onAddIgnoredSelector(newIgnoredSelector.trim())
-                                            newIgnoredSelector = ""
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text("Add")
-                                }
-                            }
-
-                            // Chips list of ignored selectors
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                settings.ignoredSelectors.forEach { selector ->
-                                    Surface(
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
-                                        ) {
-                                            Text(selector, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            IconButton(
-                                                onClick = { onRemoveIgnoredSelector(selector) },
-                                                modifier = Modifier.size(18.dp)
-                                            ) {
-                                                Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(12.dp))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = onResetIgnoredSelectors,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Reset to Default Ignored Elements")
-                            }
                         }
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Configure Next Selector",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // Content Container Selector Button
+                OutlinedCard(
+                    onClick = {
+                        onDismiss()
+                        onNavigateToContentSelector?.invoke()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Content Container Selector",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                if (settings.contentSelector.isBlank()) "Autodetect main article container" else settings.contentSelector,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Configure Content Container",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // Ignored Elements (Filter) Button
+                OutlinedCard(
+                    onClick = {
+                        onDismiss()
+                        onNavigateToIgnoredSelectors?.invoke()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Ignored Elements (Filter)",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                "${settings.ignoredSelectors.size} elements filtered from TTS",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Configure Ignored Elements",
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
@@ -1695,6 +1712,23 @@ private fun createConfiguredWebView(
                     canGoBack = view?.canGoBack() == true,
                     canGoForward = view?.canGoForward() == true
                 )
+            }
+
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
+                if (resultMsg != null) {
+                    val transport = resultMsg.obj as? WebView.WebViewTransport
+                    if (transport != null) {
+                        transport.webView = view
+                        resultMsg.sendToTarget()
+                        return true
+                    }
+                }
+                return super.onCreateWindow(view, isDialog, isUserGesture, resultMsg)
             }
         }
     }

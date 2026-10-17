@@ -77,6 +77,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import com.novelarrow.reader.data.model.CustomVoiceManager
 import com.novelarrow.reader.data.model.NeuralVoiceCatalog
 import com.novelarrow.reader.data.model.NeuralVoiceInfo
 import com.novelarrow.reader.data.repository.SettingsRepository
@@ -120,9 +134,11 @@ fun OfflineEngineVoiceScreen(
     var selectedLanguage by remember { mutableStateOf(supportedLanguages.first()) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
+    var downloadStatusRefreshKey by remember { mutableStateOf(0) }
 
-    val allVoices = remember(engineType) {
-        NeuralVoiceCatalog.getVoicesForEngine(engineType)
+    val allVoices = remember(engineType, downloadStatusRefreshKey) {
+        NeuralVoiceCatalog.getVoicesForEngine(engineType, context)
     }
 
     // Currently selected voice
@@ -144,7 +160,6 @@ fun OfflineEngineVoiceScreen(
     var downloadProgress by remember { mutableFloatStateOf(0f) }
     var downloadedBytesText by remember { mutableStateOf("") }
     var downloadJob by remember { mutableStateOf<Job?>(null) }
-    var downloadStatusRefreshKey by remember { mutableStateOf(0) }
 
     val isModelDownloaded = remember(selectedVoice, downloadStatusRefreshKey) {
         selectedVoice != null && NeuralModelDownloader.isModelDownloaded(context, selectedVoice)
@@ -251,6 +266,9 @@ fun OfflineEngineVoiceScreen(
                 },
                 actions = {
                     if (!isSearchActive) {
+                        IconButton(onClick = { showImportDialog = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Import Custom Model")
+                        }
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
@@ -485,11 +503,35 @@ fun OfflineEngineVoiceScreen(
                                         AudioPlaybackCoordinator.previewNeuralAudio(voice.id, url)
                                     } ?: Toast.makeText(context, "No preview sample available for this voice", Toast.LENGTH_SHORT).show()
                                 }
-                            }
+                            },
+                            onDeleteCustomVoice = if (voice.id.startsWith("custom_")) {
+                                {
+                                    CustomVoiceManager.deleteCustomVoice(context, voice.id)
+                                    downloadStatusRefreshKey++
+                                    if (selectedVoiceId == voice.id) {
+                                        selectedVoiceId = allVoices.firstOrNull { it.id != voice.id }?.id
+                                    }
+                                    Toast.makeText(context, "Deleted ${voice.name}", Toast.LENGTH_SHORT).show()
+                                }
+                            } else null
                         )
                     }
                 }
             }
+        }
+
+        if (showImportDialog) {
+            ImportCustomModelDialog(
+                engineType = engineType,
+                supportedLanguages = supportedLanguages,
+                onDismiss = { showImportDialog = false },
+                onImportSuccess = { importedVoice ->
+                    showImportDialog = false
+                    downloadStatusRefreshKey++
+                    selectedVoiceId = importedVoice.id
+                    Toast.makeText(context, "Imported ${importedVoice.name}", Toast.LENGTH_SHORT).show()
+                }
+            )
         }
     }
 }
@@ -645,7 +687,8 @@ private fun NeuralVoiceCard(
     isPreviewing: Boolean,
     pulseAlpha: Float,
     onSelect: () -> Unit,
-    onTogglePreview: () -> Unit
+    onTogglePreview: () -> Unit,
+    onDeleteCustomVoice: (() -> Unit)? = null
 ) {
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -760,6 +803,22 @@ private fun NeuralVoiceCard(
                 }
             }
 
+            if (onDeleteCustomVoice != null) {
+                IconButton(
+                    onClick = onDeleteCustomVoice,
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete custom voice",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
             // Audio Sample Preview Button
             IconButton(
                 onClick = onTogglePreview,
@@ -776,3 +835,274 @@ private fun NeuralVoiceCard(
         }
     }
 }
+
+@Composable
+fun ImportCustomModelDialog(
+    engineType: String,
+    supportedLanguages: List<SupportedLanguage>,
+    onDismiss: () -> Unit,
+    onImportSuccess: (NeuralVoiceInfo) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var voiceName by remember { mutableStateOf("") }
+    var selectedGender by remember { mutableStateOf("Neutral") }
+    var selectedLanguage by remember { mutableStateOf(supportedLanguages.firstOrNull() ?: SupportedLanguage.ENGLISH) }
+    var modelUri by remember { mutableStateOf<Uri?>(null) }
+    var configUri by remember { mutableStateOf<Uri?>(null) }
+    var dataDirUri by remember { mutableStateOf<Uri?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isImporting by remember { mutableStateOf(false) }
+
+    val modelPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            modelUri = uri
+            errorMessage = null
+        }
+    }
+
+    val configPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            configUri = uri
+            errorMessage = null
+        }
+    }
+
+    val dataDirPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            dataDirUri = uri
+            errorMessage = null
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!isImporting) onDismiss() },
+        title = {
+            Text(
+                text = "Import Custom ${engineType.uppercase()} Model",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Load external ONNX model weights, config/tokens JSON, and optional voice assets.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = voiceName,
+                    onValueChange = {
+                        voiceName = it
+                        errorMessage = null
+                    },
+                    label = { Text("Voice Name") },
+                    placeholder = { Text("e.g. My Custom Narrator") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Gender Selection
+                Text(
+                    text = "Voice Gender",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Female", "Male", "Neutral").forEach { g ->
+                        val isSelected = selectedGender == g
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedGender = g },
+                            label = { Text(g) }
+                        )
+                    }
+                }
+
+                // Language Selection
+                if (supportedLanguages.size > 1) {
+                    Text(
+                        text = "Voice Language",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        supportedLanguages.forEach { lang ->
+                            val isSelected = selectedLanguage == lang
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedLanguage = lang },
+                                label = { Text(lang.displayName) }
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // Model File (.onnx)
+                Column {
+                    Text(
+                        text = "1. Model Weights (.onnx) *",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = { modelPickerLauncher.launch(arrayOf("*/*")) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isImporting
+                    ) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = modelUri?.let { CustomVoiceManager.getFileNameFromUri(context, it) } ?: "Select .onnx File",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Config / Tokens File (.json)
+                Column {
+                    Text(
+                        text = "2. Config / Tokens (.json) *",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = { configPickerLauncher.launch(arrayOf("application/json", "*/*")) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isImporting
+                    ) {
+                        Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = configUri?.let { CustomVoiceManager.getFileNameFromUri(context, it) } ?: "Select .json File",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Data Directory (Optional)
+                Column {
+                    Text(
+                        text = "3. Data Directory (Optional)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = { dataDirPickerLauncher.launch(null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isImporting
+                    ) {
+                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = dataDirUri?.let { "Folder: ${it.lastPathSegment?.substringAfterLast(':') ?: "Selected"}" } ?: "Select Folder (Optional)",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                errorMessage?.let { err ->
+                    Text(
+                        text = err,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+
+                if (isImporting) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Validating and copying files...",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (voiceName.isBlank()) {
+                        errorMessage = "Please enter a voice name"
+                        return@Button
+                    }
+                    val mUri = modelUri
+                    if (mUri == null) {
+                        errorMessage = "Please select an ONNX model file"
+                        return@Button
+                    }
+                    val cUri = configUri
+                    if (cUri == null) {
+                        errorMessage = "Please select a JSON config/tokens file"
+                        return@Button
+                    }
+                    isImporting = true
+                    errorMessage = null
+                    scope.launch {
+                        val result = CustomVoiceManager.validateAndImportModel(
+                            context = context,
+                            engine = engineType,
+                            voiceName = voiceName,
+                            gender = selectedGender,
+                            language = selectedLanguage,
+                            modelUri = mUri,
+                            configUri = cUri,
+                            dataDirUri = dataDirUri
+                        )
+                        isImporting = false
+                        result.onSuccess { importedVoice ->
+                            onImportSuccess(importedVoice)
+                        }.onFailure { ex ->
+                            errorMessage = ex.message ?: "Failed to import model"
+                        }
+                    }
+                },
+                enabled = !isImporting && voiceName.isNotBlank() && modelUri != null && configUri != null
+            ) {
+                Text("Validate & Import")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isImporting
+            ) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+

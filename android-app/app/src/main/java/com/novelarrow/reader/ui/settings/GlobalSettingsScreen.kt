@@ -64,6 +64,8 @@ fun GlobalSettingsScreen(
     onNavigateToSkipWords: () -> Unit = {},
     onNavigateToHeaderFooterSkips: () -> Unit = {},
     onNavigateToContentSelector: () -> Unit = {},
+    onNavigateToBrowserIgnoredSelectors: () -> Unit = {},
+    onNavigateToBrowserNextSelector: () -> Unit = {},
     onClearAllData: () -> Unit = {},
     onNavigateToAbout: () -> Unit
 ) {
@@ -182,6 +184,20 @@ fun GlobalSettingsScreen(
                         title = "CSS Content Selectors",
                         subtitle = "Configure prioritized multiple CSS selectors per site or folder",
                         onClick = onNavigateToContentSelector
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingsNavigationItem(
+                        icon = Icons.Default.FilterList,
+                        title = "Browser Ignored Elements",
+                        subtitle = "Strip ads, comments, and boilerplate from web novel extractions",
+                        onClick = onNavigateToBrowserIgnoredSelectors
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    SettingsNavigationItem(
+                        icon = Icons.AutoMirrored.Filled.ArrowForward,
+                        title = "Browser Next Chapter Selector",
+                        subtitle = "Configure CSS selector used to detect and click next chapter links",
+                        onClick = onNavigateToBrowserNextSelector
                     )
                 }
             }

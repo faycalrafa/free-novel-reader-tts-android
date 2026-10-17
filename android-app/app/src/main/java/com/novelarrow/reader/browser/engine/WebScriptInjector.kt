@@ -238,7 +238,8 @@ object WebScriptInjector {
                         'button[title*="Next chapter"]', 'a[title*="Next chapter"]',
                         'button[title="Next"]', 'a[title="Next"]',
                         '#next_chap', '.next-chap', '.next-chapter', '.btn-next', 'a.next',
-                        'a[rel="next"]', '.chapter-next a', '#next-chapter', '.nav-next a'
+                        'a[rel="next"]', '.chapter-next a', '#next-chapter', '.nav-next a',
+                        '.next a', '.nav-links .nav-next a'
                     ];
                     for (var s = 0; s < selectors.length; s++) {
                         try {
@@ -250,7 +251,7 @@ object WebScriptInjector {
                     for (var i = 0; i < candidates.length; i++) {
                         var c = candidates[i];
                         var txt = (c.innerText || c.textContent || c.title || '').trim().toLowerCase();
-                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1) {
+                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1 || txt === 'next chapter »') {
                             return c;
                         }
                     }
@@ -278,22 +279,31 @@ object WebScriptInjector {
 
                 var target = getNextEl();
                 if (target) {
+                    var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : (target.closest('a') || target.querySelector('a'));
+                    if (aTag) {
+                        try {
+                            aTag.removeAttribute('target');
+                            aTag.target = '_self';
+                        } catch(e) {}
+                    }
+
                     var oldUrl = window.location.href;
-                    try {
-                        target.scrollIntoView({ block: 'center' });
-                        target.focus();
-                        target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-                        target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-                        target.click();
-                    } catch(e) {}
-                    setTimeout(function() {
-                        if (window.location.href === oldUrl) {
-                            var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : target.closest('a');
-                            if (aTag && aTag.href && !aTag.getAttribute('href').startsWith('javascript:')) {
+                    if (aTag && aTag.href && aTag.href.indexOf('http') === 0 && !aTag.getAttribute('href').startsWith('javascript:')) {
+                        window.location.href = aTag.href;
+                    } else {
+                        try {
+                            target.scrollIntoView({ block: 'center' });
+                            target.focus();
+                            target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                            target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                            target.click();
+                        } catch(e) {}
+                        setTimeout(function() {
+                            if (window.location.href === oldUrl && aTag && aTag.href && aTag.href.indexOf('http') === 0) {
                                 window.location.href = aTag.href;
                             }
-                        }
-                    }, 2500);
+                        }, 500);
+                    }
                 } else {
                     incrementUrl();
                 }

@@ -43,5 +43,10 @@ class QuickToolbarFormattingTest {
         // When total chapters is unknown or 0 (e.g. single web chapter)
         assertEquals("1", QuickToolbarForegroundService.formatChapterProgress(0, 0))
         assertEquals("12", QuickToolbarForegroundService.formatChapterProgress(11, 0))
+
+        // When paragraphs are present
+        assertEquals("45/120 • ¶ 14/45 (31%)", QuickToolbarForegroundService.formatChapterProgress(44, 120, 13, 45))
+        assertEquals("1/10 • ¶ 1/1 (100%)", QuickToolbarForegroundService.formatChapterProgress(0, 10, 0, 1))
+        assertEquals("1 • ¶ 5/20 (25%)", QuickToolbarForegroundService.formatChapterProgress(0, 0, 4, 20))
     }
 }

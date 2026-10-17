@@ -13,15 +13,20 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.WrapText
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -157,121 +162,195 @@ fun MonacoCodeEditorDialog(
                             }
                         }
 
-                        // Toolbar Action Buttons: Search, Replace, Beautify/Format, Wrap, Copy, [Save], Close
-                        IconButton(
-                            onClick = {
-                                webViewRef?.evaluateJavascript("window.triggerSearch();", null)
-                            },
-                            modifier = Modifier.size(34.dp)
+                        // Toolbar Action Buttons: SelectAll, Cut, Copy, Paste, Search, Replace, Beautify/Format, Wrap, [Save], Close
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
                         ) {
-                            Icon(
-                                Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = Color(0xFFCCCCCC),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                webViewRef?.evaluateJavascript("window.triggerReplace();", null)
-                            },
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.FindReplace,
-                                contentDescription = "Match Replace",
-                                tint = Color(0xFFCCCCCC),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                webViewRef?.evaluateJavascript("window.triggerFormat();", null)
-                            },
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.AutoFixHigh,
-                                contentDescription = "Beautify / Format",
-                                tint = Color(0xFFCCCCCC),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                isWordWrapEnabled = !isWordWrapEnabled
-                                webViewRef?.evaluateJavascript("window.toggleWordWrap();", null)
-                            },
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.WrapText,
-                                contentDescription = "Toggle Word Wrap",
-                                tint = if (isWordWrapEnabled) MaterialTheme.colorScheme.primary else Color(0xFFCCCCCC),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                webViewRef?.evaluateJavascript("window.getEditorValue();") { value ->
-                                    val cleanText = if (value != null && value.startsWith("\"") && value.endsWith("\"")) {
-                                        try {
-                                            org.json.JSONTokener(value).nextValue().toString()
-                                        } catch (_: Exception) {
-                                            value.removeSurrounding("\"")
-                                        }
-                                    } else {
-                                        value ?: ""
-                                    }
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Raw Code", cleanText)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Code copied to clipboard", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.ContentCopy,
-                                contentDescription = "Copy All",
-                                tint = Color(0xFFCCCCCC),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        if (onSave != null) {
                             IconButton(
                                 onClick = {
-                                    webViewRef?.evaluateJavascript(
-                                        "if (window.MonacoBridge) { window.MonacoBridge.saveContent(window.getEditorValue()); }",
-                                        null
-                                    )
+                                    webViewRef?.evaluateJavascript("window.selectAll();", null)
                                 },
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.Save,
-                                    contentDescription = "Save Changes",
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    Icons.Default.SelectAll,
+                                    contentDescription = "Select All",
+                                    tint = Color(0xFFCCCCCC),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
-                        }
 
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = "Close",
-                                tint = Color(0xFFCCCCCC),
-                                modifier = Modifier.size(20.dp)
-                            )
+                            IconButton(
+                                onClick = {
+                                    webViewRef?.evaluateJavascript("window.cutSelection();") { value ->
+                                        val cleanText = if (value != null && value.startsWith("\"") && value.endsWith("\"")) {
+                                            try {
+                                                org.json.JSONTokener(value).nextValue().toString()
+                                            } catch (_: Exception) {
+                                                value.removeSurrounding("\"")
+                                            }
+                                        } else {
+                                            value ?: ""
+                                        }
+                                        if (cleanText.isNotBlank()) {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            val clip = ClipData.newPlainText("Cut Code", cleanText)
+                                            clipboard.setPrimaryClip(clip)
+                                            Toast.makeText(context, "Cut to clipboard", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ContentCut,
+                                    contentDescription = "Cut",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    webViewRef?.evaluateJavascript("window.getSelectedText();") { value ->
+                                        val cleanText = if (value != null && value.startsWith("\"") && value.endsWith("\"")) {
+                                            try {
+                                                org.json.JSONTokener(value).nextValue().toString()
+                                            } catch (_: Exception) {
+                                                value.removeSurrounding("\"")
+                                            }
+                                        } else {
+                                            value ?: ""
+                                        }
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("Code", cleanText)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = "Copy",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clipData = clipboard.primaryClip
+                                    val textToPaste = if (clipData != null && clipData.itemCount > 0) {
+                                        clipData.getItemAt(0).coerceToText(context).toString()
+                                    } else ""
+                                    if (textToPaste.isNotEmpty()) {
+                                        val safeText = JSONObject.quote(textToPaste)
+                                        webViewRef?.evaluateJavascript("window.pasteText($safeText);", null)
+                                        Toast.makeText(context, "Pasted from clipboard", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Clipboard is empty", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ContentPaste,
+                                    contentDescription = "Paste",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    webViewRef?.evaluateJavascript("window.triggerSearch();", null)
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    webViewRef?.evaluateJavascript("window.triggerReplace();", null)
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FindReplace,
+                                    contentDescription = "Match Replace",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    webViewRef?.evaluateJavascript("window.triggerFormat();", null)
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.AutoFixHigh,
+                                    contentDescription = "Beautify / Format",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    isWordWrapEnabled = !isWordWrapEnabled
+                                    webViewRef?.evaluateJavascript("window.toggleWordWrap();", null)
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.WrapText,
+                                    contentDescription = "Toggle Word Wrap",
+                                    tint = if (isWordWrapEnabled) MaterialTheme.colorScheme.primary else Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            if (onSave != null) {
+                                IconButton(
+                                    onClick = {
+                                        webViewRef?.evaluateJavascript(
+                                            "if (window.MonacoBridge) { window.MonacoBridge.saveContent(window.getEditorValue()); }",
+                                            null
+                                        )
+                                    },
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Save,
+                                        contentDescription = "Save Changes",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = onDismiss,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = Color(0xFFCCCCCC),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -456,7 +535,10 @@ private fun buildMonacoHtml(code: String, language: String): String {
                                 scrollBeyondLastLine: false,
                                 wordWrap: 'on',
                                 folding: true,
-                                contextmenu: true,
+                                contextmenu: false,
+                                quickSuggestions: { other: true, comments: false, strings: true },
+                                acceptSuggestionOnEnter: "on",
+                                tabCompletion: "on",
                                 formatOnPaste: true,
                                 find: {
                                     addExtraSpaceOnTop: false,
@@ -486,6 +568,104 @@ private fun buildMonacoHtml(code: String, language: String): String {
                     } else {
                         var ta = document.getElementById('fallback-editor');
                         return ta ? ta.value : initialCode;
+                    }
+                };
+
+                window.selectAll = function() {
+                    if (window.editor && monacoLoaded) {
+                        var fullRange = window.editor.getModel().getFullModelRange();
+                        window.editor.setSelection(fullRange);
+                        window.editor.focus();
+                    } else {
+                        var ta = document.getElementById('fallback-editor');
+                        if (ta) { ta.focus(); ta.select(); }
+                    }
+                };
+
+                window.getSelectedText = function() {
+                    if (window.editor && monacoLoaded) {
+                        var sel = window.editor.getSelection();
+                        if (sel && !sel.isEmpty()) {
+                            return window.editor.getModel().getValueInRange(sel);
+                        }
+                        return window.editor.getValue();
+                    } else {
+                        var ta = document.getElementById('fallback-editor');
+                        if (ta) {
+                            var start = ta.selectionStart;
+                            var end = ta.selectionEnd;
+                            if (start !== end) {
+                                return ta.value.substring(start, end);
+                            }
+                            return ta.value;
+                        }
+                        return initialCode;
+                    }
+                };
+
+                window.cutSelection = function() {
+                    var cutText = "";
+                    if (window.editor && monacoLoaded) {
+                        var sel = window.editor.getSelection();
+                        if (sel && !sel.isEmpty()) {
+                            cutText = window.editor.getModel().getValueInRange(sel);
+                            window.editor.executeEdits('cut', [{
+                                range: sel,
+                                text: '',
+                                forceMoveMarkers: true
+                            }]);
+                        } else {
+                            cutText = window.editor.getValue();
+                            var fullRange = window.editor.getModel().getFullModelRange();
+                            window.editor.executeEdits('cut', [{
+                                range: fullRange,
+                                text: '',
+                                forceMoveMarkers: true
+                            }]);
+                        }
+                        window.editor.focus();
+                    } else {
+                        var ta = document.getElementById('fallback-editor');
+                        if (ta) {
+                            var start = ta.selectionStart;
+                            var end = ta.selectionEnd;
+                            if (start !== end) {
+                                cutText = ta.value.substring(start, end);
+                                ta.value = ta.value.substring(0, start) + ta.value.substring(end);
+                                ta.selectionStart = start;
+                                ta.selectionEnd = start;
+                            } else {
+                                cutText = ta.value;
+                                ta.value = "";
+                            }
+                        }
+                    }
+                    return cutText;
+                };
+
+                window.pasteText = function(text) {
+                    if (window.editor && monacoLoaded) {
+                        var sel = window.editor.getSelection();
+                        if (!sel) {
+                            var pos = window.editor.getPosition() || new monaco.Position(1, 1);
+                            sel = new monaco.Selection(pos.lineNumber, pos.column, pos.lineNumber, pos.column);
+                        }
+                        window.editor.executeEdits('paste', [{
+                            range: sel,
+                            text: text,
+                            forceMoveMarkers: true
+                        }]);
+                        window.editor.focus();
+                    } else {
+                        var ta = document.getElementById('fallback-editor');
+                        if (ta) {
+                            var start = ta.selectionStart || 0;
+                            var end = ta.selectionEnd || 0;
+                            ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
+                            ta.selectionStart = start + text.length;
+                            ta.selectionEnd = start + text.length;
+                            ta.focus();
+                        }
                     }
                 };
 

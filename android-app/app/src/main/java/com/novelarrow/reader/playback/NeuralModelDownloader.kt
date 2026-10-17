@@ -31,7 +31,12 @@ object NeuralModelDownloader {
 
     fun isModelDownloaded(context: Context, voiceInfo: NeuralVoiceInfo): Boolean {
         val file = getModelFile(context, voiceInfo)
-        return file.exists() && file.length() > 1024L
+        if (file.exists() && file.length() > 1024L) return true
+        return try {
+            context.assets.open("neural/${voiceInfo.modelFileName}").use { true }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun deleteModel(context: Context, voiceInfo: NeuralVoiceInfo): Boolean {

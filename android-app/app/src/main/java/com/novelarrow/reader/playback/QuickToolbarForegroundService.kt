@@ -183,7 +183,12 @@ class QuickToolbarForegroundService : Service() {
         val speedText = formatSpeed(currentSpeed)
         val sleepTimerText = AudioPlaybackCoordinator.formatSleepTimerForNotification()
 
-        val progressText = formatChapterProgress(progress.chapterIndex, progress.totalChapters)
+        val progressText = formatChapterProgress(
+            chapterIndex = progress.chapterIndex,
+            totalChapters = progress.totalChapters,
+            paragraphIndex = progress.currentParagraphIndex,
+            totalParagraphs = progress.totalParagraphs
+        )
 
         // 1. PendingIntents
         val openAppIntent = Intent(appContext, MainActivity::class.java).apply {
@@ -372,13 +377,24 @@ class QuickToolbarForegroundService : Service() {
         const val ACTION_STOP = "com.novelarrow.reader.ACTION_STOP_TOOLBAR"
         const val ACTION_RESTORE_TOOLBAR = "com.novelarrow.reader.ACTION_RESTORE_TOOLBAR"
 
-        internal fun formatChapterProgress(chapterIndex: Int, totalChapters: Int): String {
+        internal fun formatChapterProgress(
+            chapterIndex: Int,
+            totalChapters: Int,
+            paragraphIndex: Int = 0,
+            totalParagraphs: Int = 0
+        ): String {
             val current = chapterIndex + 1
-            return if (totalChapters > 0) {
+            val chapText = if (totalChapters > 0) {
                 "$current/$totalChapters"
             } else {
                 "$current"
             }
+            if (totalParagraphs > 0) {
+                val curPara = (paragraphIndex + 1).coerceAtMost(totalParagraphs)
+                val pct = ((curPara.toDouble() / totalParagraphs) * 100).toInt()
+                return "$chapText • ¶ $curPara/$totalParagraphs ($pct%)"
+            }
+            return chapText
         }
 
         internal fun formatSpeed(rate: Float): String {

@@ -240,4 +240,32 @@ object WebContentExtractor {
         }
         return ExtractedContent(title = title, paragraphs = paragraphs)
     }
+
+    fun buildRawHtmlExtractionScript(customSelector: String): String {
+        val safeSelector = JSONObject.quote(customSelector.trim())
+        return """
+            (function() {
+                try {
+                    var sel = $safeSelector;
+                    var el = sel ? document.querySelector(sel) : null;
+                    if (!el) {
+                        var candidates = ['article', '.chapter-content', '.entry-content', '#chapter-content', '#content', '.content', 'main', '.text-left', '#chapter-c'];
+                        for (var i = 0; i < candidates.length; i++) {
+                            var found = document.querySelector(candidates[i]);
+                            if (found && (found.innerText || '').length > 200) {
+                                el = found;
+                                break;
+                            }
+                        }
+                    }
+                    if (el) {
+                        return el.outerHTML;
+                    }
+                    return document.documentElement.outerHTML;
+                } catch(e) {
+                    return document.documentElement.outerHTML;
+                }
+            })()
+        """.trimIndent()
+    }
 }

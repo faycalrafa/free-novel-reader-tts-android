@@ -1523,32 +1523,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun extractAndShowRawHtml() {
         val settings = _uiState.value.settings
-        val selector = settings.contentSelector.trim()
-        val safeSelector = org.json.JSONObject.quote(selector)
-        val script = """
-            (function() {
-                try {
-                    var sel = $safeSelector;
-                    var el = sel ? document.querySelector(sel) : null;
-                    if (!el) {
-                        var candidates = ['article', '.chapter-content', '.entry-content', '#chapter-content', '#content', '.content', 'main', '.text-left', '#chapter-c'];
-                        for (var i = 0; i < candidates.length; i++) {
-                            var found = document.querySelector(candidates[i]);
-                            if (found && (found.innerText || '').length > 200) {
-                                el = found;
-                                break;
-                            }
-                        }
-                    }
-                    if (el) {
-                        return el.outerHTML;
-                    }
-                    return document.documentElement.outerHTML;
-                } catch(e) {
-                    return document.documentElement.outerHTML;
-                }
-            })()
-        """.trimIndent()
+        val script = WebContentExtractor.buildRawHtmlExtractionScript(settings.contentSelector)
 
         dispatchEvaluateJs(script) { result ->
             val rawHtml = if (!result.isNullOrBlank() && result != "null") {
@@ -1688,6 +1663,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         super.onCleared()
+        AudioPlaybackCoordinator.browserNextChapterCallback = null
+        AudioPlaybackCoordinator.browserPrevChapterCallback = null
         downloadCountdownJob?.cancel()
         autoLoopJob?.cancel()
         sleepTimerJob?.cancel()

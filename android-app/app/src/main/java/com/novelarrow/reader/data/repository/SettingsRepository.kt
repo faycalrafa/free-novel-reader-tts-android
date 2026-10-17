@@ -64,8 +64,14 @@ class SettingsRepository(private val context: Context) {
         get() = File(context.filesDir, "novel_shared_tts_settings_v1.json")
 
     companion object {
-        private var sharedSettingsFlowInternal: MutableStateFlow<ReaderSettings>? = null
-        private var sharedBrowserSettingsFlowInternal: MutableStateFlow<WebBrowserSettings>? = null
+        private val sharedSettingsFlows = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<ReaderSettings>>()
+        private val sharedBrowserFlows = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<WebBrowserSettings>>()
+
+        @androidx.annotation.VisibleForTesting
+        fun resetForTesting() {
+            sharedSettingsFlows.clear()
+            sharedBrowserFlows.clear()
+        }
     }
 
     private val _settingsFlow: MutableStateFlow<ReaderSettings>
@@ -75,83 +81,80 @@ class SettingsRepository(private val context: Context) {
     val browserSettingsFlow: StateFlow<WebBrowserSettings>
 
     init {
-        val backup = restoreBackupFromNovelReaderRoots()
-        val isFirstInstall = !settingsFile.exists() && !browserSettingsFile.exists() && !sharedTtsFile.exists()
-        val shouldRestoreBackup = backup != null && (isFirstInstall || backup.lastUpdated > settingsFile.lastModified())
-
-        val loadedReader = if (shouldRestoreBackup) {
-            backup.readerSettings
-        } else {
-            loadRawSettings()
+        val cacheKey = try {
+            context.filesDir.canonicalPath
+        } catch (e: Exception) {
+            context.filesDir.absolutePath
         }
-
-        val loadedBrowser = if (shouldRestoreBackup) {
-            backup.browserSettings
-        } else {
-            loadRawBrowserSettings()
-        }
-
-        val shared = if (shouldRestoreBackup) {
-            backup.sharedTts
-        } else {
-            loadSharedTts(loadedReader, loadedBrowser)
-        }
-
-        val mergedReader = loadedReader.copy(
-            speechRate = shared.speechRate,
-            speechPitch = shared.speechPitch,
-            selectedVoiceName = shared.voiceName,
-            sleepTimerMinutes = shared.sleepTimerMinutes,
-            skipWords = shared.skipWords,
-            skipWordsEnabled = shared.skipWordsEnabled,
-            pronunciationRules = shared.pronunciationRules,
-            pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
-            headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
-            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules,
-            favoriteVoiceEnglish = shared.favoriteVoiceEnglish ?: loadedReader.favoriteVoiceEnglish,
-            favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
-            favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
-            selectedEngineType = shared.selectedEngineType,
-            contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
-        )
-        val mergedBrowser = loadedBrowser.copy(
-            ttsRate = shared.speechRate,
-            ttsPitch = shared.speechPitch,
-            ttsVoice = shared.voiceName,
-            sleepTimerMinutes = shared.sleepTimerMinutes,
-            skipWords = shared.skipWords,
-            skipWordsEnabled = shared.skipWordsEnabled,
-            pronunciationRules = shared.pronunciationRules,
-            pronunciationRulesEnabled = shared.pronunciationRulesEnabled
-        )
 
         synchronized(SettingsRepository::class.java) {
-            if (sharedSettingsFlowInternal == null) {
-                sharedSettingsFlowInternal = MutableStateFlow(mergedReader)
-            } else {
-                sharedSettingsFlowInternal?.value = mergedReader
-            }
-            if (sharedBrowserSettingsFlowInternal == null) {
-                sharedBrowserSettingsFlowInternal = MutableStateFlow(mergedBrowser)
-            } else {
-                sharedBrowserSettingsFlowInternal?.value = mergedBrowser
+            if (!sharedSettingsFlows.containsKey(cacheKey) || !sharedBrowserFlows.containsKey(cacheKey)) {
+                val backup = restoreBackupFromNovelReaderRoots()
+                val isFirstInstall = !settingsFile.exists() && !browserSettingsFile.exists() && !sharedTtsFile.exists()
+                val shouldRestoreBackup = isFirstInstall && backup != null
+
+                val loadedReader = if (backup != null && isFirstInstall) {
+                    backup.readerSettings
+                } else {
+                    loadRawSettings()
+                }
+
+                val loadedBrowser = if (backup != null && isFirstInstall) {
+                    backup.browserSettings
+                } else {
+                    loadRawBrowserSettings()
+                }
+
+                val shared = if (backup != null && isFirstInstall) {
+                    backup.sharedTts
+                } else {
+                    loadSharedTts(loadedReader, loadedBrowser)
+                }
+
+                val mergedReader = loadedReader.copy(
+                    speechRate = shared.speechRate,
+                    speechPitch = shared.speechPitch,
+                    selectedVoiceName = shared.voiceName,
+                    sleepTimerMinutes = shared.sleepTimerMinutes,
+                    skipWords = shared.skipWords,
+                    skipWordsEnabled = shared.skipWordsEnabled,
+                    pronunciationRules = shared.pronunciationRules,
+                    pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
+                    headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
+                    footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules,
+                    favoriteVoiceEnglish = shared.favoriteVoiceEnglish ?: loadedReader.favoriteVoiceEnglish,
+                    favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
+                    favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
+                    selectedEngineType = shared.selectedEngineType,
+                    contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
+                )
+                val mergedBrowser = loadedBrowser.copy(
+                    ttsRate = shared.speechRate,
+                    ttsPitch = shared.speechPitch,
+                    ttsVoice = shared.voiceName,
+                    sleepTimerMinutes = shared.sleepTimerMinutes,
+                    skipWords = shared.skipWords,
+                    skipWordsEnabled = shared.skipWordsEnabled,
+                    pronunciationRules = shared.pronunciationRules,
+                    pronunciationRulesEnabled = shared.pronunciationRulesEnabled
+                )
+
+                sharedSettingsFlows[cacheKey] = MutableStateFlow(mergedReader)
+                sharedBrowserFlows[cacheKey] = MutableStateFlow(mergedBrowser)
+
+                if (shouldRestoreBackup) {
+                    saveSettings(mergedReader)
+                    saveBrowserSettings(mergedBrowser)
+                    saveSharedTts(shared)
+                }
             }
         }
 
-        _settingsFlow = sharedSettingsFlowInternal!!
+        _settingsFlow = sharedSettingsFlows[cacheKey]!!
         settingsFlow = _settingsFlow.asStateFlow()
 
-        _browserSettingsFlow = sharedBrowserSettingsFlowInternal!!
+        _browserSettingsFlow = sharedBrowserFlows[cacheKey]!!
         browserSettingsFlow = _browserSettingsFlow.asStateFlow()
-
-        // Sync backup to disk if first install restored
-        if (shouldRestoreBackup) {
-            saveSettings(mergedReader)
-            saveBrowserSettings(mergedBrowser)
-            saveSharedTts(shared)
-        } else {
-            saveBackupToNovelReaderRoots()
-        }
     }
 
     fun getSettings(): ReaderSettings = _settingsFlow.value
@@ -159,8 +162,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val updated = transform(_settingsFlow.value)
-            saveSettings(updated)
             _settingsFlow.value = updated
+            saveSettings(updated)
         }
     }
 
@@ -274,8 +277,6 @@ class SettingsRepository(private val context: Context) {
                 contentSelectors = _settingsFlow.value.contentSelectors
             )
             val newShared = transform(currentShared)
-            saveSharedTts(newShared)
-
             val updatedReader = _settingsFlow.value.copy(
                 speechRate = newShared.speechRate,
                 speechPitch = newShared.speechPitch,
@@ -304,11 +305,12 @@ class SettingsRepository(private val context: Context) {
                 pronunciationRulesEnabled = newShared.pronunciationRulesEnabled
             )
 
-            saveSettings(updatedReader)
-            saveBrowserSettings(updatedBrowser)
-
             _settingsFlow.value = updatedReader
             _browserSettingsFlow.value = updatedBrowser
+
+            saveSharedTts(newShared)
+            saveSettings(updatedReader)
+            saveBrowserSettings(updatedBrowser)
         }
     }
 

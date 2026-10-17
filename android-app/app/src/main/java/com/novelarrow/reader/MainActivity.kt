@@ -88,6 +88,8 @@ import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.ui.about.ChangelogScreen
 import com.novelarrow.reader.ui.common.IncomingLinkShareDialog
 import com.novelarrow.reader.ui.common.IncomingTextShareDialog
+import com.novelarrow.reader.ui.settings.BrowserIgnoredSelectorsScreen
+import com.novelarrow.reader.ui.settings.BrowserNextSelectorScreen
 import com.novelarrow.reader.ui.settings.ContentSelectorScreen
 import com.novelarrow.reader.ui.settings.GlobalSettingsScreen
 import com.novelarrow.reader.ui.settings.HardwareButtonsScreen
@@ -113,6 +115,8 @@ enum class AppScreen {
     SETTINGS_SKIP_WORDS,
     SETTINGS_HEADER_FOOTER_SKIPS,
     SETTINGS_CONTENT_SELECTOR,
+    SETTINGS_BROWSER_IGNORED_SELECTORS,
+    SETTINGS_BROWSER_NEXT_SELECTOR,
     VOICE_ENGINE,
     DEV_LOGS,
     ARCHIVE,
@@ -175,6 +179,7 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             val browserUiState by browserViewModel.uiState.collectAsState()
             var currentScreen by rememberSaveable { mutableStateOf(AppScreen.READER) }
+            var browserSettingsSourceScreen by rememberSaveable { mutableStateOf(AppScreen.SETTINGS) }
             val context = LocalContext.current
             val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
             val scope = rememberCoroutineScope()
@@ -255,6 +260,10 @@ class MainActivity : ComponentActivity() {
                 currentScreen = AppScreen.ABOUT
             }
 
+            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS || currentScreen == AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR)) {
+                currentScreen = browserSettingsSourceScreen
+            }
+
             BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS || currentScreen == AppScreen.ARCHIVE || currentScreen == AppScreen.TEXT_TO_MP3)) {
                 currentScreen = AppScreen.READER
             }
@@ -304,19 +313,30 @@ class MainActivity : ComponentActivity() {
                             drawerContainerColor = MaterialTheme.colorScheme.surface,
                             modifier = Modifier.width(320.dp)
                         ) {
+                            val inspected = uiState.inspectedNovel
+                            val activeDisplayNovel = inspected ?: uiState.currentNovel
+                            val activeDisplayChapters = if (inspected != null && inspected.id != uiState.currentNovel?.id) {
+                                uiState.inspectedChapters
+                            } else {
+                                uiState.chapters
+                            }
+                            val activeDisplayChapter = if (inspected == null || inspected.id == uiState.currentNovel?.id) {
+                                uiState.currentChapter
+                            } else null
+
                             LibraryDrawerContent(
                                 novels = uiState.novels,
-                                currentNovel = uiState.currentNovel,
-                                chapters = uiState.chapters,
-                                currentChapter = uiState.currentChapter,
+                                currentNovel = activeDisplayNovel,
+                                chapters = activeDisplayChapters,
+                                currentChapter = activeDisplayChapter,
                                 browserTabs = browserUiState.tabs,
                                 currentTabId = browserUiState.currentTabId,
                                 installedVersionName = uiState.installedVersionName,
                                 onSelectNovel = { novel ->
-                                    viewModel.selectNovel(novel)
+                                    viewModel.inspectNovel(novel)
                                 },
                                 onSelectChapter = { index ->
-                                    viewModel.selectChapter(index)
+                                    viewModel.selectChapterFromInspected(index)
                                     currentScreen = AppScreen.READER
                                     scope.launch { drawerState.close() }
                                 },
@@ -439,7 +459,18 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
                                     onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
                                     onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
-                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR },
+                                    onNavigateToContentSelector = {
+                                        browserSettingsSourceScreen = AppScreen.SETTINGS
+                                        currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR
+                                    },
+                                    onNavigateToBrowserIgnoredSelectors = {
+                                        browserSettingsSourceScreen = AppScreen.SETTINGS
+                                        currentScreen = AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS
+                                    },
+                                    onNavigateToBrowserNextSelector = {
+                                        browserSettingsSourceScreen = AppScreen.SETTINGS
+                                        currentScreen = AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR
+                                    },
                                     onClearAllData = { viewModel.clearAllData() },
                                     onOpenAudioSettings = { showGlobalAudioSettings = true },
                                     onNavigateToAbout = { currentScreen = AppScreen.ABOUT }
@@ -502,7 +533,23 @@ class MainActivity : ComponentActivity() {
                                     onUpdateSelector = { rule -> viewModel.updateContentSelector(rule) },
                                     onToggleSelector = { id, enabled -> viewModel.toggleContentSelector(id, enabled) },
                                     onDeleteSelector = { id -> viewModel.deleteContentSelector(id) },
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                    onNavigateBack = { currentScreen = browserSettingsSourceScreen }
+                                )
+                            }
+                            AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS -> {
+                                BrowserIgnoredSelectorsScreen(
+                                    ignoredSelectors = browserUiState.settings.ignoredSelectors,
+                                    onAddSelector = { browserViewModel.addIgnoredSelector(it) },
+                                    onRemoveSelector = { browserViewModel.removeIgnoredSelector(it) },
+                                    onResetDefaults = { browserViewModel.resetIgnoredSelectors() },
+                                    onNavigateBack = { currentScreen = browserSettingsSourceScreen }
+                                )
+                            }
+                            AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR -> {
+                                BrowserNextSelectorScreen(
+                                    currentSelector = browserUiState.settings.nextSelector,
+                                    onSaveSelector = { browserViewModel.updateNextSelector(it) },
+                                    onNavigateBack = { currentScreen = browserSettingsSourceScreen }
                                 )
                             }
                             AppScreen.TOOLBAR_SETTINGS -> {
@@ -537,7 +584,18 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
                                     onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
                                     onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
-                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR }
+                                    onNavigateToContentSelector = {
+                                        browserSettingsSourceScreen = AppScreen.BROWSER
+                                        currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR
+                                    },
+                                    onNavigateToNextSelector = {
+                                        browserSettingsSourceScreen = AppScreen.BROWSER
+                                        currentScreen = AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR
+                                    },
+                                    onNavigateToIgnoredSelectors = {
+                                        browserSettingsSourceScreen = AppScreen.BROWSER
+                                        currentScreen = AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS
+                                    }
                                 )
                             }
                             AppScreen.ARCHIVE -> {

@@ -455,7 +455,13 @@ fun AudioStudioScreen(
                                                     if (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name && playbackProgress.isPlaying) {
                                                         AudioPlaybackCoordinator.pause()
                                                     } else {
-                                                        AudioPlaybackCoordinator.playAudioFile(fileItem.file)
+                                                        val folderFiles = folderItem.files.map { it.file }
+                                                        val fileIdx = folderItem.files.indexOf(fileItem).coerceAtLeast(0)
+                                                        AudioPlaybackCoordinator.playAudioFile(
+                                                            file = fileItem.file,
+                                                            playlist = folderFiles,
+                                                            index = fileIdx
+                                                        )
                                                     }
                                                 },
                                                 onLongPress = {
@@ -525,7 +531,13 @@ fun AudioStudioScreen(
                                         if (playbackProgress.source == PlaybackSource.AUDIO_FILE && playbackProgress.currentParagraphText == fileItem.file.name && playbackProgress.isPlaying) {
                                             AudioPlaybackCoordinator.pause()
                                         } else {
-                                            AudioPlaybackCoordinator.playAudioFile(fileItem.file)
+                                            val standaloneFiles = libraryContent.standaloneFiles.map { it.file }
+                                            val fileIdx = libraryContent.standaloneFiles.indexOf(fileItem).coerceAtLeast(0)
+                                            AudioPlaybackCoordinator.playAudioFile(
+                                                file = fileItem.file,
+                                                playlist = standaloneFiles,
+                                                index = fileIdx
+                                            )
                                         }
                                     },
                                     onLongPress = {

@@ -5,7 +5,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.Voice
-import android.util.Log
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.parser.ChapterParser
@@ -199,7 +199,7 @@ object AudioPlaybackCoordinator {
             try {
                 ContextCompat.startForegroundService(context.applicationContext, intent)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to start foreground service: ${e.message}")
+                AppLogger.e(TAG, "Failed to start foreground service: ${e.message}", e)
             }
         }
     }
@@ -512,18 +512,41 @@ object AudioPlaybackCoordinator {
 
     fun restoreLastHearingSession(autoPlay: Boolean = false, callback: (() -> Unit)? = null) {
         coordinatorScope.launch(Dispatchers.IO) {
-            val repo = libraryRepository ?: return@launch
+            val repo = libraryRepository
+            if (repo == null) {
+                AppLogger.d("AudioPlaybackCoordinator", "Cannot restore hearing session: LibraryRepository is null")
+                withContext(Dispatchers.Main) { callback?.invoke() }
+                return@launch
+            }
             val lastActiveId = repo.getLastActiveNovelId()
             val novels = repo.getNovels()
             val targetNovel = (if (lastActiveId != null) novels.firstOrNull { it.id == lastActiveId } else null)
-                ?: novels.firstOrNull() ?: return@launch
+                ?: novels.firstOrNull()
+            if (targetNovel == null) {
+                AppLogger.d("AudioPlaybackCoordinator", "No novel available to restore hearing session")
+                withContext(Dispatchers.Main) { callback?.invoke() }
+                return@launch
+            }
             val chapters = repo.getChapters(targetNovel.id)
-            if (chapters.isEmpty()) return@launch
+            if (chapters.isEmpty()) {
+                AppLogger.d("AudioPlaybackCoordinator", "No chapters found for novel ${targetNovel.title} during session restore")
+                withContext(Dispatchers.Main) { callback?.invoke() }
+                return@launch
+            }
 
             val chapIdx = targetNovel.currentChapterIndex.coerceIn(0, chapters.size - 1)
             val chap = chapters[chapIdx]
-            val content = try { repo.readChapterContent(chap) } catch (_: Exception) { "" }
-            if (content.isBlank()) return@launch
+            val content = try {
+                repo.readChapterContent(chap)
+            } catch (e: Exception) {
+                AppLogger.w("AudioPlaybackCoordinator", "Failed to read chapter ${chap.title} content: ${e.message}", e)
+                ""
+            }
+            if (content.isBlank()) {
+                AppLogger.w("AudioPlaybackCoordinator", "Chapter ${chap.title} has blank content, cannot restore session")
+                withContext(Dispatchers.Main) { callback?.invoke() }
+                return@launch
+            }
 
             val settings = settingsRepository?.getSettings() ?: com.novelarrow.reader.data.model.ReaderSettings()
             val parsed = ChapterParser.parse(
@@ -873,6 +896,13 @@ object AudioPlaybackCoordinator {
         }
     }
 
+    private fun showToast(msg: String) {
+        val ctx = appContext ?: return
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun updateSpeechPitch(pitch: Float) {
         currentSpeechPitch = pitch
         applyTtsSettings()
@@ -886,6 +916,7 @@ object AudioPlaybackCoordinator {
         applyTtsSettings()
         coordinatorScope.launch(Dispatchers.IO) {
             settingsRepository?.setVoice(voiceName)
+            settingsRepository?.setFavoriteVoice("en", voiceName)
         }
     }
 
@@ -898,6 +929,7 @@ object AudioPlaybackCoordinator {
             settingsRepository?.setSpeechRate(rate)
             settingsRepository?.setSpeechPitch(pitch)
             settingsRepository?.setVoice(voiceName)
+            settingsRepository?.setFavoriteVoice("en", voiceName)
         }
     }
 
@@ -906,10 +938,12 @@ object AudioPlaybackCoordinator {
         applyTtsSettings()
         coordinatorScope.launch(Dispatchers.IO) {
             settingsRepository?.setVoice(voiceName)
+            settingsRepository?.setFavoriteVoice("en", voiceName)
         }
     }
 
     private var neuralPreviewPlayer: android.media.MediaPlayer? = null
+    private var previewTimeoutJob: Job? = null
 
     fun previewNeuralAudio(voiceId: String, sampleUrl: String) {
         if (_previewingVoiceName.value == voiceId) {
@@ -922,8 +956,23 @@ object AudioPlaybackCoordinator {
         }
         stopVoicePreview()
 
+        if (sampleUrl.isBlank()) {
+            AppLogger.w("AudioPlaybackCoordinator", "No preview sample URL for voice $voiceId")
+            showToast("No preview sample available for this voice")
+            return
+        }
+
         _previewingVoiceName.value = voiceId
         AppLogger.d("AudioPlaybackCoordinator", "Previewing neural voice $voiceId from $sampleUrl")
+
+        previewTimeoutJob = coordinatorScope.launch(Dispatchers.Main) {
+            delay(7000L)
+            if (_previewingVoiceName.value == voiceId) {
+                AppLogger.w("AudioPlaybackCoordinator", "Neural voice preview timed out after 7s: $voiceId")
+                stopVoicePreview()
+                showToast("Voice sample timed out or unavailable online")
+            }
+        }
 
         try {
             neuralPreviewPlayer = android.media.MediaPlayer().apply {
@@ -934,24 +983,36 @@ object AudioPlaybackCoordinator {
                         .build()
                 )
                 setDataSource(sampleUrl)
-                setOnPreparedListener { start() }
+                setOnPreparedListener {
+                    previewTimeoutJob?.cancel()
+                    previewTimeoutJob = null
+                    start()
+                }
                 setOnCompletionListener {
+                    previewTimeoutJob?.cancel()
+                    previewTimeoutJob = null
                     _previewingVoiceName.value = null
                     try { release() } catch (e: Exception) { AppLogger.w("AudioPlaybackCoordinator", "Error releasing neural player", e) }
                     neuralPreviewPlayer = null
                 }
                 setOnErrorListener { _, what, extra ->
                     AppLogger.w("AudioPlaybackCoordinator", "Neural sample playback error: what=$what, extra=$extra")
+                    previewTimeoutJob?.cancel()
+                    previewTimeoutJob = null
                     _previewingVoiceName.value = null
                     try { release() } catch (e: Exception) { AppLogger.w("AudioPlaybackCoordinator", "Error releasing neural player", e) }
                     neuralPreviewPlayer = null
+                    showToast("Voice sample unavailable online (404/Network error)")
                     true
                 }
                 prepareAsync()
             }
         } catch (e: Exception) {
+            previewTimeoutJob?.cancel()
+            previewTimeoutJob = null
             AppLogger.e("AudioPlaybackCoordinator", "Failed to start neural voice preview: ${e.message}", e)
             _previewingVoiceName.value = null
+            showToast("Voice sample unavailable: ${e.message}")
         }
     }
 
@@ -973,6 +1034,8 @@ object AudioPlaybackCoordinator {
     }
 
     fun stopVoicePreview() {
+        previewTimeoutJob?.cancel()
+        previewTimeoutJob = null
         neuralPreviewPlayer?.let { player ->
             try {
                 if (player.isPlaying) player.stop()
@@ -1024,15 +1087,10 @@ object AudioPlaybackCoordinator {
         val voiceForLang = when (detectedLang) {
             SupportedLanguage.ARABIC -> settings?.favoriteVoiceArabic ?: currentVoiceName
             SupportedLanguage.FRENCH -> settings?.favoriteVoiceFrench ?: currentVoiceName
-            SupportedLanguage.ENGLISH -> settings?.favoriteVoiceEnglish ?: currentVoiceName
+            SupportedLanguage.ENGLISH -> currentVoiceName ?: settings?.favoriteVoiceEnglish
         }
-        if (voiceForLang != null) {
-            ttsManager?.setVoiceByName(voiceForLang)
-        } else if (currentVoiceName != null) {
-            ttsManager?.setVoiceByName(currentVoiceName)
-        } else {
-            ttsManager?.setVoiceByName(null)
-        }
+        val targetVoice = voiceForLang ?: currentVoiceName
+        ttsManager?.setVoiceByName(targetVoice)
 
         ttsManager?.speak(
             index = idx,
@@ -1095,7 +1153,7 @@ object AudioPlaybackCoordinator {
     }
 
     private fun handleParagraphError(index: Int, error: String) {
-        Log.w(TAG, "TTS Error on paragraph $index: $error")
+        AppLogger.w(TAG, "TTS Error on paragraph $index: $error")
         val next = index + 1
         if (next < currentParagraphs.size && _isPlayingState.value) {
             coordinatorScope.launch {

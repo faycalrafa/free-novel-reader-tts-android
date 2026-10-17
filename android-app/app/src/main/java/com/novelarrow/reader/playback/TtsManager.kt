@@ -7,6 +7,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import android.util.Log
+import android.widget.Toast
 import com.novelarrow.reader.util.AppLogger
 import java.util.Locale
 
@@ -314,7 +315,15 @@ class TtsManager(
                 tts?.voice = voice
                 AppLogger.d(TAG, "Applied active voice: ${voice.name}")
             } catch (e: Exception) {
-                AppLogger.w(TAG, "Failed to apply voice ${voice.name}: ${e.message}", e)
+                AppLogger.e(TAG, "Failed to apply voice ${voice.name}: ${e.message}", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    Toast.makeText(context, "Failed to activate voice \"${voice.name}\"", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else {
+            AppLogger.e(TAG, "Requested voice \"$voiceName\" was not found in TTS engine")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                Toast.makeText(context, "Voice \"$voiceName\" is not available in TTS engine", Toast.LENGTH_SHORT).show()
             }
         }
     }

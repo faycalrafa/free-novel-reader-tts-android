@@ -65,6 +65,7 @@ data class PlaybackProgress(
     val audioFileDurationMs: Long = 0L
 )
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class NovelAudioPlaybackService : MediaSessionService() {
 
     inner class LocalBinder : Binder() {

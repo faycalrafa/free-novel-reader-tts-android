@@ -29,12 +29,18 @@ object QuickToolbarNotificationManager {
             ContextCompat.startForegroundService(appContext, intent)
             AppLogger.d(TAG, "Dispatched startForegroundService to QuickToolbarForegroundService")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Error starting QuickToolbarForegroundService: ${e.message}", e)
-            AppErrorBus.postError(
-                title = "Notification Toolbar Error",
-                message = "Could not start persistent toolbar service: ${e.message}",
-                throwable = e
-            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+                e is android.app.ForegroundServiceStartNotAllowedException
+            ) {
+                AppLogger.w(TAG, "Foreground service start not allowed in current state: ${e.message}")
+            } else {
+                AppLogger.e(TAG, "Error starting QuickToolbarForegroundService: ${e.message}", e)
+                AppErrorBus.postError(
+                    title = "Notification Toolbar Error",
+                    message = "Could not start persistent toolbar service: ${e.message}",
+                    throwable = e
+                )
+            }
         }
     }
 

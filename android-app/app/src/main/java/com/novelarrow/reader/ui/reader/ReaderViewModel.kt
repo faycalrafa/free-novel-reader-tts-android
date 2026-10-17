@@ -41,7 +41,9 @@ data class ReaderUiState(
     val novels: List<Novel> = emptyList(),
     val archivedNovels: List<Novel> = emptyList(),
     val currentNovel: Novel? = null,
+    val inspectedNovel: Novel? = null,
     val chapters: List<Chapter> = emptyList(),
+    val inspectedChapters: List<Chapter> = emptyList(),
     val currentChapter: Chapter? = null,
     val paragraphs: List<Paragraph> = emptyList(),
     val currentParagraphIndex: Int = 0,
@@ -220,10 +222,56 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private fun observeSettings() {
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
+                val prevSettings = _uiState.value.settings
                 _uiState.update {
                     it.copy(
                         settings = settings
                     )
+                }
+
+                val filtersChanged = prevSettings.pronunciationRules != settings.pronunciationRules ||
+                        prevSettings.pronunciationRulesEnabled != settings.pronunciationRulesEnabled ||
+                        prevSettings.skipWords != settings.skipWords ||
+                        prevSettings.skipWordsEnabled != settings.skipWordsEnabled ||
+                        prevSettings.headerSkipRules != settings.headerSkipRules ||
+                        prevSettings.footerSkipRules != settings.footerSkipRules ||
+                        prevSettings.contentSelectors != settings.contentSelectors
+
+                val currentChapter = _uiState.value.currentChapter
+                if (filtersChanged && currentChapter != null && _uiState.value.paragraphs.isNotEmpty()) {
+                    try {
+                        val content = libraryRepository.readChapterContent(currentChapter)
+                        val newParagraphs = withContext(Dispatchers.Default) {
+                            ChapterParser.parse(
+                                content = content,
+                                fileName = currentChapter.title,
+                                contentSelector = settings.contentSelector,
+                                contentSelectorEnabled = settings.contentSelectorEnabled,
+                                pronunciationRules = settings.pronunciationRules,
+                                pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                                skipWords = settings.skipWords,
+                                skipWordsEnabled = settings.skipWordsEnabled,
+                                headerSkipString = settings.headerSkipString,
+                                headerSkipEnabled = settings.headerSkipEnabled,
+                                footerSkipString = settings.footerSkipString,
+                                footerSkipEnabled = settings.footerSkipEnabled,
+                                headerSkipRules = settings.headerSkipRules,
+                                footerSkipRules = settings.footerSkipRules,
+                                folderPath = currentChapter.fileUri.ifBlank { _uiState.value.currentNovel?.rootTreeUri },
+                                novelUrl = currentChapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl,
+                                contentSelectors = settings.contentSelectors
+                            )
+                        }
+                        val safeIndex = _uiState.value.currentParagraphIndex.coerceIn(0, (newParagraphs.size - 1).coerceAtLeast(0))
+                        _uiState.update {
+                            it.copy(
+                                paragraphs = newParagraphs,
+                                currentParagraphIndex = safeIndex
+                            )
+                        }
+                    } catch (e: Exception) {
+                        com.novelarrow.reader.util.AppLogger.e("ReaderViewModel", "Failed to dynamically re-parse chapter on settings update: ${e.message}", e)
+                    }
                 }
             }
         }
@@ -329,16 +377,37 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun refreshLibrary(targetNovelId: String? = null) {
         viewModelScope.launch {
-            val novels = libraryRepository.scanDownloadedWebNovels()
-            val archivedNovels = libraryRepository.getArchivedNovels()
-            val target = if (targetNovelId != null) {
-                novels.firstOrNull { it.id == targetNovelId }
-            } else {
-                _uiState.value.currentNovel ?: novels.firstOrNull()
-            }
-            _uiState.update { it.copy(novels = novels, archivedNovels = archivedNovels) }
-            if (target != null) {
-                selectNovel(target)
+            try {
+                _uiState.update { it.copy(isLoading = true) }
+                val allNovels = libraryRepository.refreshEntireLibrary()
+                val unarchivedNovels = allNovels.filter { !it.isArchived }
+                val archivedNovels = libraryRepository.getArchivedNovels()
+
+                val current = _uiState.value.currentNovel
+                val updatedCurrent = if (current != null) {
+                    allNovels.firstOrNull { it.id == current.id } ?: current
+                } else null
+
+                _uiState.update {
+                    it.copy(
+                        novels = unarchivedNovels,
+                        archivedNovels = archivedNovels,
+                        currentNovel = updatedCurrent,
+                        isLoading = false
+                    )
+                }
+
+                if (targetNovelId != null) {
+                    val target = unarchivedNovels.firstOrNull { it.id == targetNovelId }
+                    if (target != null) {
+                        selectNovel(target)
+                    }
+                } else if (_uiState.value.currentNovel == null && unarchivedNovels.isNotEmpty()) {
+                    selectNovel(unarchivedNovels.first())
+                }
+            } catch (e: Exception) {
+                com.novelarrow.reader.util.AppLogger.e("ReaderViewModel", "Error during library refresh: ${e.message}", e)
+                _uiState.update { it.copy(isLoading = false) }
             }
         }
     }
@@ -497,6 +566,38 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
             selectNovel(sampleNovel)
+        }
+    }
+
+    fun inspectNovel(novel: Novel) {
+        viewModelScope.launch {
+            try {
+                val chapters = libraryRepository.getChapters(novel.id)
+                _uiState.update {
+                    it.copy(
+                        inspectedNovel = novel,
+                        inspectedChapters = chapters
+                    )
+                }
+            } catch (e: Exception) {
+                com.novelarrow.reader.util.AppLogger.e("ReaderViewModel", "Failed to inspect novel ${novel.title}: ${e.message}", e)
+            }
+        }
+    }
+
+    fun selectChapterFromInspected(index: Int) {
+        val novel = _uiState.value.inspectedNovel
+        val chapters = _uiState.value.inspectedChapters
+        if (novel != null && chapters.isNotEmpty() && index in chapters.indices) {
+            _uiState.update {
+                it.copy(
+                    currentNovel = novel,
+                    chapters = chapters
+                )
+            }
+            selectChapter(index)
+        } else {
+            selectChapter(index)
         }
     }
 

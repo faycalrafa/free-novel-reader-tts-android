@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.4.0"
+          DATE_TAG="v3.5.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.4.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.4.0 --no-daemon
+          APP_VERSION_NAME: "3.5.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.5.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,33 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.4.0 (Stable)
+          name: BookReader v3.5.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.4.0 (Stable) 📖✨
+            ### BookReader v3.5.0 (Stable) 📖✨
 
-            **BookReader v3.4.0** brings dedicated offline neural voice management (Piper, Kokoro, KittenTTS), integrated search across all settings sub-routes, audio library folder accordion with track management, and batch downloading optimizations!
+            **BookReader v3.5.0** introduces custom neural voice model importing, Monaco editor clipboard integration, refined browser settings subroutes, library archiving and refresh enhancements, Audio Studio playlist navigation, and paragraph percentage progress in the persistent toolbar!
 
             #### Key Updates in this release:
+            - **Custom Neural Model Import & Engine Upgrades**:
+              - Users can now import custom ONNX models and JSON configs/tokens with automatic header validation and optional data directory support (e.g. espeak-ng-data).
+              - Added all 8 KittenTTS Micro 0.8 voices (Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo) via HuggingFace.
+              - Fixed Piper TTS sample preview audio URLs (HTTP 200 via GitHub Pages).
+              - Explicit voice activation toast notifications when a voice fails or is missing, preventing silent default fallbacks.
+            - **Monaco Code Editor Clipboard Actions**:
+              - Added dedicated toolbar buttons for Select All, Copy, Cut, and Paste interfacing directly with Android's system `ClipboardManager` and Monaco's editor API.
+            - **Reading Filters Persistence & Live Re-Parsing**:
+              - Eliminated settings backup overwrite loops and ensured in-memory cache coherency across repositories.
+              - Live re-parsing of active chapter paragraphs upon pronunciation rule or skip word changes without requiring app restart.
+            - **Library Folder Refresh & Non-Interfering Browsing**:
+              - Preserved `isArchived` status across library rescans and isolated nested volume subfolders.
+              - Inspecting different folders in the library drawer no longer interrupts or stops ongoing audio playback.
+            - **Audio Studio Folder Playlist Navigation**:
+              - Previous/Next track controls now advance through all audio tracks within the active novel folder.
+            - **Quick Toolbar Notification Progress**:
+              - Displays paragraph progress percentage (`• ¶ $curPara/$totalParas ($pct%)`) alongside chapter numbers in notification and toolbar.
+            - **Browser Settings Subroutes & Single-View Dialog**:
+              - Replaced tabbed browser dialog with single-view layout and dedicated subroutes for Next Chapter Selectors and Ignored Element Selectors.
             - **Dedicated Offline Neural Voice Routes (Piper, Kokoro, KittenTTS)**:
               - Dedicated settings routes for Piper TTS, Kokoro 82M (sherpa-onnx), and KittenTTS with on-device model management.
               - Download prompt cards with real-time download progress, background cancellation, and disk status.

@@ -39,7 +39,7 @@ object NeuralVoiceCatalog {
             modelFileName = "en_US-lessac-medium.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_US/lessac/medium/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_US/lessac/medium/speaker_0.mp3",
             description = "Natural, clear American voice with balanced intonation for storytelling."
         ),
         NeuralVoiceInfo(
@@ -53,7 +53,7 @@ object NeuralVoiceCatalog {
             modelFileName = "en_US-amy-medium.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_US/amy/medium/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_US/amy/medium/speaker_0.mp3",
             description = "Warm and expressive American narrator with lively cadence."
         ),
         NeuralVoiceInfo(
@@ -67,7 +67,7 @@ object NeuralVoiceCatalog {
             modelFileName = "en_GB-alan-medium.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_GB/alan/medium/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_GB/alan/medium/speaker_0.mp3",
             description = "Refined British English narrator with clear pronunciation."
         ),
         NeuralVoiceInfo(
@@ -81,7 +81,7 @@ object NeuralVoiceCatalog {
             modelFileName = "en_US-danny-low.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/danny/low/en_US-danny-low.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/danny/low/en_US-danny-low.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_US/danny/low/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/en/en_US/danny/low/speaker_0.mp3",
             description = "Extremely lightweight mobile model with minimal battery and memory overhead."
         ),
 
@@ -97,7 +97,7 @@ object NeuralVoiceCatalog {
             modelFileName = "fr_FR-siwis-medium.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/fr/fr_FR/siwis/medium/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/fr/fr_FR/siwis/medium/speaker_0.mp3",
             description = "Natural French female voice recorded with pristine clarity."
         ),
         NeuralVoiceInfo(
@@ -111,7 +111,7 @@ object NeuralVoiceCatalog {
             modelFileName = "fr_FR-upmc-medium.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/upmc/medium/fr_FR-upmc-medium.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/fr/fr_FR/upmc/medium/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/fr/fr_FR/upmc/medium/speaker_0.mp3",
             description = "Standard Parisian French voice ideal for modern novels."
         ),
         NeuralVoiceInfo(
@@ -125,7 +125,7 @@ object NeuralVoiceCatalog {
             modelFileName = "fr_FR-gilles-low.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/gilles/low/fr_FR-gilles-low.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/gilles/low/fr_FR-gilles-low.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/fr/fr_FR/gilles/low/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/fr/fr_FR/gilles/low/speaker_0.mp3",
             description = "Lightweight French male voice optimized for rapid synthesis."
         ),
 
@@ -141,7 +141,7 @@ object NeuralVoiceCatalog {
             modelFileName = "ar_JO-kareem-medium.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ar/ar_JO/kareem/medium/ar_JO-kareem-medium.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ar/ar_JO/kareem/medium/ar_JO-kareem-medium.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/ar/ar_JO/kareem/medium/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/ar/ar_JO/kareem/medium/speaker_0.mp3",
             description = "Classical Arabic (Fusha) neural voice with clear diacritical articulation."
         ),
         NeuralVoiceInfo(
@@ -155,7 +155,7 @@ object NeuralVoiceCatalog {
             modelFileName = "ar_JO-kareem-low.onnx",
             onnxDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ar/ar_JO/kareem/low/ar_JO-kareem-low.onnx",
             configDownloadUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ar/ar_JO/kareem/low/ar_JO-kareem-low.onnx.json",
-            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/ar/ar_JO/kareem/low/sample.mp3",
+            sampleAudioUrl = "https://rhasspy.github.io/piper-samples/samples/ar/ar_JO/kareem/low/speaker_0.mp3",
             description = "Compact Arabic neural voice for lightweight listening on older phones."
         )
     )
@@ -298,71 +298,136 @@ object NeuralVoiceCatalog {
     )
 
     val KITTEN_VOICES: List<NeuralVoiceInfo> = listOf(
-        // English (KittenTTS - Ultra compact)
+        // English (KittenTTS Micro 0.8 - KittenML/kitten-tts-micro-0.8)
         NeuralVoiceInfo(
-            id = "kitten_natural_female",
+            id = "kitten_micro_bella",
             engine = "KITTEN",
-            name = "Kitten Natural (US)",
+            name = "Bella (US)",
             gender = "Female",
-            quality = "Ultra Nano",
+            quality = "Micro 0.8",
             language = SupportedLanguage.ENGLISH,
-            sizeBytes = 28_500_000L,
-            modelFileName = "kitten-nano-female.onnx",
-            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-nano/resolve/main/model.onnx",
-            sampleAudioUrl = "https://huggingface.co/spaces/KingNish/Kitten-TTS/resolve/main/samples/female_natural.mp3",
-            description = "Under 30MB ultra-lightweight neural model tuned for maximum battery life."
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Expressive female voice with lively cadence and character depth."
         ),
         NeuralVoiceInfo(
-            id = "kitten_warm_male",
+            id = "kitten_micro_jasper",
             engine = "KITTEN",
-            name = "Kitten Warm (US)",
+            name = "Jasper (US)",
             gender = "Male",
-            quality = "Ultra Nano",
+            quality = "Micro 0.8",
             language = SupportedLanguage.ENGLISH,
-            sizeBytes = 28_500_000L,
-            modelFileName = "kitten-nano-male.onnx",
-            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-nano/resolve/main/model_male.onnx",
-            sampleAudioUrl = "https://huggingface.co/spaces/KingNish/Kitten-TTS/resolve/main/samples/male_warm.mp3",
-            description = "Compact male voice running at sub-50ms latency on mobile CPUs."
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Dynamic male narrator with clear articulation and balanced tone."
         ),
         NeuralVoiceInfo(
-            id = "kitten_expressive_narrator",
+            id = "kitten_micro_luna",
             engine = "KITTEN",
-            name = "Kitten Expressive (US)",
+            name = "Luna (US)",
             gender = "Female",
-            quality = "Micro Voice",
+            quality = "Micro 0.8",
             language = SupportedLanguage.ENGLISH,
-            sizeBytes = 42_000_000L,
-            modelFileName = "kitten-micro-expressive.onnx",
-            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-mini/resolve/main/model.onnx",
-            sampleAudioUrl = "https://huggingface.co/spaces/KingNish/Kitten-TTS/resolve/main/samples/narrator.mp3",
-            description = "Compact 42MB voice delivering expressive dialogue and character changes."
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Smooth, natural female voice ideal for emotional storytelling."
         ),
         NeuralVoiceInfo(
-            id = "kitten_clear_reader",
+            id = "kitten_micro_bruno",
             engine = "KITTEN",
-            name = "Kitten Clear (US)",
-            gender = "Neutral",
-            quality = "Ultra Nano",
+            name = "Bruno (US)",
+            gender = "Male",
+            quality = "Micro 0.8",
             language = SupportedLanguage.ENGLISH,
-            sizeBytes = 31_200_000L,
-            modelFileName = "kitten-nano-clear.onnx",
-            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-nano/resolve/main/model_clear.onnx",
-            sampleAudioUrl = "https://huggingface.co/spaces/KingNish/Kitten-TTS/resolve/main/samples/clear_reader.mp3",
-            description = "Distraction-free neutral narrator with steady pacing for marathon reading sessions."
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Warm, balanced male voice suitable for long fantasy novels."
+        ),
+        NeuralVoiceInfo(
+            id = "kitten_micro_rosie",
+            engine = "KITTEN",
+            name = "Rosie (US)",
+            gender = "Female",
+            quality = "Micro 0.8",
+            language = SupportedLanguage.ENGLISH,
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Bright, energetic female narration with crisp dialogue delivery."
+        ),
+        NeuralVoiceInfo(
+            id = "kitten_micro_hugo",
+            engine = "KITTEN",
+            name = "Hugo (US)",
+            gender = "Male",
+            quality = "Micro 0.8",
+            language = SupportedLanguage.ENGLISH,
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Deep baritone male narrator with authoritative pacing."
+        ),
+        NeuralVoiceInfo(
+            id = "kitten_micro_kiki",
+            engine = "KITTEN",
+            name = "Kiki (US)",
+            gender = "Female",
+            quality = "Micro 0.8",
+            language = SupportedLanguage.ENGLISH,
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Clear and youthful female narrator with gentle pacing."
+        ),
+        NeuralVoiceInfo(
+            id = "kitten_micro_leo",
+            engine = "KITTEN",
+            name = "Leo (US)",
+            gender = "Male",
+            quality = "Micro 0.8",
+            language = SupportedLanguage.ENGLISH,
+            sizeBytes = 41_500_000L,
+            modelFileName = "kitten_tts_micro_v0_8.onnx",
+            onnxDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
+            configDownloadUrl = "https://huggingface.co/KittenML/kitten-tts-micro-0.8/raw/main/config.json",
+            sampleAudioUrl = null,
+            description = "Modern male voice with neutral tone and fatigue-free listening."
         )
     )
 
-    fun getVoicesForEngine(engine: String): List<NeuralVoiceInfo> {
-        return when (engine.uppercase()) {
+    fun getVoicesForEngine(engine: String, context: android.content.Context? = null): List<NeuralVoiceInfo> {
+        val staticVoices = when (engine.uppercase()) {
             "PIPER" -> PIPER_VOICES
             "KOKORO" -> KOKORO_VOICES
             "KITTEN" -> KITTEN_VOICES
             else -> emptyList()
         }
+        val customVoices = if (context != null) {
+            CustomVoiceManager.getCustomVoices(context).filter { it.engine.equals(engine, ignoreCase = true) }
+        } else emptyList()
+        return staticVoices + customVoices
     }
 
-    fun getVoiceById(id: String): NeuralVoiceInfo? {
-        return (PIPER_VOICES + KOKORO_VOICES + KITTEN_VOICES).firstOrNull { it.id == id }
+    fun getVoiceById(id: String, context: android.content.Context? = null): NeuralVoiceInfo? {
+        val customVoices = if (context != null) CustomVoiceManager.getCustomVoices(context) else emptyList()
+        return (PIPER_VOICES + KOKORO_VOICES + KITTEN_VOICES + customVoices).firstOrNull { it.id == id }
     }
 }
