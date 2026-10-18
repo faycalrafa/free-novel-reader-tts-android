@@ -750,7 +750,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val freshNovel = libraryRepository.getNovel(novel.id) ?: novel
             _uiState.update { it.copy(currentNovel = freshNovel) }
             val chapters = libraryRepository.getChapters(freshNovel.id)
-            val chapterIdx = if (freshNovel.currentChapterId != null) {
+            val activeProgress = AudioPlaybackCoordinator.playbackProgressState.value
+            val isPlayingThisNovel = activeProgress.source == PlaybackSource.READER && activeProgress.novelId == freshNovel.id
+            val chapterIdx = if (isPlayingThisNovel && activeProgress.chapterIndex in chapters.indices) {
+                activeProgress.chapterIndex
+            } else if (freshNovel.currentChapterId != null) {
                 val idx = chapters.indexOfFirst { it.id == freshNovel.currentChapterId }
                 if (idx >= 0) idx else freshNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
             } else {

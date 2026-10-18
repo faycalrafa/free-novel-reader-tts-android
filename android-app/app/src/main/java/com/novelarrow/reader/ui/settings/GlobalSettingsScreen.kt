@@ -181,8 +181,8 @@ fun GlobalSettingsScreen(
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     SettingsNavigationItem(
                         icon = Icons.Default.FilterList,
-                        title = "Browser Ignored Elements",
-                        subtitle = "Strip ads, comments, and boilerplate from web novel extractions",
+                        title = "Ignore Elements Selector",
+                        subtitle = "Strip ads, comments, and boilerplate from novel extractions (library & web)",
                         onClick = onNavigateToBrowserIgnoredSelectors
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))

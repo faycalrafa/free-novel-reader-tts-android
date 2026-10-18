@@ -144,7 +144,7 @@ object WebContentExtractor {
                     if (container !== document.body) {
                         var totalBodyChars = (document.body.textContent || '').length;
                         var containerChars = (container.textContent || '').length;
-                        containerFilteredChars = Math.max(0, totalBodyChars - containerChars);
+                        containerFilteredChars = containerChars;
                     }
 
                     // 2. Heading

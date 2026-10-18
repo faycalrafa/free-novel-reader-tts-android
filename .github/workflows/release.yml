@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.11.0"
+          DATE_TAG="v3.11.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.11.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.11.0 --no-daemon
+          APP_VERSION_NAME: "3.11.1"
+        run: ./gradlew assembleRelease -PappVersionName=3.11.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,18 +53,22 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.11.0 (Stable)
+          name: BookReader v3.11.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.11.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.11.1 (Stable) 📚🎙️⚡
 
-            **BookReader v3.11.0** delivers a major upgrade featuring chapter read status tracking, real-time rules diagnostics, interactive scrubbable paragraph seekers, custom media notifications, and responsive browser navbar controls!
+            **BookReader v3.11.1** introduces important fixes and UI polish across audio playback, gestures, and settings:
 
             #### Key Updates:
-            - **Chapter Read Status & Heartbeat Dot**:
-              - Permanent green read status eye icon on completed chapters (`isCompleted`).
-              - Animated glowing orange heartbeat dot indicating active playback chapter.
-              - Real-time synchronization of the last-listened chapter on the Home screen Resume card.
+            - **TTS Chunking Crash Fix**: Resolved `PatternSyntaxException` in sentence splitting regex (`TtsManager`).
+            - **Right-Aligned Heartbeat Dot**: Moved the orange pulsating heartbeat dot to the right side of the chapter row and made it immediately visible upon opening a folder.
+            - **Native Notification Seeker**: Enabled interactive scrubbable seekbar in the Android system notification and lockscreen media player via Media3 `ForwardingPlayer`.
+            - **Draggable Bottom Sheet Gestures**: Raised whole TtsDock with smooth finger-following vertical drag gestures; media controls are positioned at the top and active rules underneath.
+            - **Content Selector Badge (+N chars)**: Accurately displays captured content in green (`+N chars`) rather than negative counts.
+            - **Spacious Shortcut Icon Grid**: Redesigned the shortcut icon selector in the clickables screen into a modern `FlowRow` of styled cards with labels and borders.
+            - **Unified Ignore Elements Selector**: Standardized naming to "Ignore Elements Selector" across global and quick audio settings, synchronized across reader and browser.
+            - **Live Resume Tracking**: Audio playback coordinator now persists progress in real-time on chapter start, seek, and pause, ensuring the Home screen Resume card immediately reflects the exact chapter.
             - **Notification Media Player Artwork**:
               - Notification and MediaSession now feature high-resolution artwork replacing procedural canvas book cover.
             - **Multi-Tab Reboot Persistence**:

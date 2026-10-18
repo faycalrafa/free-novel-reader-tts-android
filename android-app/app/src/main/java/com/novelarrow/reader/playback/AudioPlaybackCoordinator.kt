@@ -282,6 +282,21 @@ object AudioPlaybackCoordinator {
         }
 
         updateServiceState()
+        if (novelId != null) {
+            coordinatorScope.launch(Dispatchers.IO) {
+                try {
+                    libraryRepository?.updateChapterProgress(
+                        novelId = novelId,
+                        chapterIndex = chapterIndex,
+                        paragraphIndex = currentParagraphIndex,
+                        scrollOffset = 0,
+                        isCompleted = false
+                    )
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to update chapter progress on playReaderChapter: ${e.message}", e)
+                }
+            }
+        }
         if (_sleepTimerMinutesState.value > 0) {
             if (_sleepTimerRemainingSecondsState.value <= 0) {
                 _sleepTimerRemainingSecondsState.value = _sleepTimerMinutesState.value * 60
@@ -737,6 +752,25 @@ object AudioPlaybackCoordinator {
         if (currentSource == PlaybackSource.AUDIO_FILE) {
             attachedService?.pauseAudioFile()
         }
+        if (currentSource == PlaybackSource.READER && currentNovelId != null) {
+            val novelId = currentNovelId!!
+            val chapIdx = currentChapterIndex
+            val paraIdx = currentParagraphIndex
+            val total = totalParagraphsCount
+            coordinatorScope.launch(Dispatchers.IO) {
+                try {
+                    libraryRepository?.updateChapterProgress(
+                        novelId = novelId,
+                        chapterIndex = chapIdx,
+                        paragraphIndex = paraIdx,
+                        scrollOffset = 0,
+                        isCompleted = total > 0 && paraIdx >= total - 1
+                    )
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to save chapter progress on pause: ${e.message}", e)
+                }
+            }
+        }
         updateServiceState()
     }
 
@@ -830,6 +864,23 @@ object AudioPlaybackCoordinator {
             currentParagraphIndex = targetPara
             _playbackProgressState.update { it.copy(currentParagraphIndex = targetPara) }
             speakCurrentParagraph()
+            if (currentSource == PlaybackSource.READER && currentNovelId != null) {
+                val novelId = currentNovelId!!
+                val chapIdx = currentChapterIndex
+                coordinatorScope.launch(Dispatchers.IO) {
+                    try {
+                        libraryRepository?.updateChapterProgress(
+                            novelId = novelId,
+                            chapterIndex = chapIdx,
+                            paragraphIndex = targetPara,
+                            scrollOffset = 0,
+                            isCompleted = false
+                        )
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Failed to save chapter progress on seek: ${e.message}", e)
+                    }
+                }
+            }
         }
     }
 

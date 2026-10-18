@@ -233,20 +233,33 @@ class SettingsRepository(private val context: Context) {
         updateSharedTts { it.copy(sleepTimerMinutes = minutes) }
     }
 
-    suspend fun addBrowserIgnoredSelector(selector: String) = updateBrowserSettings {
+    suspend fun addBrowserIgnoredSelector(selector: String) = withContext(Dispatchers.IO) {
         val trimmed = selector.trim()
-        if (trimmed.isNotBlank() && !it.ignoredSelectors.contains(trimmed)) {
-            it.copy(ignoredSelectors = it.ignoredSelectors + trimmed)
-        } else it
+        if (trimmed.isNotBlank()) {
+            updateSharedTts { shared ->
+                if (!shared.ignoredSelectors.contains(trimmed)) {
+                    shared.copy(ignoredSelectors = shared.ignoredSelectors + trimmed)
+                } else shared
+            }
+        }
     }
 
-    suspend fun removeBrowserIgnoredSelector(selector: String) = updateBrowserSettings {
-        it.copy(ignoredSelectors = it.ignoredSelectors.filter { s -> s != selector })
+    suspend fun removeBrowserIgnoredSelector(selector: String) = withContext(Dispatchers.IO) {
+        updateSharedTts { shared ->
+            shared.copy(ignoredSelectors = shared.ignoredSelectors.filter { s -> s != selector })
+        }
     }
 
-    suspend fun resetBrowserIgnoredSelectors() = updateBrowserSettings {
-        it.copy(ignoredSelectors = WebBrowserSettings().ignoredSelectors)
+    suspend fun resetBrowserIgnoredSelectors() = withContext(Dispatchers.IO) {
+        val defaults = WebBrowserSettings().ignoredSelectors
+        updateSharedTts { shared ->
+            shared.copy(ignoredSelectors = defaults)
+        }
     }
+
+    suspend fun addIgnoredSelector(selector: String) = addBrowserIgnoredSelector(selector)
+    suspend fun removeIgnoredSelector(selector: String) = removeBrowserIgnoredSelector(selector)
+    suspend fun resetIgnoredSelectors() = resetBrowserIgnoredSelectors()
 
     suspend fun resetBrowserSettingsToDefaults() = withContext(Dispatchers.IO) {
         val defaults = WebBrowserSettings().copy(
@@ -372,8 +385,7 @@ class SettingsRepository(private val context: Context) {
                 pronunciationRulesEnabled = newShared.pronunciationRulesEnabled,
                 contentSelectors = newShared.contentSelectors,
                 headerSkipRules = newShared.headerSkipRules,
-                footerSkipRules = newShared.footerSkipRules,
-                ignoredSelectors = if (newShared.ignoredSelectors.isNotEmpty()) newShared.ignoredSelectors else _browserSettingsFlow.value.ignoredSelectors
+                ignoredSelectors = newShared.ignoredSelectors
             )
 
             _settingsFlow.value = updatedReader

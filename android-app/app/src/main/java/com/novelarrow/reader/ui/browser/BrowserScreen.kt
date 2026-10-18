@@ -857,47 +857,6 @@ private fun BrowserTopBar(
                 }
             }
 
-            // Interactive Paragraph Scrubbing Slider under progress text (if live reading or reading mode)
-            if (totalParagraphs > 0) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = "¶ ${currentParagraphIndex + 1} / $totalParagraphs",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    if (totalParagraphs > 1) {
-                        Slider(
-                            value = currentParagraphIndex.toFloat().coerceIn(0f, (totalParagraphs - 1).toFloat()),
-                            onValueChange = { onSeekParagraph(it.toInt().coerceIn(0, totalParagraphs - 1)) },
-                            valueRange = 0f..(totalParagraphs - 1).toFloat(),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(16.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                            )
-                        )
-                    }
-                }
-            }
-
             // ROW 2: Clean action toolbar with 3-dot overflow menu for small screens & extra options
             val currentDomain = remember(currentUrl) {
                 try {
@@ -1006,9 +965,11 @@ private fun BrowserTopBar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         directlyShownItems.forEach { item ->
                             IconButton(

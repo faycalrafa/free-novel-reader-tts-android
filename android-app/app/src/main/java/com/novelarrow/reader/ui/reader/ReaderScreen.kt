@@ -20,6 +20,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.res.painterResource
 import com.novelarrow.reader.R
@@ -560,21 +561,6 @@ fun ReaderTopBar(
                             )
                         }
                     }
-                    if (totalParagraphs > 1) {
-                        Slider(
-                            value = currentParagraphIndex.toFloat().coerceIn(0f, (totalParagraphs - 1).toFloat()),
-                            onValueChange = { onSeekParagraph(it.toInt().coerceIn(0, totalParagraphs - 1)) },
-                            valueRange = 0f..(totalParagraphs - 1).toFloat(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(16.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
-                            )
-                        )
-                    }
                 }
 
                 IconButton(
@@ -881,18 +867,301 @@ fun TtsDock(
         ((displayPara + 1).toFloat() / totalParagraphs.toFloat() * 100).toInt()
     } else 0
 
+    var sheetDragOffsetY by remember { mutableFloatStateOf(0f) }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f),
         shadowElevation = 8.dp,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        modifier = Modifier.pointerInput(showHandle, isRulesSheetExpanded) {
+            if (showHandle) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        sheetDragOffsetY += dragAmount
+                        if (sheetDragOffsetY < -35f && !isRulesSheetExpanded) {
+                            isRulesSheetExpanded = true
+                            sheetDragOffsetY = 0f
+                            if (flashHandleRed) onResetFlashHandle()
+                        } else if (sheetDragOffsetY > 35f && isRulesSheetExpanded) {
+                            isRulesSheetExpanded = false
+                            sheetDragOffsetY = 0f
+                        }
+                    },
+                    onDragEnd = {
+                        sheetDragOffsetY = 0f
+                    },
+                    onDragCancel = {
+                        sheetDragOffsetY = 0f
+                    }
+                )
+            }
+        }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            // Slide-up grabbing handle (ONLY visible when there is at least one active rule or flashHandleRed)
+            // 1. TOP: Media Controls (Always on top)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                // Slider controls progress within current chapter/audio, with settings gear & close button to right
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Slider(
+                        value = if (isAudioFileMode) {
+                            if (isDragging) dragAudioMs else audioFilePositionMs.toFloat().coerceIn(0f, maxAudioDuration)
+                        } else {
+                            if (isDragging) dragParaIndex else currentParagraph.toFloat().coerceIn(0f, (totalParagraphs - 1).coerceAtLeast(1).toFloat())
+                        },
+                        onValueChange = { newVal ->
+                            isDragging = true
+                            if (isAudioFileMode) {
+                                dragAudioMs = newVal
+                            } else {
+                                dragParaIndex = newVal
+                            }
+                        },
+                        onValueChangeFinished = {
+                            isDragging = false
+                            if (isAudioFileMode) {
+                                onSeekAudioPosition(dragAudioMs.toLong().coerceIn(0L, audioFileDurationMs.coerceAtLeast(0L)))
+                            } else {
+                                val target = dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
+                                onSeekParagraph(target)
+                            }
+                        },
+                        valueRange = if (isAudioFileMode) 0f .. maxAudioDuration else 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(30.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Settings gear button
+                    IconButton(
+                        onClick = onOpenAudioSettings,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "TTS and Audio Settings",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Close button to close media bar and stop ongoing playback
+                    IconButton(
+                        onClick = onCloseClick,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close and stop playback",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Metadata row
+                if (isAudioFileMode) {
+                    val curMs = if (isDragging) dragAudioMs.toLong() else audioFilePositionMs
+                    val curFormatted = formatTimeSeconds(curMs)
+                    val totalFormatted = formatTimeSeconds(audioFileDurationMs)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isDragging) "Release to jump to $curFormatted" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "Audio Studio",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "$curFormatted / $totalFormatted",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text(
+                                text = if (isBrowserMode) "Live Web TTS" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isDragging) {
+                                Text(
+                                    text = "Release to jump to ¶ ${displayPara + 1} ($progressPercent%)",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "¶ ${displayPara + 1} / $totalParagraphs ($progressPercent%)",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Control buttons row:
+                // [Sleep Timer] [Prev] [Play/Pause] [Next] [Speed]
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Sleep Timer button on the left
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onSleepTimerClick() }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = "Sleep Timer",
+                                    tint = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                val timerLabel = if (sleepTimerMinutes <= 0) {
+                                    "Off"
+                                } else if (sleepTimerRemainingSeconds > 0) {
+                                    val mins = sleepTimerRemainingSeconds / 60
+                                    val secs = sleepTimerRemainingSeconds % 60
+                                    "$mins:${secs.toString().padStart(2, '0')}"
+                                } else {
+                                    "${sleepTimerMinutes}m"
+                                }
+                                Text(
+                                    text = timerLabel,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                    )
+                                )
+                            }
+                        }
+
+                        // Prev button directly next to Play/Pause on the left
+                        IconButton(
+                            onClick = onPrevChapterClick,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.SkipPrevious,
+                                contentDescription = if (isBrowserMode) "Prev Paragraph" else "Prev Chapter",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        // Play / Pause round gradient button
+                        Box(
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(AccentBlue, AccentPurple)
+                                    )
+                                )
+                                .clickable { onPlayPauseClick() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play/Pause",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+
+                        // Next button directly next to Play/Pause on the right
+                        IconButton(
+                            onClick = onNextChapterClick,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.SkipNext,
+                                contentDescription = if (isBrowserMode) "Next Paragraph" else "Next Chapter",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        // Speed button on the right
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onSpeedClick() }
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "${"%.2f".format(speechRate).trimEnd('0').trimEnd('.')}x",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. BOTTOM: Active Rules & Filters (Underneath controls, draggable/flickable)
             if (showHandle) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -900,7 +1169,7 @@ fun TtsDock(
                             isRulesSheetExpanded = !isRulesSheetExpanded
                             if (flashHandleRed) onResetFlashHandle()
                         }
-                        .padding(top = 8.dp, bottom = 4.dp),
+                        .padding(top = 6.dp, bottom = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Box(
@@ -977,14 +1246,18 @@ fun TtsDock(
                                             )
                                             if (rule.charsFiltered > 0) {
                                                 Spacer(modifier = Modifier.width(6.dp))
+                                                val isContentSelector = rule.ruleType == com.novelarrow.reader.data.model.RuleType.CONTENT_SELECTOR ||
+                                                        rule.ruleType == com.novelarrow.reader.data.model.RuleType.CONTENT_CONTAINER
+                                                val badgeText = if (isContentSelector) "+${rule.charsFiltered} chars" else "-${rule.charsFiltered} chars"
+                                                val badgeColor = if (isContentSelector) Color(0xFF4CAF50) else Color(0xFFFF5722)
                                                 Surface(
                                                     shape = RoundedCornerShape(6.dp),
-                                                    color = Color(0xFFFF5722).copy(alpha = 0.15f)
+                                                    color = badgeColor.copy(alpha = 0.15f)
                                                 ) {
                                                     Text(
-                                                        text = "-${rule.charsFiltered} chars",
+                                                        text = badgeText,
                                                         style = MaterialTheme.typography.labelSmall.copy(
-                                                            color = Color(0xFFFF5722),
+                                                            color = badgeColor,
                                                             fontWeight = FontWeight.Bold,
                                                             fontSize = 10.sp
                                                         ),
@@ -1022,264 +1295,9 @@ fun TtsDock(
                         }
                     }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-            // Slider controls progress within current chapter/audio, with settings gear & close button to right
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Slider(
-                    value = if (isAudioFileMode) {
-                        if (isDragging) dragAudioMs else audioFilePositionMs.toFloat().coerceIn(0f, maxAudioDuration)
-                    } else {
-                        if (isDragging) dragParaIndex else currentParagraph.toFloat().coerceIn(0f, (totalParagraphs - 1).coerceAtLeast(1).toFloat())
-                    },
-                    onValueChange = { newVal ->
-                        isDragging = true
-                        if (isAudioFileMode) {
-                            dragAudioMs = newVal
-                        } else {
-                            dragParaIndex = newVal
-                        }
-                    },
-                    onValueChangeFinished = {
-                        isDragging = false
-                        if (isAudioFileMode) {
-                            onSeekAudioPosition(dragAudioMs.toLong().coerceIn(0L, audioFileDurationMs.coerceAtLeast(0L)))
-                        } else {
-                            val target = dragParaIndex.toInt().coerceIn(0, (totalParagraphs - 1).coerceAtLeast(0))
-                            onSeekParagraph(target)
-                        }
-                    },
-                    valueRange = if (isAudioFileMode) 0f .. maxAudioDuration else 0f .. (totalParagraphs - 1).coerceAtLeast(1).toFloat(),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(30.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
-                    )
-                )
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Settings gear button
-                IconButton(
-                    onClick = onOpenAudioSettings,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "TTS and Audio Settings",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                // Close button to close media bar and stop ongoing playback
-                IconButton(
-                    onClick = onCloseClick,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close and stop playback",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Metadata row
-            if (isAudioFileMode) {
-                val curMs = if (isDragging) dragAudioMs.toLong() else audioFilePositionMs
-                val curFormatted = formatTimeSeconds(curMs)
-                val totalFormatted = formatTimeSeconds(audioFileDurationMs)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isDragging) "Release to jump to $curFormatted" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "Audio Studio",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isDragging) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "$curFormatted / $totalFormatted",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        Text(
-                            text = if (isBrowserMode) "Live Web TTS" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (isDragging) {
-                            Text(
-                                text = "Release to jump to ¶ ${displayPara + 1} ($progressPercent%)",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
-                        }
-                    }
-
-                    Text(
-                        text = "¶ ${displayPara + 1} / $totalParagraphs ($progressPercent%)",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Control buttons row:
-            // [Sleep Timer] [Prev] [Play/Pause] [Next] [Speed]
-            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Sleep Timer button on the left
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSleepTimerClick() }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Timer,
-                                contentDescription = "Sleep Timer",
-                                tint = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            val timerLabel = if (sleepTimerMinutes <= 0) {
-                                "Off"
-                            } else if (sleepTimerRemainingSeconds > 0) {
-                                val mins = sleepTimerRemainingSeconds / 60
-                                val secs = sleepTimerRemainingSeconds % 60
-                                "$mins:${secs.toString().padStart(2, '0')}"
-                            } else {
-                                "${sleepTimerMinutes}m"
-                            }
-                            Text(
-                                text = timerLabel,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp,
-                                    color = if (sleepTimerMinutes > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                )
-                            )
-                        }
-                    }
-
-                    // Prev button directly next to Play/Pause on the left
-                    IconButton(
-                        onClick = onPrevChapterClick,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.SkipPrevious,
-                            contentDescription = if (isBrowserMode) "Prev Paragraph" else "Prev Chapter",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    // Play / Pause round gradient button
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(AccentBlue, AccentPurple)
-                                )
-                            )
-                            .clickable { onPlayPauseClick() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-
-                    // Next button directly next to Play/Pause on the right
-                    IconButton(
-                        onClick = onNextChapterClick,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.SkipNext,
-                            contentDescription = if (isBrowserMode) "Next Paragraph" else "Next Chapter",
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    // Speed button on the right
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { onSpeedClick() }
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "${"%.2f".format(speechRate).trimEnd('0').trimEnd('.')}x",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            )
-                        }
-                    }
-                }
             }
         }
     }
-}
 }
 
 @Composable
@@ -1382,9 +1400,17 @@ fun EmptyState(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            val lastNovel = novels.firstOrNull { it.id == lastActiveNovelId }
+            val activeProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
+            val isPlayingActive = activeProgress.source == PlaybackSource.READER && activeProgress.novelId != null
+            val effectiveNovelId = if (isPlayingActive) activeProgress.novelId else lastActiveNovelId
+            val lastNovel = novels.firstOrNull { it.id == effectiveNovelId }
                 ?: novels.maxByOrNull { it.lastUpdated }
                 ?: novels.first()
+            val effectiveChapterIndex = if (isPlayingActive && activeProgress.novelId == lastNovel.id) {
+                activeProgress.chapterIndex
+            } else {
+                lastNovel.currentChapterIndex
+            }
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(12.dp),
@@ -1404,8 +1430,11 @@ fun EmptyState(
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = "Chapter ${lastNovel.currentChapterIndex + 1} / ${lastNovel.chapterCount}",
-                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        text = "Chapter ${effectiveChapterIndex + 1} / ${lastNovel.chapterCount}" +
+                            if (isPlayingActive && activeProgress.novelId == lastNovel.id && activeProgress.chapterTitle.isNotBlank()) " • ${activeProgress.chapterTitle}" else "",
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                     Button(
@@ -1830,7 +1859,11 @@ fun LibraryDrawerContent(
                     } else {
                         items(chapters.size) { i ->
                             val chapter = chapters[i]
-                            val isCurrent = chapter.id == currentChapter?.id
+                            val isCurrent = if (currentChapter != null) {
+                                chapter.id == currentChapter.id
+                            } else {
+                                i == activeChapterIndex
+                            }
                             val isDraggingThis = draggingIndex == i
                             val isTargeted = dragOverIndex == i && !isDraggingThis
 
@@ -1928,7 +1961,28 @@ fun LibraryDrawerContent(
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = chapter.title,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                            ),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+
+                                        if (chapter.isCompleted) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = "Chapter read",
+                                                tint = Color(0xFF4CAF50),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+
                                         if (isCurrent) {
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             val heartbeatTransition = rememberInfiniteTransition(label = "chapterHeartbeat")
                                             val heartbeatScale by heartbeatTransition.animateFloat(
                                                 initialValue = 0.8f,
@@ -1954,27 +2008,6 @@ fun LibraryDrawerContent(
                                                     .scale(heartbeatScale)
                                                     .clip(CircleShape)
                                                     .background(Color(0xFFFF9800).copy(alpha = heartbeatAlpha))
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                        }
-
-                                        Text(
-                                            text = chapter.title,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                                            ),
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-
-                                        if (chapter.isCompleted) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.Visibility,
-                                                contentDescription = "Chapter read",
-                                                tint = Color(0xFF4CAF50),
-                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
                                     }

@@ -88,7 +88,7 @@ fun BrowserIgnoredSelectorsScreen(
                         )
                     } else {
                         Text(
-                            text = "Browser Ignored Elements",
+                            text = "Ignore Elements Selector",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                     }

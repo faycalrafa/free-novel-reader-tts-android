@@ -499,17 +499,14 @@ object ChapterParser {
 
         if (selectedElement != null && impactsMap != null && matchedSelectorName != null) {
             val containerChars = selectedElement.text().length
-            val excludedChars = (initialBodyChars - containerChars).coerceAtLeast(0)
-            if (excludedChars > 0) {
-                impactsMap[matchedRuleId ?: matchedSelectorName] = RuleImpact(
-                    id = matchedRuleId ?: matchedSelectorName,
-                    name = matchedSelectorName,
-                    ruleType = RuleType.CONTENT_SELECTOR,
-                    charsFiltered = excludedChars,
-                    enabled = true,
-                    details = "Isolated content container (excluded $excludedChars outer characters)"
-                )
-            }
+            impactsMap[matchedRuleId ?: matchedSelectorName] = RuleImpact(
+                id = matchedRuleId ?: matchedSelectorName,
+                name = matchedSelectorName,
+                ruleType = RuleType.CONTENT_SELECTOR,
+                charsFiltered = containerChars,
+                enabled = true,
+                details = "Isolated content container ($containerChars characters captured)"
+            )
         }
 
         val rootElement: Element = selectedElement ?: doc.body()

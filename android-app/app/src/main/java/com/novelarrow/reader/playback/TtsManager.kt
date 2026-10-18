@@ -286,7 +286,7 @@ class TtsManager(
             }
             var breakIdx = -1
             val candidate = remaining.substring(0, maxChunkSize)
-            val punctMatch = Regex("""[.!?。！？\n]\s*["'”’」』）］｝»)\\]}]*\s*""").findAll(candidate).lastOrNull()
+            val punctMatch = PUNCT_BREAK_REGEX.findAll(candidate).lastOrNull()
             if (punctMatch != null && punctMatch.range.last > maxChunkSize / 3) {
                 breakIdx = punctMatch.range.last + 1
             } else {
@@ -509,6 +509,7 @@ class TtsManager(
 
     companion object {
         private const val TAG = "TtsManager"
+        private val PUNCT_BREAK_REGEX = Regex("""[.!?。！？\n]\s*["'”’」』）］｝»\)\}\]]*\s*""")
 
         /**
          * Returns a localized sample phrase tailored to the voice's locale for audio preview.

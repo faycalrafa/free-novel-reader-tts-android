@@ -424,6 +424,9 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 }
             }
 
+            override fun isCurrentMediaItemSeekable(): Boolean = true
+            override fun isCurrentMediaItemDynamic(): Boolean = false
+
             override fun stop() {
                 super.stop()
                 dispatchStop()
@@ -472,6 +475,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     .add(Player.COMMAND_SEEK_FORWARD)
                     .add(Player.COMMAND_SEEK_BACK)
                     .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
                     .add(Player.COMMAND_ADJUST_DEVICE_VOLUME)
                     .add(Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)
                     .add(Player.COMMAND_SET_DEVICE_VOLUME)
@@ -490,6 +494,7 @@ class NovelAudioPlaybackService : MediaSessionService() {
                     Player.COMMAND_SEEK_FORWARD,
                     Player.COMMAND_SEEK_BACK,
                     Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
+                    Player.COMMAND_SEEK_TO_DEFAULT_POSITION,
                     Player.COMMAND_ADJUST_DEVICE_VOLUME,
                     Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
                     Player.COMMAND_SET_DEVICE_VOLUME,
