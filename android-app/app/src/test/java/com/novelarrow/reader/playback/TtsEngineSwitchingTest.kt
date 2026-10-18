@@ -170,5 +170,37 @@ class TtsEngineSwitchingTest {
         assertTrue(piperVoices.isNotEmpty())
         assertEquals("PIPER", piperVoices.first().engine)
     }
+
+    @Test
+    fun testKittenVoicesIntegrity() {
+        val kittenVoices = NeuralVoiceCatalog.KITTEN_VOICES
+        assertTrue("Expected 8 Kitten voices", kittenVoices.size == 8)
+
+        val speakerIds = mutableSetOf<Int>()
+        for (v in kittenVoices) {
+            assertEquals("KITTEN", v.engine)
+            assertTrue("Model URL should point to csukuangfj sherpa repository", v.onnxDownloadUrl.contains("csukuangfj/kitten-nano-en-v0_1-fp16"))
+            assertEquals("voices.bin required for KittenTTS", true, v.voicesDownloadUrl?.contains("voices.bin"))
+            assertEquals("tokens.txt required for KittenTTS", true, v.tokensDownloadUrl?.contains("tokens.txt"))
+            assertTrue("Speaker ID should be between 0 and 7", v.speakerId in 0..7)
+            speakerIds.add(v.speakerId)
+        }
+        assertEquals("Each Kitten voice should have a unique speaker ID", 8, speakerIds.size)
+    }
+
+    @Test
+    fun testKokoroVoicesIntegrity() {
+        val kokoroVoices = NeuralVoiceCatalog.KOKORO_VOICES
+        assertTrue("Expected non-empty Kokoro voices", kokoroVoices.isNotEmpty())
+
+        for (v in kokoroVoices) {
+            assertEquals("KOKORO", v.engine)
+            assertTrue("Model URL should point to csukuangfj kokoro repository", v.onnxDownloadUrl.contains("csukuangfj/kokoro-int8-multi-lang-v1_0"))
+            assertEquals("voices.bin required for Kokoro", true, v.voicesDownloadUrl?.contains("voices.bin"))
+            assertEquals("tokens.txt required for Kokoro", true, v.tokensDownloadUrl?.contains("tokens.txt"))
+            assertEquals("lexicon required for Kokoro", true, v.lexiconDownloadUrl?.contains("lexicon-us-en.txt"))
+            assertTrue("Speaker ID should be >= 0", v.speakerId >= 0)
+        }
+    }
 }
 

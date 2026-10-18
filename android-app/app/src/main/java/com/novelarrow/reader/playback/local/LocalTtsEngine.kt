@@ -123,13 +123,27 @@ class LocalTtsEngine(
                     copyAssetsRecursively(modelDirName, targetDir)
                 }
 
+                val parent = effectiveModelFile.parentFile ?: targetDir
                 val modelConfig = when (engineType.uppercase()) {
                     "KITTEN" -> {
-                        val voicesFile = File(effectiveModelFile.parentFile, "voices.bin")
+                        val voicesFile = File(parent, "voices.bin")
+                        val tokensFile = if (targetTokens.exists()) targetTokens else File(parent, "tokens.txt")
+
+                        if (!voicesFile.exists() || voicesFile.length() < 100L) {
+                            val ex = IOException("KittenTTS voices.bin missing or empty in ${parent.absolutePath}")
+                            AppLogger.e(TAG, ex.message ?: "Missing voices.bin", ex)
+                            return@withContext Result.failure(ex)
+                        }
+                        if (!tokensFile.exists() || tokensFile.length() < 10L) {
+                            val ex = IOException("KittenTTS tokens.txt missing or empty in ${parent.absolutePath}")
+                            AppLogger.e(TAG, ex.message ?: "Missing tokens.txt", ex)
+                            return@withContext Result.failure(ex)
+                        }
+
                         val kittenConfig = OfflineTtsKittenModelConfig(
                             model = effectiveModelPath,
-                            voices = if (voicesFile.exists()) voicesFile.absolutePath else "",
-                            tokens = tokensPathToUse,
+                            voices = voicesFile.absolutePath,
+                            tokens = tokensFile.absolutePath,
                             dataDir = dataDirPathToUse,
                             lengthScale = 1.0f
                         )
@@ -141,12 +155,26 @@ class LocalTtsEngine(
                         )
                     }
                     "KOKORO" -> {
-                        val voicesFile = File(effectiveModelFile.parentFile, "voices.bin")
-                        val lexiconFile = File(effectiveModelFile.parentFile, "lexicon.txt")
+                        val voicesFile = File(parent, "voices.bin")
+                        val tokensFile = if (targetTokens.exists()) targetTokens else File(parent, "tokens.txt")
+                        val lexiconFile = File(parent, "lexicon-us-en.txt").takeIf { it.exists() }
+                            ?: File(parent, "lexicon.txt")
+
+                        if (!voicesFile.exists() || voicesFile.length() < 100L) {
+                            val ex = IOException("Kokoro voices.bin missing or empty in ${parent.absolutePath}")
+                            AppLogger.e(TAG, ex.message ?: "Missing voices.bin", ex)
+                            return@withContext Result.failure(ex)
+                        }
+                        if (!tokensFile.exists() || tokensFile.length() < 10L) {
+                            val ex = IOException("Kokoro tokens.txt missing or empty in ${parent.absolutePath}")
+                            AppLogger.e(TAG, ex.message ?: "Missing tokens.txt", ex)
+                            return@withContext Result.failure(ex)
+                        }
+
                         val kokoroConfig = OfflineTtsKokoroModelConfig(
                             model = effectiveModelPath,
-                            voices = if (voicesFile.exists()) voicesFile.absolutePath else "",
-                            tokens = tokensPathToUse,
+                            voices = voicesFile.absolutePath,
+                            tokens = tokensFile.absolutePath,
                             dataDir = dataDirPathToUse,
                             lexicon = if (lexiconFile.exists()) lexiconFile.absolutePath else "",
                             lang = "en-us",
@@ -223,10 +251,12 @@ class LocalTtsEngine(
 
             ensureActive()
             try {
-                AppLogger.d(TAG, "Synthesizing text (length: ${text.length}, speed: $speed, sid: $speakerId)")
+                val numSpeakers = tts.numSpeakers()
+                val safeSid = if (speakerId in 0 until numSpeakers) speakerId else 0
+                AppLogger.d(TAG, "Synthesizing text (length: ${text.length}, speed: $speed, sid: $safeSid, totalSpeakers: $numSpeakers)")
                 val generated = tts.generate(
                     text = text.trim(),
-                    sid = speakerId,
+                    sid = safeSid,
                     speed = speed
                 )
 
@@ -278,7 +308,11 @@ class LocalTtsEngine(
         try {
             val track = getOrCreateAudioTrack(sampleRate)
             track.play()
-            onStart(index)
+            try {
+                onStart(index)
+            } catch (t: Throwable) {
+                AppLogger.w(TAG, "Non-fatal error in onStart callback: ${t.message}", t)
+            }
 
             val chunkSize = 4096
             var offset = 0

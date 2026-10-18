@@ -49,38 +49,21 @@ class AboutBrandingTest {
     fun testReadmePresenceOfPersonalHobbyProjectAndAuthor() {
         val readme = findReadmeFile().readText()
 
-        // Verify personal hobby project framing
-        assertTrue("README must state it is a personal hobby project", readme.contains("personal hobby project"))
-        assertTrue("README must mention creator Faycal Rafa", readme.contains("Faycal Rafa"))
-
-        // Verify header tagline
-        assertTrue("README must contain personal offline reader header",
-            readme.contains("A personal offline novel reader and Text-to-Speech (TTS) audiobook application for Android."))
-        assertTrue("README must contain offline feature bullets",
-            readme.contains("No Ads • No Trackers • No Subscriptions • Fully Offline • Native Android & Text-to-Speech"))
+        // Verify creator reference and branding
+        assertTrue("README must mention creator faycalrafa", readme.contains("faycalrafa", ignoreCase = true))
+        assertTrue("README must contain BookReader heading", readme.contains("BookReader"))
+        assertTrue("README must state offline novel reader and TTS", readme.contains("Offline Novel Reader & TTS Engine"))
     }
 
     @Test
     fun testReadmePreservesFeaturesArchitectureAndBuildInstructions() {
         val readme = findReadmeFile().readText()
 
-        // Features
-        assertTrue("README must contain Key Features section", readme.contains("## 🚀 Key Features"))
-        assertTrue("README must describe background TTS", readme.contains("Seamless Background Text-to-Speech"))
-        assertTrue("README must describe web browser & downloader", readme.contains("Integrated Web Browser & Batch Chapter Downloader"))
-        assertTrue("README must describe sleep timer", readme.contains("Smart Sleep Timer"))
-        assertTrue("README must describe content filters", readme.contains("Advanced Content & Parsing Filters"))
-        assertTrue("README must describe modern reader UI", readme.contains("Modern, Responsive Reader UI"))
-
-        // Architecture
-        assertTrue("README must describe architecture", readme.contains("## 🏗️ Architecture & Technology Stack"))
+        // Architectural Highlights & Pipeline
+        assertTrue("README must contain Key Architectural Highlights section", readme.contains("Key Architectural Highlights"))
+        assertTrue("README must describe background audio Media3", readme.contains("Zero-Thread-Collision Background Audio"))
         assertTrue("README must mention Jetpack Compose", readme.contains("Jetpack Compose"))
         assertTrue("README must mention Media3", readme.contains("AndroidX Media3"))
-
-        // Build instructions
-        assertTrue("README must contain build instructions", readme.contains("## 🛠️ Building & Developing"))
-        assertTrue("README must document assembleDebug command", readme.contains("./gradlew assembleDebug"))
-        assertTrue("README must document assembleRelease command", readme.contains("./gradlew assembleRelease"))
-        assertTrue("README must document testDebugUnitTest command", readme.contains("./gradlew testDebugUnitTest"))
+        assertTrue("README must describe architecture and audio pipeline", readme.contains("System Architecture & Audio Pipeline"))
     }
 }

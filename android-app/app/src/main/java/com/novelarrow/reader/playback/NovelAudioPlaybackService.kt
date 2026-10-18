@@ -740,6 +740,21 @@ class NovelAudioPlaybackService : MediaSessionService() {
         currentParagraph: Int = currentParagraphIndex,
         totalParagraphs: Int = totalParagraphsCount
     ) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post {
+                updatePlaybackState(
+                    isPlaying,
+                    novelTitle,
+                    chapterTitle,
+                    paragraphProgress,
+                    chapterIndex,
+                    totalChapters,
+                    currentParagraph,
+                    totalParagraphs
+                )
+            }
+            return
+        }
         currentNovelTitle = novelTitle
         currentChapterTitle = chapterTitle
         currentProgressText = paragraphProgress

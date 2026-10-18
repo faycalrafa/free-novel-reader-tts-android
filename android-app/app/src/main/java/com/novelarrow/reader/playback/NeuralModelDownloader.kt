@@ -99,15 +99,40 @@ object NeuralModelDownloader {
 
     fun isModelDownloaded(context: Context, voiceInfo: NeuralVoiceInfo): Boolean {
         val file = getModelFile(context, voiceInfo)
-        if (file.exists() && file.length() > 1024L) return true
+        val candidate = if (file.exists() && file.length() > 1024L) {
+            file
+        } else {
+            val existing = findExistingModelFile(context, voiceInfo)
+            if (existing != null && existing.exists() && existing.length() > 1024L) existing else null
+        }
 
-        val existing = findExistingModelFile(context, voiceInfo)
-        if (existing != null && existing.exists() && existing.length() > 1024L) return true
+        if (candidate == null) {
+            return try {
+                context.assets.open("neural/${voiceInfo.modelFileName}").use { true }
+            } catch (_: Exception) {
+                false
+            }
+        }
 
-        return try {
-            context.assets.open("neural/${voiceInfo.modelFileName}").use { true }
-        } catch (_: Exception) {
-            false
+        // Validate multi-file dependencies based on engine type
+        val parentDir = candidate.parentFile ?: return false
+        return when (voiceInfo.engine.uppercase()) {
+            "KITTEN" -> {
+                val voices = File(parentDir, "voices.bin")
+                val tokens = File(parentDir, "tokens.txt")
+                voices.exists() && voices.length() > 100L && tokens.exists() && tokens.length() > 10L
+            }
+            "KOKORO" -> {
+                val voices = File(parentDir, "voices.bin")
+                val tokens = File(parentDir, "tokens.txt")
+                voices.exists() && voices.length() > 100L && tokens.exists() && tokens.length() > 10L
+            }
+            "PIPER" -> {
+                val tokens = File(parentDir, "tokens.txt")
+                val defaultTokens = File(context.filesDir, "vits-piper-en_US-lessac-medium/tokens.txt")
+                (tokens.exists() && tokens.length() > 10L) || (defaultTokens.exists() && defaultTokens.length() > 10L)
+            }
+            else -> true
         }
     }
 
@@ -144,45 +169,129 @@ object NeuralModelDownloader {
         AppLogger.i(TAG, "Starting download for ${voiceInfo.name} (${voiceInfo.formattedSize}) from ${voiceInfo.onnxDownloadUrl}")
 
         try {
-            downloadFileWithRedirects(
-                sourceUrl = voiceInfo.onnxDownloadUrl,
-                destinationFile = tempFile,
-                expectedSize = voiceInfo.sizeBytes,
-                onProgress = onProgress
-            )
+            // 1. Download model file if not already present
+            if (!targetFile.exists() || targetFile.length() < 1024L) {
+                downloadFileWithRedirects(
+                    sourceUrl = voiceInfo.onnxDownloadUrl,
+                    destinationFile = tempFile,
+                    expectedSize = voiceInfo.sizeBytes,
+                    onProgress = onProgress
+                )
 
-            if (!tempFile.renameTo(targetFile)) {
-                // Fallback copy if atomic rename fails
-                tempFile.copyTo(targetFile, overwrite = true)
-                tempFile.delete()
+                if (!tempFile.renameTo(targetFile)) {
+                    tempFile.copyTo(targetFile, overwrite = true)
+                    tempFile.delete()
+                }
+                AppLogger.i(TAG, "Successfully downloaded model file: ${targetFile.absolutePath} (${targetFile.length()} bytes)")
+            } else {
+                AppLogger.i(TAG, "Model file already exists: ${targetFile.absolutePath} (${targetFile.length()} bytes)")
             }
-            AppLogger.i(TAG, "Successfully downloaded model file: ${targetFile.absolutePath} (${targetFile.length()} bytes)")
 
-            // Download accompanying JSON config if available
-            voiceInfo.configDownloadUrl?.let { configUrl ->
-                val configFile = File(targetDir, "${voiceInfo.modelFileName}.json")
-                val configTemp = File(targetDir, "${voiceInfo.modelFileName}.json.downloading")
-                try {
-                    downloadFileWithRedirects(
-                        sourceUrl = configUrl,
-                        destinationFile = configTemp,
-                        expectedSize = -1L,
-                        onProgress = { _, _ -> }
-                    )
-                    if (!configTemp.renameTo(configFile)) {
-                        configTemp.copyTo(configFile, overwrite = true)
-                        configTemp.delete()
+            // 2. Download voices.bin if specified
+            voiceInfo.voicesDownloadUrl?.let { voicesUrl ->
+                val voicesFile = File(targetDir, "voices.bin")
+                if (!voicesFile.exists() || voicesFile.length() < 100L) {
+                    val voicesTemp = File(targetDir, "voices.bin.downloading")
+                    try {
+                        AppLogger.i(TAG, "Downloading voices.bin from $voicesUrl")
+                        downloadFileWithRedirects(
+                            sourceUrl = voicesUrl,
+                            destinationFile = voicesTemp,
+                            expectedSize = -1L,
+                            onProgress = { _, _ -> }
+                        )
+                        if (!voicesTemp.renameTo(voicesFile)) {
+                            voicesTemp.copyTo(voicesFile, overwrite = true)
+                            voicesTemp.delete()
+                        }
+                        AppLogger.i(TAG, "Successfully downloaded voices.bin (${voicesFile.length()} bytes)")
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Failed to download voices.bin: ${e.message}", e)
+                        if (voicesTemp.exists()) voicesTemp.delete()
+                        throw e
                     }
-                    AppLogger.i(TAG, "Successfully downloaded config file for ${voiceInfo.name}")
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Non-critical: failed to download model config: ${e.message}", e)
-                    if (configTemp.exists()) configTemp.delete()
                 }
             }
 
-            if (voiceInfo.engine.equals("PIPER", ignoreCase = true)) {
-                ensurePiperSupportAssets(context, targetDir)
+            // 3. Download tokens.txt if specified
+            val tokensUrlToUse = voiceInfo.tokensDownloadUrl ?: voiceInfo.configDownloadUrl?.takeIf { it.endsWith("tokens.txt") }
+            tokensUrlToUse?.let { tokensUrl ->
+                val tokensFile = File(targetDir, "tokens.txt")
+                if (!tokensFile.exists() || tokensFile.length() < 10L) {
+                    val tokensTemp = File(targetDir, "tokens.txt.downloading")
+                    try {
+                        AppLogger.i(TAG, "Downloading tokens.txt from $tokensUrl")
+                        downloadFileWithRedirects(
+                            sourceUrl = tokensUrl,
+                            destinationFile = tokensTemp,
+                            expectedSize = -1L,
+                            onProgress = { _, _ -> }
+                        )
+                        if (!tokensTemp.renameTo(tokensFile)) {
+                            tokensTemp.copyTo(tokensFile, overwrite = true)
+                            tokensTemp.delete()
+                        }
+                        AppLogger.i(TAG, "Successfully downloaded tokens.txt (${tokensFile.length()} bytes)")
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Failed to download tokens.txt: ${e.message}", e)
+                        if (tokensTemp.exists()) tokensTemp.delete()
+                        throw e
+                    }
+                }
             }
+
+            // 4. Download lexicon if specified
+            voiceInfo.lexiconDownloadUrl?.let { lexiconUrl ->
+                val lexiconFileName = lexiconUrl.substringAfterLast("/", "lexicon.txt")
+                val lexiconFile = File(targetDir, lexiconFileName)
+                if (!lexiconFile.exists() || lexiconFile.length() < 1024L) {
+                    val lexiconTemp = File(targetDir, "$lexiconFileName.downloading")
+                    try {
+                        AppLogger.i(TAG, "Downloading $lexiconFileName from $lexiconUrl")
+                        downloadFileWithRedirects(
+                            sourceUrl = lexiconUrl,
+                            destinationFile = lexiconTemp,
+                            expectedSize = -1L,
+                            onProgress = { _, _ -> }
+                        )
+                        if (!lexiconTemp.renameTo(lexiconFile)) {
+                            lexiconTemp.copyTo(lexiconFile, overwrite = true)
+                            lexiconTemp.delete()
+                        }
+                        AppLogger.i(TAG, "Successfully downloaded $lexiconFileName (${lexiconFile.length()} bytes)")
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Failed to download lexicon: ${e.message}", e)
+                        if (lexiconTemp.exists()) lexiconTemp.delete()
+                    }
+                }
+            }
+
+            // 5. Download accompanying JSON config if available and not tokens.txt
+            voiceInfo.configDownloadUrl?.takeIf { !it.endsWith("tokens.txt") }?.let { configUrl ->
+                val configFile = File(targetDir, "${voiceInfo.modelFileName}.json")
+                if (!configFile.exists()) {
+                    val configTemp = File(targetDir, "${voiceInfo.modelFileName}.json.downloading")
+                    try {
+                        downloadFileWithRedirects(
+                            sourceUrl = configUrl,
+                            destinationFile = configTemp,
+                            expectedSize = -1L,
+                            onProgress = { _, _ -> }
+                        )
+                        if (!configTemp.renameTo(configFile)) {
+                            configTemp.copyTo(configFile, overwrite = true)
+                            configTemp.delete()
+                        }
+                        AppLogger.i(TAG, "Successfully downloaded config file for ${voiceInfo.name}")
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Non-critical: failed to download model config: ${e.message}", e)
+                        if (configTemp.exists()) configTemp.delete()
+                    }
+                }
+            }
+
+            // 6. Ensure support assets (espeak-ng-data) are available for all engines
+            ensurePiperSupportAssets(context, targetDir)
 
             Result.success(targetFile)
         } catch (e: Exception) {

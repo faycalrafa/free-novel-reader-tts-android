@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.9.0"
+          DATE_TAG="v3.9.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.9.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.9.0 --no-daemon
+          APP_VERSION_NAME: "3.9.1"
+        run: ./gradlew assembleRelease -PappVersionName=3.9.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,26 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.9.0 (Stable)
+          name: BookReader v3.9.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.9.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.9.1 (Stable) 📚🎙️⚡
 
-            **BookReader v3.9.0** delivers a major TTS Voice Engine Screen overhaul, native multi-engine embedded neural TTS (Piper, Kokoro, KittenTTS), resolution of the native playback crash, and a complete fix for folder refresh and chapter imports!
+            **BookReader v3.9.1** addresses critical runtime audio stability issues, resolves ExoPlayer threading crashes during local TTS playback, prevents runaway chapter skipping, and delivers complete multi-file companion support for KittenTTS and Kokoro neural voice engines!
 
             #### Key Updates in this release:
+            - **ExoPlayer Thread Violation Fix (`IllegalStateException`)**:
+              - Resolved thread enforcement crashes (`Player is accessed on the wrong thread`) caused when local neural TTS dispatched paragraph callbacks on background worker threads.
+              - Thread-isolated all ExoPlayer queries and service status synchronizations strictly to `Dispatchers.Main` / main Android Looper.
+            - **Runaway Chapter Skipping Prevention**:
+              - Added defensive consecutive error tracking (`>= 3`) to immediately pause and notify the user instead of rapidly cycling and skipping through novel chapters.
+              - Isolated UI and foreground service callbacks in `LocalTtsEngine` so notification failures never terminate active audio streams.
+            - **KittenTTS & Kokoro Native Companion Integration (`voices.bin` & `tokens.txt`)**:
+              - Fixed `Invalid OfflineTtsConfig` C++ initialization errors by switching KittenTTS to official `csukuangfj/kitten-nano-en-v0_1-fp16` and Kokoro to `csukuangfj/kokoro-int8-multi-lang-v1_0`.
+              - Upgraded `NeuralModelDownloader` to verify and download required companion files (`voices.bin`, `tokens.txt`, and `lexicon-us-en.txt`).
+              - Added speaker ID mapping across all 8 Kitten voices (Jasper, Bella, Bruno, Luna, Hugo, Rosie, Leo, Kiki) and Kokoro voices with native speaker index validation.
+            - **Native Pre-flight Verification & Near Logging**:
+              - Added file existence, non-empty checks, and detailed `AppLogger` near logging before native `OfflineTts` JNI allocations to guarantee zero silent crashes.
             - **TTS Voice Engine Screen Redesign**:
               - Cleaned up the cluttered interface: eliminated redundant "Installed engines on device" radio list.
               - Streamlined primary engines into two clear options: Built-in Android TTS vs. Embedded Neural TTS.

@@ -78,6 +78,7 @@ object AudioPlaybackCoordinator {
     private var totalChaptersCount: Int = 0
     private var currentParagraphIndex: Int = 0
     private var totalParagraphsCount: Int = 0
+    private var consecutiveErrorCount: Int = 0
     private var currentParagraphs: List<Paragraph> = emptyList()
     private var autoNextChapterEnabled: Boolean = true
     private var currentPlaylist: List<File> = emptyList()
@@ -1263,7 +1264,8 @@ object AudioPlaybackCoordinator {
                     }
                     engine.speak(
                         text = text,
-                        speed = currentSpeechRate
+                        speed = currentSpeechRate,
+                        speakerId = voiceInfo.speakerId
                     )
                 } catch (e: CancellationException) {
                     AppLogger.d(TAG, "Test voice preview canceled for ${voiceInfo.name}")
@@ -1409,7 +1411,9 @@ object AudioPlaybackCoordinator {
                 return@launch
             }
 
-            val engine = getOrInitLocalTtsEngine()
+            val savedVoiceId = settingsRepository?.getSettings()?.selectedVoiceName ?: currentVoiceName
+            val targetVoice = if (savedVoiceId != null) NeuralVoiceCatalog.getVoiceById(savedVoiceId, ctx) else null
+            val engine = getOrInitLocalTtsEngine(targetVoice)
             if (engine == null) {
                 AppLogger.w(TAG, "LocalTtsEngine not ready (model missing or uninitialized)")
                 showToast("Offline voice model not found. Please download a voice in Settings.")
@@ -1417,19 +1421,28 @@ object AudioPlaybackCoordinator {
                 return@launch
             }
 
+            val targetSpeakerId = targetVoice?.speakerId ?: 0
+
             try {
                 engine.speakParagraph(
                     index = idx,
                     text = spoken,
                     speed = currentSpeechRate,
+                    speakerId = targetSpeakerId,
                     onStart = { startedIdx ->
-                        handleParagraphStart(startedIdx)
+                        coordinatorScope.launch(Dispatchers.Main) {
+                            handleParagraphStart(startedIdx)
+                        }
                     },
                     onDone = { doneIdx ->
-                        handleParagraphDone(doneIdx)
+                        coordinatorScope.launch(Dispatchers.Main) {
+                            handleParagraphDone(doneIdx)
+                        }
                     },
                     onError = { errIdx, error ->
-                        handleParagraphError(errIdx, error)
+                        coordinatorScope.launch(Dispatchers.Main) {
+                            handleParagraphError(errIdx, error)
+                        }
                     }
                 )
             } catch (e: CancellationException) {
@@ -1443,6 +1456,7 @@ object AudioPlaybackCoordinator {
 
     private fun handleParagraphStart(index: Int) {
         lastProgressTimestamp = System.currentTimeMillis()
+        consecutiveErrorCount = 0
         currentParagraphIndex = index
         _isPlayingState.value = true
         _playbackProgressState.update {
@@ -1514,9 +1528,18 @@ object AudioPlaybackCoordinator {
 
     private fun handleParagraphError(index: Int, error: String) {
         AppLogger.w(TAG, "TTS Error on paragraph $index: $error")
+        consecutiveErrorCount++
+        if (consecutiveErrorCount >= 3) {
+            AppLogger.e(TAG, "Stopping playback: encountered $consecutiveErrorCount consecutive TTS errors (last error: $error)")
+            showToast("Playback stopped due to recurring TTS error: $error")
+            pause()
+            consecutiveErrorCount = 0
+            return
+        }
+
         val next = index + 1
         if (next < currentParagraphs.size && _isPlayingState.value) {
-            coordinatorScope.launch {
+            coordinatorScope.launch(Dispatchers.Main) {
                 delay(120)
                 if (_isPlayingState.value) {
                     currentParagraphIndex = next
@@ -1634,6 +1657,12 @@ object AudioPlaybackCoordinator {
     }
 
     private fun updateServiceState() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            coordinatorScope.launch(Dispatchers.Main) {
+                updateServiceState()
+            }
+            return
+        }
         attachedService?.updatePlaybackState(
             isPlaying = _isPlayingState.value,
             novelTitle = currentNovelTitle,
