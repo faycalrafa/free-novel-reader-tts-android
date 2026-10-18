@@ -24,6 +24,16 @@ class Milestone1Challenger2Test {
     @get:Rule
     val tempFolder = TemporaryFolder()
 
+    @org.junit.Before
+    fun setUp() {
+        SettingsRepository.resetForTesting()
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        SettingsRepository.resetForTesting()
+    }
+
     private fun createMockContext(filesDir: File): Context {
         return object : android.content.ContextWrapper(null) {
             override fun getFilesDir(): File = filesDir

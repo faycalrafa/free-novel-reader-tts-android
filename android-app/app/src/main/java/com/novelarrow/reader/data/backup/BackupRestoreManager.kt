@@ -99,9 +99,13 @@ object BackupRestoreManager {
                 roots.add(File(sdcard, "NovelReader"))
             }
             val altDirect = File("/storage/emulated/0/NovelReader")
-            roots.add(altDirect)
+            if (altDirect.exists()) {
+                roots.add(altDirect)
+            }
             val altDirectLower = File("/storage/emulated/0/novelreader")
-            roots.add(altDirectLower)
+            if (altDirectLower.exists()) {
+                roots.add(altDirectLower)
+            }
         } catch (e: Exception) {
             Log.d(TAG, "Error enumerating external roots: ${e.message}")
         }

@@ -48,8 +48,18 @@ data class ReleaseItem(
 
 val FullReleaseHistory = listOf(
     ReleaseItem(
-        version = "v3.10.0",
+        version = "v3.10.1",
         date = "Latest Release",
+        title = "Voice Engine Screen Composable Compilation Hotfix",
+        changes = listOf(
+            "Fixed @Composable invocation context error in VoiceEngineScreen by importing full Material 3 components (AlertDialog & TextButton)",
+            "Seamless switching between installed Android TTS engines directly from the active engine banner",
+            "Preserved ultra-lean APK size footprint (<18MB) with native TTS architecture"
+        )
+    ),
+    ReleaseItem(
+        version = "v3.10.0",
+        date = "2026-10-18",
         title = "Massive App Streamlining, Native TTS Focus & Navigation Polish",
         changes = listOf(
             "Eliminated embedded Sherpa-ONNX binaries and offline voice models, slashing APK size by over 65MB",

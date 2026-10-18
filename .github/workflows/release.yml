@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.10.0"
+          DATE_TAG="v3.10.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.10.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.10.0 --no-daemon
+          APP_VERSION_NAME: "3.10.1"
+        run: ./gradlew assembleRelease -PappVersionName=3.10.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.10.0 (Stable)
+          name: BookReader v3.10.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.10.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.10.1 (Stable) 📚🎙️⚡
 
-            **BookReader v3.10.0** is a major streamlining and polish release that eliminates embedded neural binaries to reduce APK download size by over 65MB, sets Android Built-in TTS as the default voice manager, implements complete return-to-source back navigation, refactors hardware button controls to pure in-app actions, and introduces a two-tier layout for the Monaco Code Editor!
+            **BookReader v3.10.1** is a patch release fixing a Composable function invocation compilation issue in `VoiceEngineScreen`, following the major v3.10.0 streamlining release!
 
-            #### Key Updates in this release:
+            #### Key Updates:
+            - **VoiceEngineScreen Composable Context Fix**:
+              - Imported `androidx.compose.material3.*` (specifically resolving `AlertDialog` and `TextButton`), ensuring button click callbacks and composable content lambdas compile seamlessly.
             - **Massive 65MB+ APK Size Reduction**:
               - Completely eliminated embedded Sherpa-ONNX binaries (`sherpa-onnx-1.13.8.aar`, 25.5MB) and bundled Piper voice assets (19MB, 360+ files).
               - Removed unused neural downloaders, catalogs, and offline engine services for an ultra-lean, performant build.
