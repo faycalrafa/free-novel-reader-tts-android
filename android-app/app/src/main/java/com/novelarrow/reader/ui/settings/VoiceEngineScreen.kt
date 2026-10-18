@@ -82,7 +82,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.novelarrow.reader.data.model.NeuralVoiceCatalog
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.SupportedLanguage
@@ -92,8 +91,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 enum class VoiceEngineScreenMode {
-    ENGINE_SELECTION,
     VOICE_SELECTION,
+    ENGINE_SELECTION,
     PIPER_VOICES,
     KOKORO_VOICES,
     KITTEN_VOICES
@@ -103,38 +102,10 @@ enum class VoiceEngineScreenMode {
 @Composable
 fun VoiceEngineScreen(
     onNavigateBack: () -> Unit,
-    initialMode: VoiceEngineScreenMode = VoiceEngineScreenMode.ENGINE_SELECTION,
+    initialMode: VoiceEngineScreenMode = VoiceEngineScreenMode.VOICE_SELECTION,
     modifier: Modifier = Modifier
 ) {
     var currentMode by remember { mutableStateOf(initialMode) }
-
-    when (currentMode) {
-        VoiceEngineScreenMode.PIPER_VOICES -> {
-            OfflineEngineVoiceScreen(
-                engineType = "PIPER",
-                onNavigateBack = { currentMode = VoiceEngineScreenMode.ENGINE_SELECTION },
-                modifier = modifier
-            )
-            return
-        }
-        VoiceEngineScreenMode.KOKORO_VOICES -> {
-            OfflineEngineVoiceScreen(
-                engineType = "KOKORO",
-                onNavigateBack = { currentMode = VoiceEngineScreenMode.ENGINE_SELECTION },
-                modifier = modifier
-            )
-            return
-        }
-        VoiceEngineScreenMode.KITTEN_VOICES -> {
-            OfflineEngineVoiceScreen(
-                engineType = "KITTEN",
-                onNavigateBack = { currentMode = VoiceEngineScreenMode.ENGINE_SELECTION },
-                modifier = modifier
-            )
-            return
-        }
-        else -> Unit
-    }
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -175,15 +146,10 @@ fun VoiceEngineScreen(
         }
     }
 
-    // Intercept back button when in voice selection mode to return to engine selection
-    BackHandler(enabled = currentMode == VoiceEngineScreenMode.VOICE_SELECTION || isSearchActive) {
-        if (isSearchActive) {
-            isSearchActive = false
-            searchQuery = ""
-        } else if (currentMode == VoiceEngineScreenMode.VOICE_SELECTION) {
-            AudioPlaybackCoordinator.stopVoicePreview()
-            currentMode = VoiceEngineScreenMode.ENGINE_SELECTION
-        }
+    // Intercept back button when search is active
+    BackHandler(enabled = isSearchActive) {
+        isSearchActive = false
+        searchQuery = ""
     }
 
     Scaffold(
@@ -238,7 +204,7 @@ fun VoiceEngineScreen(
                         }
                     } else {
                         Text(
-                            text = if (currentMode == VoiceEngineScreenMode.ENGINE_SELECTION) "Voice Engine" else "Select Voice",
+                            text = "Voice Engine",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -251,9 +217,6 @@ fun VoiceEngineScreen(
                             if (isSearchActive) {
                                 isSearchActive = false
                                 searchQuery = ""
-                            } else if (currentMode == VoiceEngineScreenMode.VOICE_SELECTION) {
-                                AudioPlaybackCoordinator.stopVoicePreview()
-                                currentMode = VoiceEngineScreenMode.ENGINE_SELECTION
                             } else {
                                 AudioPlaybackCoordinator.stopVoicePreview()
                                 onNavigateBack()
@@ -265,7 +228,7 @@ fun VoiceEngineScreen(
                 },
                 actions = {
                     // Search toggle button
-                    if (!isSearchActive && currentMode == VoiceEngineScreenMode.VOICE_SELECTION) {
+                    if (!isSearchActive) {
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Default.Search, contentDescription = "Search Voices")
                         }
@@ -315,503 +278,41 @@ fun VoiceEngineScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            when (currentMode) {
-                VoiceEngineScreenMode.ENGINE_SELECTION -> {
-                    EngineSelectionContent(
-                        voiceCount = availableVoices.size,
-                        selectedVoiceName = savedVoiceName,
-                        selectedEngineType = settings?.selectedEngineType ?: "SYSTEM",
-                        selectedEnginePackage = settings?.selectedTtsEnginePackage,
-                        onSelectEngine = { engineType ->
-                            coroutineScope.launch {
-                                AudioPlaybackCoordinator.settingsRepository?.setSelectedEngineType(engineType)
-                            }
-                        },
-                        onSelectEnginePackage = { pkg ->
-                            AudioPlaybackCoordinator.switchTtsEngine(pkg)
-                        },
-                        onSelectBuiltIn = {
-                            currentMode = VoiceEngineScreenMode.VOICE_SELECTION
-                        },
-                        onOpenPiper = {
-                            currentMode = VoiceEngineScreenMode.PIPER_VOICES
-                        },
-                        onOpenKokoro = {
-                            currentMode = VoiceEngineScreenMode.KOKORO_VOICES
-                        },
-                        onOpenKitten = {
-                            currentMode = VoiceEngineScreenMode.KITTEN_VOICES
-                        },
-                        onOpenSystemTtsSettings = {
-                            openSystemTtsSettings(context)
-                        }
-                    )
-                }
-                VoiceEngineScreenMode.VOICE_SELECTION -> {
-                    VoiceSelectionContent(
-                        availableVoices = availableVoices,
-                        selectedLanguage = selectedLanguage,
-                        onSelectLanguage = { selectedLanguage = it },
-                        pendingVoiceEnglish = pendingVoiceEnglish,
-                        pendingVoiceArabic = pendingVoiceArabic,
-                        pendingVoiceFrench = pendingVoiceFrench,
-                        onUpdatePendingVoice = { lang, voiceName ->
-                            when (lang) {
-                                SupportedLanguage.ENGLISH -> pendingVoiceEnglish = voiceName
-                                SupportedLanguage.ARABIC -> pendingVoiceArabic = voiceName
-                                SupportedLanguage.FRENCH -> pendingVoiceFrench = voiceName
-                            }
-                            hasPendingChanges = true
-                        },
-                        previewingVoiceName = previewingVoiceName,
-                        searchQuery = searchQuery,
-                        onPreviewVoice = { voice ->
-                            AudioPlaybackCoordinator.previewVoice(voice)
-                        },
-                        onStopPreview = {
-                            AudioPlaybackCoordinator.stopVoicePreview()
-                        }
-                    )
-                }
-                else -> Unit
-            }
-        }
-    }
-}
-
-@Composable
-private fun EngineSelectionContent(
-    voiceCount: Int,
-    selectedVoiceName: String?,
-    selectedEngineType: String,
-    selectedEnginePackage: String?,
-    onSelectEngine: (String) -> Unit,
-    onSelectEnginePackage: (String) -> Unit,
-    onSelectBuiltIn: () -> Unit,
-    onOpenPiper: () -> Unit,
-    onOpenKokoro: () -> Unit,
-    onOpenKitten: () -> Unit,
-    onOpenSystemTtsSettings: () -> Unit
-) {
-    val context = LocalContext.current
-    val defaultEngine = AudioPlaybackCoordinator.getDefaultTtsEngine() ?: "com.google.android.tts"
-    val activeEnginePkg = AudioPlaybackCoordinator.getActiveTtsEngine() ?: selectedEnginePackage ?: defaultEngine
-
-    val isLocalSherpaActive = selectedEngineType == SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL ||
-            selectedEngineType == "PIPER" ||
-            selectedEngineType == "KOKORO" ||
-            selectedEngineType == "KITTEN"
-
-    val isPiperVoiceActive = isLocalSherpaActive && (NeuralVoiceCatalog.PIPER_VOICES.any { it.id == selectedVoiceName } || selectedEngineType == "PIPER")
-    val isKokoroVoiceActive = isLocalSherpaActive && (NeuralVoiceCatalog.KOKORO_VOICES.any { it.id == selectedVoiceName } || selectedEngineType == "KOKORO")
-    val isKittenVoiceActive = isLocalSherpaActive && (NeuralVoiceCatalog.KITTEN_VOICES.any { it.id == selectedVoiceName } || selectedEngineType == "KITTEN")
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(
-            text = "SPEECH SYNTHESIS ENGINES",
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        )
-
-        // Primary Built-in Android TTS Card
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (selectedEngineType == "SYSTEM") {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                }
-            ),
-            border = BorderStroke(
-                1.5.dp,
-                if (selectedEngineType == "SYSTEM") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    onSelectEngine("SYSTEM")
-                    onSelectBuiltIn()
-                }
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.RecordVoiceOver,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
+            VoiceSelectionContent(
+                availableVoices = availableVoices,
+                selectedLanguage = selectedLanguage,
+                onSelectLanguage = { selectedLanguage = it },
+                pendingVoiceEnglish = pendingVoiceEnglish,
+                pendingVoiceArabic = pendingVoiceArabic,
+                pendingVoiceFrench = pendingVoiceFrench,
+                onUpdatePendingVoice = { lang, voiceName ->
+                    when (lang) {
+                        SupportedLanguage.ENGLISH -> pendingVoiceEnglish = voiceName
+                        SupportedLanguage.ARABIC -> pendingVoiceArabic = voiceName
+                        SupportedLanguage.FRENCH -> pendingVoiceFrench = voiceName
                     }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "Built-in Android TTS",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            if (selectedEngineType == "SYSTEM") {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "Active",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        ),
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Text(
-                            text = "Engine: $activeEnginePkg",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                        )
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Text(
-                            text = if (voiceCount > 0) "$voiceCount voices available" else "Querying voices...",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Configure Voices",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    hasPendingChanges = true
+                },
+                previewingVoiceName = previewingVoiceName,
+                searchQuery = searchQuery,
+                onPreviewVoice = { voice ->
+                    AudioPlaybackCoordinator.previewVoice(voice)
+                },
+                onStopPreview = {
+                    AudioPlaybackCoordinator.stopVoicePreview()
+                },
+                onOpenSystemTtsSettings = {
+                    openSystemTtsSettings(context)
+                },
+                onSelectEnginePackage = { pkg ->
+                    AudioPlaybackCoordinator.switchTtsEngine(pkg)
                 }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "Active voice: ${if (selectedEngineType == "SYSTEM") (selectedVoiceName ?: "System Default") else "None (Neural Active)"}",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        // Embedded Offline Neural TTS (sherpa-onnx) Card
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isLocalSherpaActive) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                }
-            ),
-            border = BorderStroke(
-                1.5.dp,
-                if (isLocalSherpaActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
-                    onOpenPiper()
-                }
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.GraphicEq,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "Embedded Neural TTS",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (isLocalSherpaActive) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                } else {
-                                    MaterialTheme.colorScheme.secondaryContainer
-                                }
-                            ) {
-                                Text(
-                                    text = if (isLocalSherpaActive) "Active" else "Embedded",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isLocalSherpaActive) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSecondaryContainer
-                                        }
-                                    ),
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = "Engine: sherpa-onnx (Offline C++)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                        )
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Text(
-                            text = "Piper, Kokoro & Kitten neural models • 0 external APKs",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Configure Neural Voices",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                val activeNeuralVoice = if (isLocalSherpaActive) {
-                    val v = NeuralVoiceCatalog.getVoiceById(selectedVoiceName ?: "", context)
-                    v?.name ?: selectedVoiceName ?: "Lessac (US)"
-                } else {
-                    "None (System TTS Active)"
-                }
-                Text(
-                    text = "Active voice: $activeNeuralVoice",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        Text(
-            text = "OFFLINE NEURAL VOICES",
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        )
-
-        // Piper TTS Card (Embedded sherpa-onnx)
-        OpenSourceEngineCard(
-            title = "Piper TTS",
-            subtitle = "Ultra-fast neural text-to-speech with English, French, and Arabic voices (<65MB each).",
-            status = "Embedded • Ready",
-            isEngineReady = true,
-            isSelected = isPiperVoiceActive,
-            onClick = {
-                onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
-                onOpenPiper()
-            }
-        )
-
-        // Kokoro TTS Card
-        OpenSourceEngineCard(
-            title = "Kokoro TTS",
-            subtitle = "State-of-the-art 82M open-weight neural voice bundle delivering human-grade prosody.",
-            status = "Embedded • Ready",
-            isEngineReady = true,
-            isSelected = isKokoroVoiceActive,
-            onClick = {
-                onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
-                onOpenKokoro()
-            }
-        )
-
-        // KittenTTS Card
-        OpenSourceEngineCard(
-            title = "KittenTTS",
-            subtitle = "Ultra-compact embedded on-device models (<40MB) designed for minimal battery consumption.",
-            status = "Embedded • Ready",
-            isEngineReady = true,
-            isSelected = isKittenVoiceActive,
-            onClick = {
-                onSelectEngine(SettingsRepository.ENGINE_TYPE_SHERPA_LOCAL)
-                onOpenKitten()
-            }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // System Settings Launch Card
-        Card(
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Need more voices or languages?",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "You can download high-definition neural voices directly in Android device settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = onOpenSystemTtsSettings,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Open Android TTS Settings")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun OpenSourceEngineCard(
-    title: String,
-    subtitle: String,
-    status: String,
-    isEngineReady: Boolean = false,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-            }
-        ),
-        border = BorderStroke(
-            1.5.dp,
-            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-        ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp)
-        ) {
-            RadioButton(
-                selected = isSelected,
-                onClick = onClick
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isEngineReady) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        } else {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        }
-                    ) {
-                        Text(
-                            text = status,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isEngineReady) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSecondaryContainer
-                                }
-                            ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = "Configure Voices",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.size(20.dp)
             )
         }
     }
 }
+
+
 
 @Composable
 private fun VoiceSelectionContent(
@@ -825,8 +326,59 @@ private fun VoiceSelectionContent(
     previewingVoiceName: String?,
     searchQuery: String,
     onPreviewVoice: (Voice) -> Unit,
-    onStopPreview: () -> Unit
+    onStopPreview: () -> Unit,
+    onOpenSystemTtsSettings: () -> Unit,
+    onSelectEnginePackage: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    val installedEngines = remember { AudioPlaybackCoordinator.getInstalledTtsEngines() }
+    val activeEnginePkg = AudioPlaybackCoordinator.getActiveTtsEngine() ?: AudioPlaybackCoordinator.getDefaultTtsEngine()
+    val activeEngineLabel = installedEngines.firstOrNull { it.name == activeEnginePkg }?.label ?: activeEnginePkg ?: "Built-in System TTS"
+    var showEngineDialog by remember { mutableStateOf(false) }
+
+    if (showEngineDialog) {
+        AlertDialog(
+            onDismissRequest = { showEngineDialog = false },
+            title = { Text("Select Text-to-Speech Engine", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    installedEngines.forEach { engine ->
+                        val isCurrent = (engine.name == activeEnginePkg)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectEnginePackage(engine.name)
+                                    showEngineDialog = false
+                                }
+                                .padding(vertical = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = isCurrent,
+                                onClick = {
+                                    onSelectEnginePackage(engine.name)
+                                    showEngineDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(engine.label, fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal)
+                                Text(engine.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showEngineDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     val currentPendingVoice = when (selectedLanguage) {
         SupportedLanguage.ENGLISH -> pendingVoiceEnglish
         SupportedLanguage.ARABIC -> pendingVoiceArabic
@@ -868,6 +420,71 @@ private fun VoiceSelectionContent(
             .fillMaxSize()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
+        // Active TTS Engine Banner Card
+        if (searchQuery.isBlank()) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Default.RecordVoiceOver,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Active Engine: $activeEngineLabel",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${availableVoices.size} voices available",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (installedEngines.size > 1) {
+                            OutlinedButton(
+                                onClick = { showEngineDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Switch Engine", fontSize = 12.sp)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = onOpenSystemTtsSettings,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("System TTS Settings", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         // Supported Languages 3-Tab Row
         val languages = listOf(
             SupportedLanguage.ENGLISH,

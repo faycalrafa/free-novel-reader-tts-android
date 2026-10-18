@@ -3,7 +3,6 @@ package com.novelarrow.reader.playback
 import com.novelarrow.reader.data.export.AudioExportEngine
 import com.novelarrow.reader.data.model.Chapter
 import com.novelarrow.reader.data.model.Novel
-import com.novelarrow.reader.data.model.NeuralVoiceCatalog
 import com.novelarrow.reader.data.util.NaturalOrderComparator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -76,15 +75,6 @@ class AudioExportAndStabilityTest {
         val names = listOf("track10.mp3", "track1.mp3", "track2.mp3", "track20.mp3")
         val sorted = names.sortedWith { a, b -> NaturalOrderComparator.compare(a, b) }
         assertEquals(listOf("track1.mp3", "track2.mp3", "track10.mp3", "track20.mp3"), sorted)
-    }
-
-    @Test
-    fun testNeuralVoiceCatalogRecognition() {
-        // Verify custom or catalog voice IDs like kitten_micro_jasper
-        val jasper = NeuralVoiceCatalog.getVoiceById("kitten_micro_jasper")
-        // Kitten voices should be discoverable
-        val allKitten = NeuralVoiceCatalog.getVoicesForEngine("KITTEN")
-        assertTrue("Kitten voices should not be empty", allKitten.isNotEmpty())
     }
 
     @Test

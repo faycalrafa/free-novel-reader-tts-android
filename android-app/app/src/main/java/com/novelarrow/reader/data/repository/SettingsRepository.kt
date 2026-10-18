@@ -66,7 +66,6 @@ class SettingsRepository(private val context: Context) {
 
     companion object {
         const val ENGINE_TYPE_SYSTEM = "SYSTEM"
-        const val ENGINE_TYPE_SHERPA_LOCAL = "SHERPA_LOCAL"
 
         private val sharedSettingsFlows = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<ReaderSettings>>()
         private val sharedBrowserFlows = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<WebBrowserSettings>>()

@@ -103,35 +103,5 @@ class HardwareButtonCoordinatorTest {
             assertTrue(condition.label.isNotBlank())
         }
     }
-
-    @Test
-    fun testAccessibilityEnabledStringParsing() {
-        fun isServiceInList(enabledServices: String?, target: String): Boolean {
-            if (enabledServices.isNullOrBlank()) return false
-            val parts = enabledServices.split(":")
-            return parts.any { comp ->
-                comp.equals(target, ignoreCase = true) ||
-                comp.endsWith("/$target") ||
-                comp.contains(target)
-            }
-        }
-
-        val target = "BookReaderAccessibilityService"
-
-        // Single service
-        assertTrue(isServiceInList("com.novelarrow.reader/.playback.BookReaderAccessibilityService", target))
-
-        // Multiple services separated by colon
-        val multiServices = "com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService:com.novelarrow.reader/.playback.BookReaderAccessibilityService:com.example.other/OtherService"
-        assertTrue(isServiceInList(multiServices, target))
-
-        // Not in list
-        val otherServices = "com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService:com.example.other/OtherService"
-        assertFalse(isServiceInList(otherServices, target))
-
-        // Empty / null
-        assertFalse(isServiceInList("", target))
-        assertFalse(isServiceInList(null, target))
-    }
 }
 

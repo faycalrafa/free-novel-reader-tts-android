@@ -184,7 +184,13 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             val browserUiState by browserViewModel.uiState.collectAsState()
             var currentScreen by rememberSaveable { mutableStateOf(AppScreen.READER) }
-            var browserSettingsSourceScreen by rememberSaveable { mutableStateOf(AppScreen.SETTINGS) }
+            var subScreenSourceScreen by rememberSaveable { mutableStateOf(AppScreen.SETTINGS) }
+            val navigateToSubScreen: (AppScreen) -> Unit = { target ->
+                if (currentScreen in listOf(AppScreen.READER, AppScreen.BROWSER, AppScreen.TEXT_TO_MP3, AppScreen.SETTINGS)) {
+                    subScreenSourceScreen = currentScreen
+                }
+                currentScreen = target
+            }
             val context = LocalContext.current
             val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
             val scope = rememberCoroutineScope()
@@ -254,31 +260,31 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.TOOLBAR_SETTINGS) {
-                currentScreen = AppScreen.SETTINGS
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.HARDWARE_BUTTON_SETTINGS) {
-                currentScreen = AppScreen.SETTINGS
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_PRONUNCIATION) {
-                currentScreen = AppScreen.SETTINGS
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_SKIP_WORDS) {
-                currentScreen = AppScreen.SETTINGS
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) {
-                currentScreen = AppScreen.SETTINGS
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.SETTINGS_CONTENT_SELECTOR) {
-                currentScreen = AppScreen.SETTINGS
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.VOICE_ENGINE) {
-                currentScreen = AppScreen.SETTINGS
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && currentScreen == AppScreen.DEV_LOGS) {
@@ -290,7 +296,7 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS || currentScreen == AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR)) {
-                currentScreen = browserSettingsSourceScreen
+                currentScreen = subScreenSourceScreen
             }
 
             BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.ABOUT || currentScreen == AppScreen.SETTINGS || currentScreen == AppScreen.ARCHIVE || currentScreen == AppScreen.TEXT_TO_MP3)) {
@@ -446,11 +452,11 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onAddFolder = { folderPickerLauncher.launch(null) },
-                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
-                                    onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
-                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
-                                    onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
-                                    onNavigateToContentSelector = { currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR },
+                                    onNavigateToVoiceEngine = { navigateToSubScreen(AppScreen.VOICE_ENGINE) },
+                                    onNavigateToPronunciationRules = { navigateToSubScreen(AppScreen.SETTINGS_PRONUNCIATION) },
+                                    onNavigateToSkipWords = { navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS) },
+                                    onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
+                                    onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) },
                                     onOpenAudioStudio = { currentScreen = AppScreen.TEXT_TO_MP3 }
                                 )
                             }
@@ -486,24 +492,15 @@ class MainActivity : ComponentActivity() {
                             AppScreen.SETTINGS -> {
                                 GlobalSettingsScreen(
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
-                                    onNavigateToToolbarSettings = { currentScreen = AppScreen.TOOLBAR_SETTINGS },
-                                    onNavigateToHardwareButtons = { currentScreen = AppScreen.HARDWARE_BUTTON_SETTINGS },
-                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
-                                    onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
-                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
-                                    onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
-                                    onNavigateToContentSelector = {
-                                        browserSettingsSourceScreen = AppScreen.SETTINGS
-                                        currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR
-                                    },
-                                    onNavigateToBrowserIgnoredSelectors = {
-                                        browserSettingsSourceScreen = AppScreen.SETTINGS
-                                        currentScreen = AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS
-                                    },
-                                    onNavigateToBrowserNextSelector = {
-                                        browserSettingsSourceScreen = AppScreen.SETTINGS
-                                        currentScreen = AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR
-                                    },
+                                    onNavigateToToolbarSettings = { navigateToSubScreen(AppScreen.TOOLBAR_SETTINGS) },
+                                    onNavigateToHardwareButtons = { navigateToSubScreen(AppScreen.HARDWARE_BUTTON_SETTINGS) },
+                                    onNavigateToVoiceEngine = { navigateToSubScreen(AppScreen.VOICE_ENGINE) },
+                                    onNavigateToPronunciationRules = { navigateToSubScreen(AppScreen.SETTINGS_PRONUNCIATION) },
+                                    onNavigateToSkipWords = { navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS) },
+                                    onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
+                                    onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) },
+                                    onNavigateToBrowserIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) },
+                                    onNavigateToBrowserNextSelector = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR) },
                                     onClearAllData = { viewModel.clearAllData() },
                                     onOpenAudioSettings = { showGlobalAudioSettings = true },
                                     onNavigateToAbout = { currentScreen = AppScreen.ABOUT }
@@ -511,7 +508,7 @@ class MainActivity : ComponentActivity() {
                             }
                             AppScreen.VOICE_ENGINE -> {
                                 VoiceEngineScreen(
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.SETTINGS_PRONUNCIATION -> {
@@ -523,7 +520,7 @@ class MainActivity : ComponentActivity() {
                                     onUpdateRule = { rule -> viewModel.updatePronunciationRule(rule) },
                                     onToggleRule = { id, enabled -> viewModel.togglePronunciationRule(id, enabled) },
                                     onDeleteRule = { id -> viewModel.deletePronunciationRule(id) },
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.SETTINGS_SKIP_WORDS -> {
@@ -535,7 +532,7 @@ class MainActivity : ComponentActivity() {
                                     onUpdateSkipWord = { word -> viewModel.updateSkipWord(word) },
                                     onToggleSkipWord = { id, enabled -> viewModel.toggleSkipWord(id, enabled) },
                                     onDeleteSkipWord = { id -> viewModel.deleteSkipWord(id) },
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.SETTINGS_HEADER_FOOTER_SKIPS -> {
@@ -554,7 +551,7 @@ class MainActivity : ComponentActivity() {
                                     onUpdateFooterRule = { rule -> viewModel.updateFooterSkipRule(rule) },
                                     onToggleFooterRule = { id, enabled -> viewModel.toggleFooterSkipRule(id, enabled) },
                                     onDeleteFooterRule = { id -> viewModel.deleteFooterSkipRule(id) },
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.SETTINGS_CONTENT_SELECTOR -> {
@@ -566,7 +563,7 @@ class MainActivity : ComponentActivity() {
                                     onUpdateSelector = { rule -> viewModel.updateContentSelector(rule) },
                                     onToggleSelector = { id, enabled -> viewModel.toggleContentSelector(id, enabled) },
                                     onDeleteSelector = { id -> viewModel.deleteContentSelector(id) },
-                                    onNavigateBack = { currentScreen = browserSettingsSourceScreen }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS -> {
@@ -575,21 +572,21 @@ class MainActivity : ComponentActivity() {
                                     onAddSelector = { browserViewModel.addIgnoredSelector(it) },
                                     onRemoveSelector = { browserViewModel.removeIgnoredSelector(it) },
                                     onResetDefaults = { browserViewModel.resetIgnoredSelectors() },
-                                    onNavigateBack = { currentScreen = browserSettingsSourceScreen }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR -> {
                                 BrowserNextSelectorScreen(
                                     currentSelector = browserUiState.settings.nextSelector,
                                     onSaveSelector = { browserViewModel.updateNextSelector(it) },
-                                    onNavigateBack = { currentScreen = browserSettingsSourceScreen }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.TOOLBAR_SETTINGS -> {
                                 ToolbarSettingsScreen(
                                     toolbarSettings = uiState.settings.quickToolbarSettings,
                                     onUpdateSettings = { viewModel.updateQuickToolbarSettings(it) },
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS },
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen },
                                     onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
                             }
@@ -597,7 +594,7 @@ class MainActivity : ComponentActivity() {
                                 HardwareButtonsScreen(
                                     settings = uiState.settings.hardwareButtonSettings,
                                     onUpdateSettings = { viewModel.updateHardwareButtonSettings(it) },
-                                    onNavigateBack = { currentScreen = AppScreen.SETTINGS },
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen },
                                     onOpenDrawer = { scope.launch { drawerState.open() } }
                                 )
                             }
@@ -613,22 +610,13 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = AppScreen.READER
                                     },
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
-                                    onNavigateToPronunciationRules = { currentScreen = AppScreen.SETTINGS_PRONUNCIATION },
-                                    onNavigateToSkipWords = { currentScreen = AppScreen.SETTINGS_SKIP_WORDS },
-                                    onNavigateToVoiceEngine = { currentScreen = AppScreen.VOICE_ENGINE },
-                                    onNavigateToHeaderFooterSkips = { currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS },
-                                    onNavigateToContentSelector = {
-                                        browserSettingsSourceScreen = AppScreen.BROWSER
-                                        currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR
-                                    },
-                                    onNavigateToNextSelector = {
-                                        browserSettingsSourceScreen = AppScreen.BROWSER
-                                        currentScreen = AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR
-                                    },
-                                    onNavigateToIgnoredSelectors = {
-                                        browserSettingsSourceScreen = AppScreen.BROWSER
-                                        currentScreen = AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS
-                                    }
+                                    onNavigateToPronunciationRules = { navigateToSubScreen(AppScreen.SETTINGS_PRONUNCIATION) },
+                                    onNavigateToSkipWords = { navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS) },
+                                    onNavigateToVoiceEngine = { navigateToSubScreen(AppScreen.VOICE_ENGINE) },
+                                    onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
+                                    onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) },
+                                    onNavigateToNextSelector = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR) },
+                                    onNavigateToIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) }
                                 )
                             }
                             AppScreen.ARCHIVE -> {
@@ -663,7 +651,12 @@ class MainActivity : ComponentActivity() {
                                     novels = uiState.novels,
                                     currentNovel = uiState.currentNovel,
                                     onNavigateBack = { currentScreen = AppScreen.READER },
-                                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                                    onNavigateToVoiceEngine = { navigateToSubScreen(AppScreen.VOICE_ENGINE) },
+                                    onNavigateToPronunciationRules = { navigateToSubScreen(AppScreen.SETTINGS_PRONUNCIATION) },
+                                    onNavigateToSkipWords = { navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS) },
+                                    onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
+                                    onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) }
                                 )
                             }
                         }
@@ -760,23 +753,23 @@ class MainActivity : ComponentActivity() {
                                 onContentSelectorChange = { viewModel.updateContentSelector(it) },
                                 onNavigateToPronunciationRules = {
                                     showGlobalAudioSettings = false
-                                    currentScreen = AppScreen.SETTINGS_PRONUNCIATION
+                                    navigateToSubScreen(AppScreen.SETTINGS_PRONUNCIATION)
                                 },
                                 onNavigateToSkipWords = {
                                     showGlobalAudioSettings = false
-                                    currentScreen = AppScreen.SETTINGS_SKIP_WORDS
+                                    navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS)
                                 },
                                 onNavigateToVoiceEngine = {
                                     showGlobalAudioSettings = false
-                                    currentScreen = AppScreen.VOICE_ENGINE
+                                    navigateToSubScreen(AppScreen.VOICE_ENGINE)
                                 },
                                 onNavigateToHeaderFooterSkips = {
                                     showGlobalAudioSettings = false
-                                    currentScreen = AppScreen.SETTINGS_HEADER_FOOTER_SKIPS
+                                    navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS)
                                 },
                                 onNavigateToContentSelector = {
                                     showGlobalAudioSettings = false
-                                    currentScreen = AppScreen.SETTINGS_CONTENT_SELECTOR
+                                    navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR)
                                 },
                                 onDismiss = { showGlobalAudioSettings = false }
                             )

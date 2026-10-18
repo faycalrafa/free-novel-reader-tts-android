@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.9.1"
+          DATE_TAG="v3.10.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.9.1"
-        run: ./gradlew assembleRelease -PappVersionName=3.9.1 --no-daemon
+          APP_VERSION_NAME: "3.10.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.10.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,14 +53,29 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.9.1 (Stable)
+          name: BookReader v3.10.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.9.1 (Stable) 📚🎙️⚡
+            ### BookReader v3.10.0 (Stable) 📚🎙️⚡
 
-            **BookReader v3.9.1** addresses critical runtime audio stability issues, resolves ExoPlayer threading crashes during local TTS playback, prevents runaway chapter skipping, and delivers complete multi-file companion support for KittenTTS and Kokoro neural voice engines!
+            **BookReader v3.10.0** is a major streamlining and polish release that eliminates embedded neural binaries to reduce APK download size by over 65MB, sets Android Built-in TTS as the default voice manager, implements complete return-to-source back navigation, refactors hardware button controls to pure in-app actions, and introduces a two-tier layout for the Monaco Code Editor!
 
             #### Key Updates in this release:
+            - **Massive 65MB+ APK Size Reduction**:
+              - Completely eliminated embedded Sherpa-ONNX binaries (`sherpa-onnx-1.13.8.aar`, 25.5MB) and bundled Piper voice assets (19MB, 360+ files).
+              - Removed unused neural downloaders, catalogs, and offline engine services for an ultra-lean, performant build.
+            - **Native Built-in TTS Default Experience**:
+              - Streamlined the Voice Engine screen to open directly to Built-in Android TTS voice management.
+              - Intuitive language tabs (English, Arabic, French), search, voice preview, and system engine launcher right at your fingertips.
+            - **Return-to-Source Back Navigation**:
+              - Navigating to any settings sub-screen (Voice Engine, Pronunciation Rules, Skip Words, Header/Footer Skips, Content Selectors, Ignored Selectors, Next Selector, Hardware Buttons) from Reader, Browser, Audio Studio, or Settings now remembers the originating screen and returns you right where you left off.
+            - **In-App Hardware Volume Button Shortcuts**:
+              - Removed background accessibility service requirements.
+              - Physical volume buttons trigger gestures (single, double, long press) with tactile haptic feedback while actively reading in the app.
+            - **Monaco Code Editor 2-Tier Header**:
+              - Restructured editor dialog into two dedicated tiers: Top bar for novel chapter/script title, language badge, save, and close controls; second tier with horizontally scrollable action buttons (Select All, Cut, Copy, Paste, Search, Match Replace, Beautify/Format, Word Wrap).
+            - **Audio Studio Quick Settings Integration**:
+              - Added quick navigation callbacks into Unified Audio Settings from the Audio Studio MP3 view.
             - **ExoPlayer Thread Violation Fix (`IllegalStateException`)**:
               - Resolved thread enforcement crashes (`Player is accessed on the wrong thread`) caused when local neural TTS dispatched paragraph callbacks on background worker threads.
               - Thread-isolated all ExoPlayer queries and service status synchronizations strictly to `Dispatchers.Main` / main Android Looper.

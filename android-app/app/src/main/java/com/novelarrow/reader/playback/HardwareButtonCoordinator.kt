@@ -35,11 +35,6 @@ object HardwareButtonCoordinator {
     private var lastServiceVolumeIsUp: Boolean? = null
     private var isServiceLongPressTriggered = false
 
-    // Cross-channel deduplication (AccessibilityService vs MediaSession VolumeProvider)
-    @Volatile
-    private var lastHandledActionTimestamp = 0L
-    @Volatile
-    private var lastHandledActionIsUp: Boolean? = null
 
     fun isScreenInteractive(context: Context): Boolean {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -189,10 +184,6 @@ object HardwareButtonCoordinator {
         val longAction = if (isUp) settings.volUpLongPress else settings.volDownLongPress
 
         val now = System.currentTimeMillis()
-        if (now - lastHandledActionTimestamp < 250L && lastHandledActionIsUp == isUp) {
-            // Already handled via AccessibilityService KeyEvent
-            return
-        }
 
         val timeSinceLast = now - lastServiceVolumeEventTime
         val isSameKey = (lastServiceVolumeIsUp == isUp)
@@ -248,9 +239,6 @@ object HardwareButtonCoordinator {
         isUp: Boolean,
         hapticFeedback: Boolean
     ) {
-        lastHandledActionTimestamp = System.currentTimeMillis()
-        lastHandledActionIsUp = isUp
-
         if (action == HardwareButtonAction.DEFAULT_VOLUME) {
             adjustSystemStreamVolume(context, isUp)
             return

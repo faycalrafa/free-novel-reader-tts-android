@@ -121,6 +121,11 @@ fun AudioStudioScreen(
     currentNovel: Novel?,
     onNavigateBack: () -> Unit,
     onOpenDrawer: () -> Unit = onNavigateBack,
+    onNavigateToVoiceEngine: (() -> Unit)? = null,
+    onNavigateToPronunciationRules: (() -> Unit)? = null,
+    onNavigateToSkipWords: (() -> Unit)? = null,
+    onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
+    onNavigateToContentSelector: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1045,6 +1050,26 @@ fun AudioStudioScreen(
             onSkipWordsEnabledChange = {},
             onAddSkipWord = { _, _ -> },
             onRemoveSkipWord = {},
+            onNavigateToVoiceEngine = {
+                showAudioSettingsDialog = false
+                onNavigateToVoiceEngine?.invoke()
+            },
+            onNavigateToPronunciationRules = {
+                showAudioSettingsDialog = false
+                onNavigateToPronunciationRules?.invoke()
+            },
+            onNavigateToSkipWords = {
+                showAudioSettingsDialog = false
+                onNavigateToSkipWords?.invoke()
+            },
+            onNavigateToHeaderFooterSkips = {
+                showAudioSettingsDialog = false
+                onNavigateToHeaderFooterSkips?.invoke()
+            },
+            onNavigateToContentSelector = {
+                showAudioSettingsDialog = false
+                onNavigateToContentSelector?.invoke()
+            },
             onDismiss = { showAudioSettingsDialog = false }
         )
     }

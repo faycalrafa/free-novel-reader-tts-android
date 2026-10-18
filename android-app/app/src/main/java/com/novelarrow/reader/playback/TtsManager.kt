@@ -406,41 +406,8 @@ class TtsManager(
                 }
             }
         } else {
-            // Check if this is an offline neural voice from NeuralVoiceCatalog
-            val neuralVoice = com.novelarrow.reader.data.model.NeuralVoiceCatalog.getVoiceById(voiceName, context)
-            val displayName = neuralVoice?.name ?: voiceName
-            val activeEngine = getActiveEnginePackage() ?: "System TTS"
-
-            val matchingVoice = if (neuralVoice != null) {
-                availableVoices.firstOrNull { it.name.contains(neuralVoice.name, ignoreCase = true) }
-                    ?: availableVoices.firstOrNull { it.name.contains(neuralVoice.modelFileName.substringBefore("."), ignoreCase = true) }
-                    ?: availableVoices.firstOrNull { it.name.contains(neuralVoice.id, ignoreCase = true) }
-            } else null
-
-            if (matchingVoice != null) {
-                activeCustomVoice = matchingVoice
-                try {
-                    matchingVoice.locale?.let { loc ->
-                        if ((tts?.isLanguageAvailable(loc) ?: -1) >= TextToSpeech.LANG_AVAILABLE) {
-                            tts?.language = loc
-                        }
-                    }
-                    tts?.voice = matchingVoice
-                    AppLogger.i(TAG, "Mapped offline voice \"$voiceName\" ($displayName) to engine voice: ${matchingVoice.name}")
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Failed to apply mapped voice ${matchingVoice.name}: ${e.message}", e)
-                }
-            } else {
-                configureLanguageSafely(neuralVoice?.language?.locale?.displayLanguage)
-                AppLogger.w(TAG, "Requested voice \"$voiceName\" ($displayName) was not found in TTS engine ($activeEngine). Engine voices: ${availableVoices.size}")
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    Toast.makeText(
-                        context,
-                        "Voice \"$displayName\" is not available in active TTS engine ($activeEngine).",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
+            activeCustomVoice = null
+            AppLogger.d(TAG, "Voice \"$voiceName\" not found in available voices; maintaining default engine voice.")
         }
     }
 

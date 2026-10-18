@@ -48,8 +48,21 @@ data class ReleaseItem(
 
 val FullReleaseHistory = listOf(
     ReleaseItem(
-        version = "v3.5.4",
+        version = "v3.10.0",
         date = "Latest Release",
+        title = "Massive App Streamlining, Native TTS Focus & Navigation Polish",
+        changes = listOf(
+            "Eliminated embedded Sherpa-ONNX binaries and offline voice models, slashing APK size by over 65MB",
+            "Direct Built-in Android TTS engine view as the primary voice selection experience",
+            "Complete return-to-source back navigation across Reader, Browser, Audio Studio, and Settings",
+            "Streamlined hardware button controls to native in-app volume key gestures with haptic feedback",
+            "Redesigned Monaco Code Editor header with clean two-tier layout",
+            "Connected Unified Audio Settings navigation callbacks within the Audio Studio MP3 view"
+        )
+    ),
+    ReleaseItem(
+        version = "v3.5.4",
+        date = "2026-10-17",
         title = "BookReader Rebranding & Adaptive Launcher Icon Fix",
         changes = listOf(
             "Unified app-wide branding under BookReader across UI headers, settings, notifications, toasts, and logs",
