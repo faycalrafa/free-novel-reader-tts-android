@@ -11,11 +11,17 @@ import com.novelarrow.reader.browser.engine.WebContentExtractor
 import com.novelarrow.reader.browser.engine.WebScriptInjector
 import com.novelarrow.reader.data.browser.WebNovelDownloader
 import com.novelarrow.reader.data.browser.DomContentVerifier
+import com.novelarrow.reader.data.model.BrowserNavbarShortcut
+import com.novelarrow.reader.data.model.BrowserTab
+import com.novelarrow.reader.data.model.NextChapterSelectorRule
 import com.novelarrow.reader.data.model.Novel
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
+import com.novelarrow.reader.data.model.RuleImpact
+import com.novelarrow.reader.data.model.RuleType
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.WebBrowserSettings
+import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.data.userscript.UserscriptEntity
@@ -52,10 +58,10 @@ sealed interface BrowserAction {
 
 typealias WebViewCommand = BrowserAction
 
-data class BrowserTab(
-    val id: String = UUID.randomUUID().toString(),
-    val url: String = "https://www.google.com",
-    val title: String = "Google"
+data class LongPressedClickableInfo(
+    val selector: String,
+    val text: String,
+    val hostname: String
 )
 
 data class BrowserUiState(
@@ -139,7 +145,16 @@ data class BrowserUiState(
     val readerModeTitle: String = "",
     val readerModeParagraphs: List<Paragraph> = emptyList(),
     val readerModeCurrentParagraphIndex: Int = 0,
-    val readerModeIsLoadingNext: Boolean = false
+    val readerModeIsLoadingNext: Boolean = false,
+
+    // Clickable element inspector & next selector creation
+    val longPressedClickable: LongPressedClickableInfo? = null,
+    val showAddNextSelectorDialog: Boolean = false,
+    val scannedClickables: List<ClickableElement> = emptyList(),
+    val showClickablesInspector: Boolean = false,
+    val showShortcutsManager: Boolean = false,
+    val flashHandleRed: Boolean = false,
+    val activeRuleImpacts: List<RuleImpact> = emptyList()
 )
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -206,20 +221,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     init {
         AudioPlaybackCoordinator.initialize(application)
         val initialSettings = settingsRepository.getBrowserSettings()
-        val startUrl = if (initialSettings.lastUrl.isNotBlank() && initialSettings.lastUrl != "https://novelbin.me") {
-            initialSettings.lastUrl
-        } else {
-            DEFAULT_URL
-        }
-        val initialTab = BrowserTab(url = startUrl, title = if (startUrl.contains("google")) "Google" else "Web Page")
+        val loadedTabs = if (initialSettings.tabs.isNotEmpty()) initialSettings.tabs else listOf(
+            BrowserTab(url = DEFAULT_URL, title = "Google")
+        )
+        val activeTab = loadedTabs.firstOrNull { it.id == initialSettings.currentTabId } ?: loadedTabs.first()
+        val startUrl = if (activeTab.url.isNotBlank() && activeTab.url != "https://novelbin.me") activeTab.url else DEFAULT_URL
 
         _uiState.update {
             it.copy(
                 settings = initialSettings,
                 currentUrl = startUrl,
                 inputUrl = startUrl,
-                tabs = listOf(initialTab),
-                currentTabId = initialTab.id
+                tabs = loadedTabs,
+                currentTabId = activeTab.id
             )
         }
 
@@ -295,6 +309,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // Multi-Tab Management
     // =========================================================================
 
+    private fun saveTabsState() {
+        val s = _uiState.value
+        viewModelScope.launch(Dispatchers.IO) {
+            settingsRepository.updateBrowserTabs(s.tabs, s.currentTabId)
+        }
+    }
+
     fun openNewTab(url: String = DEFAULT_URL) {
         val newTab = BrowserTab(url = url, title = if (url.contains("google")) "Google" else "New Tab")
         val updatedTabs = _uiState.value.tabs + newTab
@@ -308,6 +329,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 showTabSwitcher = false
             )
         }
+        saveTabsState()
         dispatchLoadUrl(url)
     }
 
@@ -322,6 +344,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 showTabSwitcher = false
             )
         }
+        saveTabsState()
         dispatchLoadUrl(tab.url)
     }
 
@@ -339,6 +362,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     showTabSwitcher = false
                 )
             }
+            saveTabsState()
             dispatchLoadUrl(DEFAULT_URL)
             return
         }
@@ -359,6 +383,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 pageTitle = newActiveTab.title
             )
         }
+        saveTabsState()
 
         if (_uiState.value.currentTabId != newActiveTab.id) {
             dispatchLoadUrl(newActiveTab.url)
@@ -430,6 +455,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             } else tab
         }
         _uiState.update { it.copy(tabs = updatedTabs) }
+        saveTabsState()
     }
 
     private fun saveLastUrl(url: String) {
@@ -574,8 +600,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
         }
         isNavigatingNextChapter = true
-        val nextSelector = _uiState.value.settings.nextSelector
-        dispatchEvaluateJs(WebScriptInjector.buildNextChapterScript(nextSelector))
+        val settings = _uiState.value.settings
+        val currentUrl = _uiState.value.currentUrl
+        dispatchEvaluateJs(
+            WebScriptInjector.buildNextChapterScript(
+                customSelector = settings.nextSelector,
+                rules = settings.nextChapterRules,
+                currentUrl = currentUrl
+            )
+        )
     }
 
     fun clickPrevChapter() {
@@ -1107,28 +1140,57 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun enterReadingMode() {
         val settings = _uiState.value.settings
-        val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+        val currentUrl = _uiState.value.currentUrl
+        val script = WebContentExtractor.buildContentExtractionScript(
+            contentSelector = settings.contentSelector,
+            ignoredSelectors = settings.ignoredSelectors,
+            contentSelectorRules = settings.contentSelectors,
+            currentUrl = currentUrl
+        )
 
         dispatchEvaluateJs(script) { result ->
             val extracted = WebContentExtractor.extractChapterContent(result, _uiState.value.pageTitle)
             val title = extracted.title
             val rawList = extracted.paragraphs
 
-            val paragraphs = mutableListOf<Paragraph>()
-            for (raw in rawList) {
-                val trimmed = raw.trim()
-                if (trimmed.isNotBlank()) {
-                    paragraphs.add(
-                        Paragraph(
-                            index = paragraphs.size,
-                            rawText = trimmed,
-                            spokenText = applyRulesAndSkips(trimmed),
-                            isHeading = paragraphs.isEmpty() && trimmed.length < 60
-                        )
-                    )
-                }
+            val containerImpact = if (extracted.matchedContainerSelector != null && extracted.containerFilteredChars > 0) {
+                RuleImpact(
+                    id = "container_${extracted.matchedContainerSelector}",
+                    name = extracted.matchedContainerSelector,
+                    ruleType = RuleType.CONTENT_CONTAINER,
+                    charsFiltered = extracted.containerFilteredChars,
+                    enabled = true,
+                    details = "${extracted.containerFilteredChars} outer characters excluded by container"
+                )
+            } else null
+
+            val ignoredImpacts = extracted.ignoredSelectorStats.map { (sel, count) ->
+                RuleImpact(
+                    id = "ignored_$sel",
+                    name = sel,
+                    ruleType = RuleType.IGNORED_SELECTOR,
+                    charsFiltered = count,
+                    enabled = true,
+                    details = "$count characters removed"
+                )
             }
 
+            val parseResult = ChapterParser.parseWebParagraphsWithDiagnostics(
+                rawParagraphs = rawList,
+                currentUrl = currentUrl,
+                headerSkipRules = settings.headerSkipRules,
+                headerSkipEnabled = settings.headerSkipEnabled,
+                footerSkipRules = settings.footerSkipRules,
+                footerSkipEnabled = settings.footerSkipEnabled,
+                pronunciationRules = settings.pronunciationRules,
+                pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                skipWords = settings.skipWords,
+                skipWordsEnabled = settings.skipWordsEnabled,
+                containerImpact = containerImpact,
+                ignoredSelectorImpacts = ignoredImpacts
+            )
+
+            val paragraphs = parseResult.paragraphs
             _uiState.update {
                 it.copy(
                     isReaderMode = true,
@@ -1136,7 +1198,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     readerModeParagraphs = paragraphs,
                     readerModeCurrentParagraphIndex = 0,
                     readerModeIsLoadingNext = false,
-                    liveParagraphs = if (paragraphs.isNotEmpty()) paragraphs else it.liveParagraphs
+                    liveParagraphs = if (paragraphs.isNotEmpty()) paragraphs else it.liveParagraphs,
+                    activeRuleImpacts = parseResult.ruleImpacts
                 )
             }
         }
@@ -1170,13 +1233,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun startLiveReading() {
         AudioPlaybackCoordinator.saveCurrentReaderProgress()
         AudioPlaybackCoordinator.stop()
-        _uiState.update { it.copy(isLiveReading = true, isLivePlaying = true) }
+        _uiState.update { it.copy(isLiveReading = true, isLivePlaying = true, flashHandleRed = false) }
         startLiveReadingInternal(forceStartAtBeginning = false)
     }
 
     private fun startLiveReadingInternal(forceStartAtBeginning: Boolean = false, retryCount: Int = 0) {
         val settings = _uiState.value.settings
-        val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+        val currentUrl = _uiState.value.currentUrl
+        val script = WebContentExtractor.buildContentExtractionScript(
+            contentSelector = settings.contentSelector,
+            ignoredSelectors = settings.ignoredSelectors,
+            contentSelectorRules = settings.contentSelectors,
+            currentUrl = currentUrl
+        )
 
         dispatchEvaluateJs(script) { result ->
             val extracted = WebContentExtractor.extractChapterContent(result, _uiState.value.pageTitle)
@@ -1195,59 +1264,89 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
 
             try {
-                val paragraphs = mutableListOf<Paragraph>()
-                for (raw in rawList) {
-                    val trimmed = raw.trim()
-                    if (trimmed.isNotBlank()) {
-                        paragraphs.add(
-                            Paragraph(
-                                index = paragraphs.size,
-                                rawText = trimmed,
-                                spokenText = applyRulesAndSkips(trimmed),
-                                isHeading = paragraphs.isEmpty() && trimmed.length < 60
-                            )
-                        )
-                    }
+                val containerImpact = if (extracted.matchedContainerSelector != null && extracted.containerFilteredChars > 0) {
+                    RuleImpact(
+                        id = "container_${extracted.matchedContainerSelector}",
+                        name = extracted.matchedContainerSelector,
+                        ruleType = RuleType.CONTENT_CONTAINER,
+                        charsFiltered = extracted.containerFilteredChars,
+                        enabled = true,
+                        details = "${extracted.containerFilteredChars} outer characters excluded by container"
+                    )
+                } else null
+
+                val ignoredImpacts = extracted.ignoredSelectorStats.map { (sel, count) ->
+                    RuleImpact(
+                        id = "ignored_$sel",
+                        name = sel,
+                        ruleType = RuleType.IGNORED_SELECTOR,
+                        charsFiltered = count,
+                        enabled = true,
+                        details = "$count characters removed"
+                    )
                 }
 
-                if (paragraphs.isNotEmpty()) {
+                val parseResult = ChapterParser.parseWebParagraphsWithDiagnostics(
+                    rawParagraphs = rawList,
+                    currentUrl = currentUrl,
+                    headerSkipRules = settings.headerSkipRules,
+                    headerSkipEnabled = settings.headerSkipEnabled,
+                    footerSkipRules = settings.footerSkipRules,
+                    footerSkipEnabled = settings.footerSkipEnabled,
+                    pronunciationRules = settings.pronunciationRules,
+                    pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+                    skipWords = settings.skipWords,
+                    skipWordsEnabled = settings.skipWordsEnabled,
+                    containerImpact = containerImpact,
+                    ignoredSelectorImpacts = ignoredImpacts
+                )
+
+                val paragraphs = parseResult.paragraphs
+                val readableParagraphs = paragraphs.filter { it.spokenText.isNotBlank() }
+
+                if (readableParagraphs.isNotEmpty()) {
                     val targetIndex = if (forceStartAtBeginning) 0 else 0
                     _uiState.update {
                         it.copy(
-                            liveParagraphs = paragraphs,
+                            liveParagraphs = readableParagraphs,
                             liveChapterTitle = title,
                             liveCurrentParagraphIndex = targetIndex,
                             isLiveReading = true,
-                            isLivePlaying = true
+                            isLivePlaying = true,
+                            flashHandleRed = false,
+                            activeRuleImpacts = parseResult.ruleImpacts
                         )
                     }
                     AudioPlaybackCoordinator.playBrowserParagraphs(
                         context = getApplication(),
                         chapterTitle = title,
-                        paragraphs = paragraphs,
+                        paragraphs = readableParagraphs,
                         startParagraphIndex = targetIndex,
                         rate = settings.ttsRate,
                         pitch = settings.ttsPitch,
                         voiceName = settings.ttsVoice
                     )
                 } else {
-                    if (retryCount < 2) {
+                    if (retryCount < 2 && rawList.isEmpty()) {
                         retryExtractionJob?.cancel()
                         retryExtractionJob = viewModelScope.launch {
                             delay(1000)
                             startLiveReadingInternal(forceStartAtBeginning, retryCount + 1)
                         }
                     } else {
+                        AppLogger.w(TAG, "No readable text detected on page $currentUrl. Rules applied: ${parseResult.ruleImpacts.size}")
                         _uiState.update {
                             it.copy(
-                                toastMessage = "No readable content found on page.",
-                                isLivePlaying = false
+                                toastMessage = "No text detected. Check if filters or selectors are misconfigured.",
+                                isLivePlaying = false,
+                                flashHandleRed = true,
+                                activeRuleImpacts = parseResult.ruleImpacts
                             )
                         }
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error starting live reading: ${e.message}")
+                AppLogger.e(TAG, "Error starting live reading: ${e.message}", e)
             }
         }
     }
@@ -1683,6 +1782,188 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissDocumentationDialog() {
         _uiState.update { it.copy(showDocumentationDialog = false) }
+    }
+
+    fun onLongPressClickable(selector: String, text: String, hostname: String) {
+        _uiState.update {
+            it.copy(
+                longPressedClickable = LongPressedClickableInfo(selector, text, hostname),
+                showAddNextSelectorDialog = true
+            )
+        }
+    }
+
+    fun dismissAddNextSelectorDialog() {
+        _uiState.update {
+            it.copy(
+                longPressedClickable = null,
+                showAddNextSelectorDialog = false
+            )
+        }
+    }
+
+    fun confirmAddNextSelector(ruleName: String, selector: String, hostname: String) {
+        viewModelScope.launch {
+            val rule = NextChapterSelectorRule(
+                name = ruleName.ifBlank { "Next Chapter ($hostname)" },
+                selector = selector,
+                domain = hostname,
+                enabled = true
+            )
+            settingsRepository.addNextChapterSelectorRule(rule)
+            _uiState.update {
+                it.copy(
+                    longPressedClickable = null,
+                    showAddNextSelectorDialog = false,
+                    toastMessage = "Added Next Chapter selector for $hostname"
+                )
+            }
+        }
+    }
+
+    fun addNextChapterSelectorRule(rule: NextChapterSelectorRule) {
+        viewModelScope.launch {
+            settingsRepository.addNextChapterSelectorRule(rule)
+        }
+    }
+
+    fun updateNextChapterSelectorRule(rule: NextChapterSelectorRule) {
+        viewModelScope.launch {
+            settingsRepository.updateNextChapterSelectorRule(rule)
+        }
+    }
+
+    fun toggleNextChapterSelectorRule(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.toggleNextChapterSelectorRule(id, enabled)
+        }
+    }
+
+    fun deleteNextChapterSelectorRule(id: String) {
+        viewModelScope.launch {
+            settingsRepository.removeNextChapterSelectorRule(id)
+        }
+    }
+
+    fun resetNextChapterSelectorRules() {
+        viewModelScope.launch {
+            settingsRepository.resetNextChapterSelectorRules()
+        }
+    }
+
+    fun inspectPageClickables() {
+        val script = WebScriptInjector.buildClickableInspectorScript()
+        dispatchEvaluateJs(script) { result ->
+            val list = mutableListOf<ClickableElement>()
+            if (!result.isNullOrBlank() && result != "null") {
+                try {
+                    val rawJson = if (result.startsWith("\"") && result.endsWith("\"")) {
+                        org.json.JSONTokener(result).nextValue().toString()
+                    } else result
+                    val array = org.json.JSONArray(rawJson)
+                    for (i in 0 until array.length()) {
+                        val obj = array.getJSONObject(i)
+                        val selector = obj.optString("selector", "")
+                        val text = obj.optString("text", "")
+                        val tag = obj.optString("tag", "")
+                        val href = obj.optString("href", "")
+                        if (selector.isNotBlank()) {
+                            list.add(
+                                ClickableElement(
+                                    selector = selector,
+                                    text = text,
+                                    tagName = tag,
+                                    href = href
+                                )
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed parsing scanned clickables: ${e.message}", e)
+                }
+            }
+            _uiState.update {
+                it.copy(
+                    scannedClickables = list,
+                    showClickablesInspector = true
+                )
+            }
+        }
+    }
+
+    fun dismissClickablesInspector() {
+        _uiState.update { it.copy(showClickablesInspector = false) }
+    }
+
+    fun openShortcutsManager() {
+        _uiState.update { it.copy(showShortcutsManager = true, showClickablesInspector = false) }
+    }
+
+    fun dismissShortcutsManager() {
+        _uiState.update { it.copy(showShortcutsManager = false) }
+    }
+
+    fun addNavbarShortcut(shortcut: BrowserNavbarShortcut) {
+        viewModelScope.launch {
+            settingsRepository.addNavbarShortcut(shortcut)
+            _uiState.update { it.copy(toastMessage = "Added shortcut: ${shortcut.name}") }
+        }
+    }
+
+    fun toggleNavbarShortcut(id: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.toggleNavbarShortcut(id, enabled)
+        }
+    }
+
+    fun deleteNavbarShortcut(id: String) {
+        viewModelScope.launch {
+            settingsRepository.removeNavbarShortcut(id)
+        }
+    }
+
+    fun clickElementBySelector(selector: String) {
+        val script = WebScriptInjector.buildClickElementScript(selector)
+        dispatchEvaluateJs(script)
+    }
+
+    fun resetFlashHandleRed() {
+        _uiState.update { it.copy(flashHandleRed = false) }
+    }
+
+    fun toggleActiveRule(rule: RuleImpact, enabled: Boolean) {
+        viewModelScope.launch {
+            when (rule.ruleType) {
+                RuleType.CONTENT_CONTAINER, RuleType.CONTENT_SELECTOR -> {
+                    settingsRepository.toggleContentSelector(rule.id, enabled)
+                }
+                RuleType.IGNORED_SELECTOR -> {
+                    val cleanSel = rule.name
+                    if (enabled) {
+                        settingsRepository.addBrowserIgnoredSelector(cleanSel)
+                    } else {
+                        settingsRepository.removeBrowserIgnoredSelector(cleanSel)
+                    }
+                }
+                RuleType.SKIP_WORD -> {
+                    settingsRepository.toggleSkipWord(rule.id, enabled)
+                }
+                RuleType.PRONUNCIATION -> {
+                    settingsRepository.togglePronunciationRule(rule.id, enabled)
+                }
+                RuleType.HEADER_SKIP -> {
+                    settingsRepository.setHeaderSkipEnabled(enabled)
+                }
+                RuleType.FOOTER_SKIP -> {
+                    settingsRepository.setFooterSkipEnabled(enabled)
+                }
+            }
+            if (_uiState.value.isLiveReading) {
+                startLiveReadingInternal(forceStartAtBeginning = false)
+            } else if (_uiState.value.isReaderMode) {
+                enterReadingMode()
+            }
+        }
     }
 
     override fun onCleared() {

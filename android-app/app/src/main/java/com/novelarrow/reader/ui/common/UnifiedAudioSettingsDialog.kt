@@ -72,6 +72,7 @@ fun UnifiedAudioSettingsDialog(
     onNavigateToVoiceEngine: (() -> Unit)? = null,
     onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
     onNavigateToContentSelector: (() -> Unit)? = null,
+    onNavigateToIgnoredSelectors: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -304,6 +305,19 @@ fun UnifiedAudioSettingsDialog(
                         onClick = {
                             onDismiss()
                             onNavigateToContentSelector?.invoke()
+                        }
+                    )
+                }
+
+                // Ignored Elements Selectors Button
+                item {
+                    SettingsNavigationRow(
+                        icon = Icons.Default.FilterList,
+                        title = "Ignored Elements Selectors",
+                        subtitle = "CSS selectors for ads, headers, nav, comments, or scripts to ignore",
+                        onClick = {
+                            onDismiss()
+                            onNavigateToIgnoredSelectors?.invoke()
                         }
                     )
                 }

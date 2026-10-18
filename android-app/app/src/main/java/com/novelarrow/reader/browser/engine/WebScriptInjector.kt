@@ -1,5 +1,7 @@
 package com.novelarrow.reader.browser.engine
 
+import com.novelarrow.reader.data.model.NextChapterSelectorRule
+import org.json.JSONArray
 import org.json.JSONObject
 
 enum class RunAt {
@@ -152,6 +154,106 @@ object WebScriptInjector {
                         }
                     });
                 }
+
+                // 4. Long-press on clickables to add as auto-clicker next target
+                if (!window.__bookReaderLongPressBound) {
+                    window.__bookReaderLongPressBound = true;
+                    var longPressTimer = null;
+                    var touchStartX = 0;
+                    var touchStartY = 0;
+                    var longPressed = false;
+
+                    function getElSelector(el) {
+                        if (!el) return '';
+                        if (el.id) return '#' + CSS.escape(el.id);
+                        var path = [];
+                        var curr = el;
+                        while (curr && curr.nodeType === 1 && curr !== document.body && curr !== document.documentElement) {
+                            var tag = curr.tagName.toLowerCase();
+                            var classNames = Array.from(curr.classList).filter(function(c) {
+                                return !c.startsWith('na-') && !c.startsWith('ng-');
+                            });
+                            var classSelector = classNames.length > 0 ? '.' + classNames.map(function(c) { return CSS.escape(c); }).join('.') : '';
+                            var parent = curr.parentElement;
+                            if (parent) {
+                                var siblings = Array.from(parent.children).filter(function(c) { return c.tagName.toLowerCase() === tag; });
+                                if (siblings.length > 1) {
+                                    var idx = siblings.indexOf(curr) + 1;
+                                    path.unshift(tag + classSelector + ':nth-of-type(' + idx + ')');
+                                } else {
+                                    path.unshift(tag + classSelector);
+                                }
+                            } else {
+                                path.unshift(tag + classSelector);
+                            }
+                            if (curr.id) {
+                                path[0] = '#' + CSS.escape(curr.id);
+                                break;
+                            }
+                            curr = curr.parentElement;
+                        }
+                        return path.join(' > ');
+                    }
+
+                    function findClickable(el) {
+                        if (!el) return null;
+                        return el.closest('a, button, input[type="button"], input[type="submit"], [role="button"], .btn, .button, [onclick]');
+                    }
+
+                    document.addEventListener('touchstart', function(e) {
+                        if (e.touches.length !== 1) return;
+                        var touch = e.touches[0];
+                        touchStartX = touch.clientX;
+                        touchStartY = touch.clientY;
+                        longPressed = false;
+                        var clickable = findClickable(e.target);
+                        if (clickable) {
+                            clearTimeout(longPressTimer);
+                            longPressTimer = setTimeout(function() {
+                                longPressed = true;
+                                var sel = getElSelector(clickable);
+                                var text = (clickable.innerText || clickable.textContent || clickable.title || clickable.getAttribute('aria-label') || '').trim();
+                                var host = window.location.hostname || '';
+                                if (window.AndroidBridge && window.AndroidBridge.onLongPressClickable) {
+                                    window.AndroidBridge.onLongPressClickable(sel, text, host);
+                                }
+                            }, 600);
+                        }
+                    }, { passive: true });
+
+                    document.addEventListener('touchmove', function(e) {
+                        if (e.touches.length !== 1) return;
+                        var touch = e.touches[0];
+                        if (Math.abs(touch.clientX - touchStartX) > 10 || Math.abs(touch.clientY - touchStartY) > 10) {
+                            clearTimeout(longPressTimer);
+                        }
+                    }, { passive: true });
+
+                    document.addEventListener('touchend', function(e) {
+                        clearTimeout(longPressTimer);
+                        if (longPressed) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        }
+                    }, true);
+
+                    document.addEventListener('touchcancel', function(e) {
+                        clearTimeout(longPressTimer);
+                    }, { passive: true });
+
+                    document.addEventListener('contextmenu', function(e) {
+                        var clickable = findClickable(e.target);
+                        if (clickable) {
+                            var sel = getElSelector(clickable);
+                            var text = (clickable.innerText || clickable.textContent || clickable.title || clickable.getAttribute('aria-label') || '').trim();
+                            var host = window.location.hostname || '';
+                            if (window.AndroidBridge && window.AndroidBridge.onLongPressClickable) {
+                                e.preventDefault();
+                                window.AndroidBridge.onLongPressClickable(sel, text, host);
+                            }
+                        }
+                    });
+                }
             })();
         """.trimIndent()
     }
@@ -217,21 +319,40 @@ object WebScriptInjector {
         """.trimIndent()
     }
 
-    fun buildNextChapterScript(customSelector: String): String {
-        val safeSelector = JSONObject.quote(customSelector.trim())
+    fun buildNextChapterScript(
+        customSelector: String = "",
+        rules: List<NextChapterSelectorRule> = emptyList(),
+        currentUrl: String = ""
+    ): String {
+        val activeCustomSelectors = mutableListOf<String>()
+        if (customSelector.isNotBlank()) {
+            activeCustomSelectors.add(customSelector.trim())
+        }
+        for (rule in rules) {
+            if (rule.enabled && rule.selector.isNotBlank()) {
+                val inScope = rule.domain.isBlank() || currentUrl.contains(rule.domain, ignoreCase = true)
+                if (inScope && !activeCustomSelectors.contains(rule.selector.trim())) {
+                    activeCustomSelectors.add(rule.selector.trim())
+                }
+            }
+        }
+        val safeSelectorsJson = JSONArray(activeCustomSelectors).toString()
         return """
             (function() {
                 if (window.__na_next_clicking) return;
                 window.__na_next_clicking = true;
                 setTimeout(function() { window.__na_next_clicking = false; }, 2000);
 
-                var customSel = $safeSelector;
+                var prioritizedSelectors = $safeSelectorsJson;
                 function getNextEl() {
-                    if (customSel && customSel.length > 0) {
-                        try {
-                            var el = document.querySelector(customSel);
-                            if (el) return el;
-                        } catch(e) {}
+                    for (var p = 0; p < prioritizedSelectors.length; p++) {
+                        var pSel = prioritizedSelectors[p];
+                        if (pSel && pSel.length > 0) {
+                            try {
+                                var el = document.querySelector(pSel);
+                                if (el) return el;
+                            } catch(e) {}
+                        }
                     }
                     var selectors = [
                         'button[title*="Next Chapter"]', 'a[title*="Next Chapter"]',
@@ -385,6 +506,87 @@ object WebScriptInjector {
                     if (!decrementUrl()) {
                         window.history.back();
                     }
+                }
+            })();
+        """.trimIndent()
+    }
+
+    fun buildClickElementScript(selector: String): String {
+        val safeSelector = JSONObject.quote(selector.trim())
+        return """
+            (function() {
+                try {
+                    var el = document.querySelector($safeSelector);
+                    if (el) {
+                        el.scrollIntoView({ block: 'center' });
+                        el.focus();
+                        el.click();
+                        return true;
+                    }
+                } catch(e) {}
+                return false;
+            })();
+        """.trimIndent()
+    }
+
+    fun buildClickableInspectorScript(): String {
+        return """
+            (function() {
+                try {
+                    function getElSelector(el) {
+                        if (!el) return '';
+                        if (el.id) return '#' + CSS.escape(el.id);
+                        var path = [];
+                        var curr = el;
+                        while (curr && curr.nodeType === 1 && curr !== document.body && curr !== document.documentElement) {
+                            var tag = curr.tagName.toLowerCase();
+                            var classNames = Array.from(curr.classList).filter(function(c) {
+                                return !c.startsWith('na-') && !c.startsWith('ng-');
+                            });
+                            var classSelector = classNames.length > 0 ? '.' + classNames.map(function(c) { return CSS.escape(c); }).join('.') : '';
+                            var parent = curr.parentElement;
+                            if (parent) {
+                                var siblings = Array.from(parent.children).filter(function(c) { return c.tagName.toLowerCase() === tag; });
+                                if (siblings.length > 1) {
+                                    var idx = siblings.indexOf(curr) + 1;
+                                    path.unshift(tag + classSelector + ':nth-of-type(' + idx + ')');
+                                } else {
+                                    path.unshift(tag + classSelector);
+                                }
+                            } else {
+                                path.unshift(tag + classSelector);
+                            }
+                            if (curr.id) {
+                                path[0] = '#' + CSS.escape(curr.id);
+                                break;
+                            }
+                            curr = curr.parentElement;
+                        }
+                        return path.join(' > ');
+                    }
+
+                    var candidates = Array.from(document.querySelectorAll('a, button, input[type="button"], input[type="submit"], [role="button"], .btn, .button, [onclick]'));
+                    var results = [];
+                    for (var i = 0; i < candidates.length; i++) {
+                        var el = candidates[i];
+                        var cs = window.getComputedStyle(el);
+                        if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+                        var rect = el.getBoundingClientRect();
+                        if (rect.width === 0 && rect.height === 0 && el.offsetHeight === 0) continue;
+                        var rawText = (el.innerText || el.textContent || el.title || el.getAttribute('aria-label') || el.value || '').replace(/\s+/g, ' ').trim();
+                        var tag = el.tagName.toLowerCase();
+                        var href = el.href || el.getAttribute('href') || '';
+                        var sel = getElSelector(el);
+                        results.push({
+                            selector: sel,
+                            text: rawText.length > 0 ? rawText : (href.length > 0 ? href : tag),
+                            tagName: tag,
+                            href: href
+                        });
+                    }
+                    return JSON.stringify(results);
+                } catch(e) {
+                    return JSON.stringify([]);
                 }
             })();
         """.trimIndent()

@@ -645,89 +645,35 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 return Pair(bmp, bytes)
             }
         }
-        val size = 512
-        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bitmap)
-
-        val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            shader = android.graphics.LinearGradient(
-                0f, 0f, size.toFloat(), size.toFloat(),
-                intArrayOf(
-                    android.graphics.Color.rgb(24, 32, 54),
-                    android.graphics.Color.rgb(41, 72, 120),
-                    android.graphics.Color.rgb(18, 24, 38)
-                ),
-                floatArrayOf(0f, 0.6f, 1f),
-                android.graphics.Shader.TileMode.CLAMP
-            )
+        val targetSize = 512
+        var bitmap: android.graphics.Bitmap? = null
+        try {
+            val opts = android.graphics.BitmapFactory.Options().apply {
+                inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+            }
+            val loaded = android.graphics.BitmapFactory.decodeResource(resources, R.drawable.notification_media_cover, opts)
+            if (loaded != null) {
+                bitmap = if (loaded.width != targetSize || loaded.height != targetSize) {
+                    android.graphics.Bitmap.createScaledBitmap(loaded, targetSize, targetSize, true)
+                } else {
+                    loaded
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.e("NovelAudioPlaybackService", "Failed to decode notification_media_cover resource: ${e.message}", e)
         }
-        val rect = android.graphics.RectF(0f, 0f, size.toFloat(), size.toFloat())
-        canvas.drawRoundRect(rect, 48f, 48f, bgPaint)
 
-        val spinePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(70, 255, 215, 0)
-            style = android.graphics.Paint.Style.STROKE
-            strokeWidth = 14f
+        val finalBitmap = bitmap ?: android.graphics.Bitmap.createBitmap(targetSize, targetSize, android.graphics.Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(24, 32, 54))
         }
-        canvas.drawLine(48f, 40f, 48f, size.toFloat() - 40f, spinePaint)
-
-        val bookPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.WHITE
-            style = android.graphics.Paint.Style.FILL
-        }
-        val cx = size / 2f
-        val cy = size / 2f
-
-        val path = android.graphics.Path().apply {
-            moveTo(cx, cy + 90f)
-            cubicTo(cx - 60f, cy + 60f, cx - 130f, cy + 70f, cx - 170f, cy + 80f)
-            lineTo(cx - 170f, cy - 80f)
-            cubicTo(cx - 130f, cy - 90f, cx - 60f, cy - 100f, cx, cy - 70f)
-            close()
-
-            moveTo(cx, cy + 90f)
-            cubicTo(cx + 60f, cy + 60f, cx + 130f, cy + 70f, cx + 170f, cy + 80f)
-            lineTo(cx + 170f, cy - 80f)
-            cubicTo(cx + 130f, cy - 90f, cx + 60f, cy - 100f, cx, cy - 70f)
-            close()
-        }
-        canvas.drawPath(path, bookPaint)
-
-        val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(120, 24, 32, 54)
-            style = android.graphics.Paint.Style.STROKE
-            strokeWidth = 6f
-            strokeCap = android.graphics.Paint.Cap.ROUND
-        }
-        canvas.drawLine(cx - 140f, cy - 40f, cx - 40f, cy - 48f, linePaint)
-        canvas.drawLine(cx - 140f, cy - 10f, cx - 40f, cy - 18f, linePaint)
-        canvas.drawLine(cx - 140f, cy + 20f, cx - 40f, cy + 12f, linePaint)
-
-        canvas.drawLine(cx + 40f, cy - 48f, cx + 140f, cy - 40f, linePaint)
-        canvas.drawLine(cx + 40f, cy - 18f, cx + 140f, cy - 10f, linePaint)
-        canvas.drawLine(cx + 40f, cy + 12f, cx + 140f, cy + 20f, linePaint)
-
-        val ribbonPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.rgb(234, 88, 12)
-            style = android.graphics.Paint.Style.FILL
-        }
-        val ribbonPath = android.graphics.Path().apply {
-            moveTo(cx - 12f, cy - 70f)
-            lineTo(cx + 12f, cy - 70f)
-            lineTo(cx + 12f, cy + 115f)
-            lineTo(cx, cy + 100f)
-            lineTo(cx - 12f, cy + 115f)
-            close()
-        }
-        canvas.drawPath(ribbonPath, ribbonPaint)
 
         val stream = java.io.ByteArrayOutputStream()
-        bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+        finalBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, stream)
         val bytes = stream.toByteArray()
 
-        cachedBookCoverBitmap = bitmap
+        cachedBookCoverBitmap = finalBitmap
         cachedBookArtworkBytes = bytes
-        return Pair(bitmap, bytes)
+        return Pair(finalBitmap, bytes)
     }
 
     fun updatePlaybackState(

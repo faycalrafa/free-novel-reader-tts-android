@@ -577,8 +577,12 @@ class MainActivity : ComponentActivity() {
                             }
                             AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR -> {
                                 BrowserNextSelectorScreen(
-                                    currentSelector = browserUiState.settings.nextSelector,
-                                    onSaveSelector = { browserViewModel.updateNextSelector(it) },
+                                    rules = browserUiState.settings.nextChapterRules,
+                                    onAddRule = { browserViewModel.addNextChapterSelectorRule(it) },
+                                    onUpdateRule = { browserViewModel.updateNextChapterSelectorRule(it) },
+                                    onToggleRule = { id, enabled -> browserViewModel.toggleNextChapterSelectorRule(id, enabled) },
+                                    onDeleteRule = { id -> browserViewModel.deleteNextChapterSelectorRule(id) },
+                                    onResetDefaults = { browserViewModel.resetNextChapterSelectorRules() },
                                     onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
@@ -616,7 +620,8 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
                                     onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) },
                                     onNavigateToNextSelector = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR) },
-                                    onNavigateToIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) }
+                                    onNavigateToIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) },
+                                    onNavigateToDevLogs = { currentScreen = AppScreen.DEV_LOGS }
                                 )
                             }
                             AppScreen.ARCHIVE -> {
@@ -770,6 +775,10 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToContentSelector = {
                                     showGlobalAudioSettings = false
                                     navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR)
+                                },
+                                onNavigateToIgnoredSelectors = {
+                                    showGlobalAudioSettings = false
+                                    navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS)
                                 },
                                 onDismiss = { showGlobalAudioSettings = false }
                             )

@@ -29,6 +29,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -57,6 +58,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
@@ -66,10 +69,13 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -77,6 +83,7 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.Tune
@@ -88,6 +95,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import com.novelarrow.reader.ui.common.AppLoadingIndicator
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -103,6 +111,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -111,6 +120,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.novelarrow.reader.data.model.BrowserNavbarShortcut
+import com.novelarrow.reader.data.model.BrowserTab
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -161,12 +173,13 @@ fun BrowserScreen(
     onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
     onNavigateToContentSelector: (() -> Unit)? = null,
     onNavigateToNextSelector: (() -> Unit)? = null,
-    onNavigateToIgnoredSelectors: (() -> Unit)? = null
+    onNavigateToIgnoredSelectors: (() -> Unit)? = null,
+    onNavigateToDevLogs: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val playbackProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
     val isReaderActive = playbackProgress.source == PlaybackSource.READER && (playbackProgress.isPlaying || playbackProgress.novelId != null)
-    val isMediaDockVisible = uiState.isLiveReading || isReaderActive
+    val isMediaDockVisible = uiState.isLiveReading || isReaderActive || uiState.flashHandleRed
     val context = LocalContext.current
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var showAudioSettingsDialog by remember { mutableStateOf(false) }
@@ -225,7 +238,6 @@ fun BrowserScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Re-designed 2-Row Top Bar: full width URL on row 1, clean action controls on row 2
             BrowserTopBar(
                 inputUrl = uiState.inputUrl,
                 isLoading = uiState.isLoading,
@@ -233,28 +245,34 @@ fun BrowserScreen(
                 canGoForward = uiState.canGoForward,
                 isLiveReading = uiState.isLiveReading,
                 isDownloading = uiState.isDownloading,
-                tabCount = uiState.tabs.size,
                 isReaderMode = uiState.isReaderMode,
+                totalParagraphs = if (uiState.isLiveReading) uiState.liveParagraphs.size else if (uiState.isReaderMode) uiState.readerModeParagraphs.size else 0,
+                currentParagraphIndex = if (uiState.isLiveReading) uiState.liveCurrentParagraphIndex else if (uiState.isReaderMode) uiState.readerModeCurrentParagraphIndex else 0,
+                currentUrl = uiState.currentUrl,
+                navbarShortcuts = uiState.settings.navbarShortcuts,
                 onBackClicked = { viewModel.goBack() },
                 onForwardClicked = { viewModel.goForward() },
                 onReloadClicked = { viewModel.reload() },
-                onHomeClicked = { viewModel.goHome() },
-                onNewTabClicked = { viewModel.openNewTab() },
                 onReadingModeClicked = { viewModel.toggleReadingMode() },
-                onExtensionsClicked = { viewModel.openExtensionsSheet() },
                 onLoopClicked = { viewModel.onLoopButtonClicked() },
                 onSaveFrozenHtmlClicked = { viewModel.saveSingleChapter() },
-                onRawCodeClicked = { viewModel.extractAndShowRawHtml() },
                 onNextChapterClicked = { viewModel.clickNextChapter() },
+                onLiveReadClicked = { viewModel.toggleLiveReading() },
+                onSeekParagraph = { viewModel.seekToParagraph(it) },
+                onTriggerShortcut = { selector -> viewModel.clickElementBySelector(selector) },
+                onInspectClickables = { viewModel.inspectPageClickables() },
+                onManageShortcuts = { viewModel.openShortcutsManager() },
+                onRawCodeClicked = { viewModel.extractAndShowRawHtml() },
                 onNextSelectorClicked = onNavigateToNextSelector,
                 onIgnoredSelectorsClicked = onNavigateToIgnoredSelectors,
+                onExtensionsClicked = { viewModel.openExtensionsSheet() },
+                onSettingsClicked = { viewModel.openSettingsDialog() },
+                onDevLogsClicked = onNavigateToDevLogs,
                 onUrlChanged = { viewModel.setInputUrl(it) },
                 onUrlSubmitted = {
                     keyboardController?.hide()
                     viewModel.navigateTo(it)
                 },
-                onLiveReadClicked = { viewModel.toggleLiveReading() },
-                onSettingsClicked = { viewModel.openSettingsDialog() },
                 onOpenDrawer = onOpenDrawer
             )
 
@@ -352,7 +370,7 @@ fun BrowserScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            if (uiState.isLiveReading) {
+            if (uiState.isLiveReading || (uiState.flashHandleRed && !isReaderActive)) {
                 TtsDock(
                     currentParagraph = uiState.liveCurrentParagraphIndex,
                     totalParagraphs = uiState.liveParagraphs.size,
@@ -372,8 +390,13 @@ fun BrowserScreen(
                     onOpenAudioSettings = { showAudioSettingsDialog = true },
                     onCloseClick = {
                         viewModel.stopLiveReading()
+                        viewModel.resetFlashHandleRed()
                         AudioPlaybackCoordinator.stop()
-                    }
+                    },
+                    activeRuleImpacts = uiState.activeRuleImpacts,
+                    onToggleRule = { rule, enabled -> viewModel.toggleActiveRule(rule, enabled) },
+                    flashHandleRed = uiState.flashHandleRed,
+                    onResetFlashHandle = { viewModel.resetFlashHandleRed() }
                 )
             } else if (isReaderActive) {
                 TtsDock(
@@ -396,7 +419,11 @@ fun BrowserScreen(
                     onSeekParagraph = { AudioPlaybackCoordinator.seekToParagraph(it) },
                     isBrowserMode = false,
                     onOpenAudioSettings = { showAudioSettingsDialog = true },
-                    onCloseClick = { AudioPlaybackCoordinator.stop() }
+                    onCloseClick = { AudioPlaybackCoordinator.stop() },
+                    activeRuleImpacts = uiState.activeRuleImpacts,
+                    onToggleRule = { rule, enabled -> viewModel.toggleActiveRule(rule, enabled) },
+                    flashHandleRed = uiState.flashHandleRed,
+                    onResetFlashHandle = { viewModel.resetFlashHandleRed() }
                 )
             }
         }
@@ -566,13 +593,130 @@ fun BrowserScreen(
                 onDismiss = { viewModel.dismissDocumentationDialog() }
             )
         }
+
+        // Long-Pressed Clickable Element Detection Prompt
+        if (uiState.showAddNextSelectorDialog && uiState.longPressedClickable != null) {
+            val clickable = uiState.longPressedClickable!!
+            var ruleName by remember(clickable) { mutableStateOf(clickable.text.take(30).ifBlank { "Next Chapter (${clickable.hostname})" }) }
+            var selector by remember(clickable) { mutableStateOf(clickable.selector) }
+            var domain by remember(clickable) { mutableStateOf(clickable.hostname) }
+
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissAddNextSelectorDialog() },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Mouse, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add Next Chapter Selector", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Detected clickable element. Bind it as an Auto Clicker / Next Chapter Selector for ${clickable.hostname}?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = ruleName,
+                            onValueChange = { ruleName = it },
+                            label = { Text("Rule Name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = selector,
+                            onValueChange = { selector = it },
+                            label = { Text("CSS Selector") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = domain,
+                            onValueChange = { domain = it },
+                            label = { Text("Target Domain (or blank for global)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.confirmAddNextSelector(ruleName, selector, domain)
+                        }
+                    ) {
+                        Text("Add Target")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.dismissAddNextSelectorDialog() }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // Full Screen DOM Clickables Inspector
+        if (uiState.showClickablesInspector) {
+            BrowserClickablesScreen(
+                clickables = uiState.scannedClickables,
+                currentUrl = uiState.currentUrl,
+                onAddNextRule = { rule ->
+                    viewModel.addNextChapterSelectorRule(rule)
+                },
+                onAddNavbarShortcut = { shortcut ->
+                    viewModel.addNavbarShortcut(shortcut)
+                },
+                onOpenShortcutsManager = { viewModel.openShortcutsManager() },
+                onNavigateBack = { viewModel.dismissClickablesInspector() }
+            )
+        }
+
+        // Full Screen Navbar Shortcuts Manager
+        if (uiState.showShortcutsManager) {
+            BrowserShortcutsManagerScreen(
+                shortcuts = uiState.settings.navbarShortcuts,
+                currentUrl = uiState.currentUrl,
+                onToggleShortcut = { id, enabled -> viewModel.toggleNavbarShortcut(id, enabled) },
+                onDeleteShortcut = { id -> viewModel.deleteNavbarShortcut(id) },
+                onTriggerShortcut = { selector -> viewModel.clickElementBySelector(selector) },
+                onNavigateBack = { viewModel.dismissShortcutsManager() }
+            )
+        }
+    }
+}
+
+private data class TopBarActionItem(
+    val id: String,
+    val title: String,
+    val icon: ImageVector,
+    val tint: Color? = null,
+    val background: Color = Color.Transparent,
+    val enabled: Boolean = true,
+    val onClick: () -> Unit
+)
+
+private fun getShortcutIcon(iconName: String): ImageVector {
+    return when (iconName) {
+        "Next" -> Icons.Default.SkipNext
+        "Star" -> Icons.Default.Star
+        "Play" -> Icons.Default.PlayArrow
+        "Link" -> Icons.Default.Link
+        "Bookmark" -> Icons.Default.Bookmark
+        "Code" -> Icons.Default.Code
+        else -> Icons.Default.Mouse
     }
 }
 
 /**
  * Top Toolbar cleanly divided into 2 well-spaced rows:
- * Row 1: App Back button, Full-width URL bar, Tab count badge [N]
- * Row 2: Clean action row: Back, Forward, Reload, Home, New Tab, Loop, Save HTML, Download, Next Chapter, Read Aloud, Settings
+ * Row 1: App Back button, Full-width URL bar with Clear & Go
+ * Under Row 1: Interactive Scrubbable Slider under chapter/paragraph progress (when totalParagraphs > 0)
+ * Row 2: Clean action row: Back, Forward, Reload, Reading Mode, Multi Download, Single Download, Auto Clicker, Start TTS + Domain Shortcuts + 3-Dot Overflow Menu
  */
 @Composable
 private fun BrowserTopBar(
@@ -582,25 +726,31 @@ private fun BrowserTopBar(
     canGoForward: Boolean,
     isLiveReading: Boolean,
     isDownloading: Boolean,
-    tabCount: Int,
     isReaderMode: Boolean,
+    totalParagraphs: Int,
+    currentParagraphIndex: Int,
+    currentUrl: String,
+    navbarShortcuts: List<BrowserNavbarShortcut>,
     onBackClicked: () -> Unit,
     onForwardClicked: () -> Unit,
     onReloadClicked: () -> Unit,
-    onHomeClicked: () -> Unit,
-    onNewTabClicked: () -> Unit,
     onReadingModeClicked: () -> Unit,
-    onExtensionsClicked: () -> Unit,
     onLoopClicked: () -> Unit,
     onSaveFrozenHtmlClicked: () -> Unit,
-    onRawCodeClicked: () -> Unit,
     onNextChapterClicked: () -> Unit,
+    onLiveReadClicked: () -> Unit,
+    onSeekParagraph: (Int) -> Unit,
+    onTriggerShortcut: (String) -> Unit,
+    onInspectClickables: () -> Unit,
+    onManageShortcuts: () -> Unit,
+    onRawCodeClicked: () -> Unit,
     onNextSelectorClicked: (() -> Unit)? = null,
     onIgnoredSelectorsClicked: (() -> Unit)? = null,
+    onExtensionsClicked: () -> Unit,
+    onSettingsClicked: () -> Unit,
+    onDevLogsClicked: (() -> Unit)? = null,
     onUrlChanged: (String) -> Unit,
     onUrlSubmitted: (String) -> Unit,
-    onLiveReadClicked: () -> Unit,
-    onSettingsClicked: () -> Unit,
     onOpenDrawer: () -> Unit
 ) {
     Surface(
@@ -615,7 +765,7 @@ private fun BrowserTopBar(
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
-            // ROW 1: Full-width URL bar with Menu button and Tab badge
+            // ROW 1: Full-width URL bar with Drawer Menu button and Clear/Go buttons
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -705,206 +855,335 @@ private fun BrowserTopBar(
                         )
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Extensions (🧩) Icon Button
-                IconButton(
-                    onClick = onExtensionsClicked,
-                    modifier = Modifier.size(36.dp)
+            // Interactive Paragraph Scrubbing Slider under progress text (if live reading or reading mode)
+            if (totalParagraphs > 0) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Default.Extension,
-                        contentDescription = "Extensions & Userscripts",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "¶ ${currentParagraphIndex + 1} / $totalParagraphs",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    if (totalParagraphs > 1) {
+                        Slider(
+                            value = currentParagraphIndex.toFloat().coerceIn(0f, (totalParagraphs - 1).toFloat()),
+                            onValueChange = { onSeekParagraph(it.toInt().coerceIn(0, totalParagraphs - 1)) },
+                            valueRange = 0f..(totalParagraphs - 1).toFloat(),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(16.dp),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                            )
+                        )
+                    }
                 }
             }
 
-            // ROW 2: Clean action toolbar with all browser & userscript controls
-            Row(
+            // ROW 2: Clean action toolbar with 3-dot overflow menu for small screens & extra options
+            val currentDomain = remember(currentUrl) {
+                try {
+                    java.net.URI(currentUrl).host.orEmpty().lowercase()
+                } catch (_: Exception) {
+                    ""
+                }
+            }
+
+            val activeShortcuts = remember(navbarShortcuts, currentDomain) {
+                navbarShortcuts.filter { sc ->
+                    sc.enabled && (sc.domain.isBlank() || (currentDomain.isNotBlank() && currentDomain.contains(sc.domain.trim().lowercase())))
+                }
+            }
+
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
+            val secondaryColor = MaterialTheme.colorScheme.secondary
+
+            val visibleActionItems = remember(
+                canGoBack,
+                canGoForward,
+                isReaderMode,
+                isDownloading,
+                isLiveReading,
+                activeShortcuts,
+                primaryColor,
+                primaryContainerColor,
+                secondaryColor
+            ) {
+                val list = mutableListOf<TopBarActionItem>()
+                list.add(TopBarActionItem("back", "Back", Icons.Default.ChevronLeft, enabled = canGoBack, onClick = onBackClicked))
+                list.add(TopBarActionItem("forward", "Forward", Icons.Default.ChevronRight, enabled = canGoForward, onClick = onForwardClicked))
+                list.add(TopBarActionItem("reload", "Reload", Icons.Default.Refresh, onClick = onReloadClicked))
+                list.add(
+                    TopBarActionItem(
+                        id = "reader_mode",
+                        title = if (isReaderMode) "Exit Reading Mode" else "Reading Mode",
+                        icon = Icons.AutoMirrored.Filled.MenuBook,
+                        tint = if (isReaderMode) primaryColor else null,
+                        background = if (isReaderMode) primaryContainerColor else Color.Transparent,
+                        onClick = onReadingModeClicked
+                    )
+                )
+                list.add(
+                    TopBarActionItem(
+                        id = "loop",
+                        title = "Batch Download Loop",
+                        icon = Icons.Default.Repeat,
+                        tint = if (isDownloading) primaryColor else null,
+                        background = if (isDownloading) primaryContainerColor else Color.Transparent,
+                        onClick = onLoopClicked
+                    )
+                )
+                list.add(TopBarActionItem("save", "Save Chapter HTML", Icons.Default.Save, onClick = onSaveFrozenHtmlClicked))
+                list.add(TopBarActionItem("auto_clicker", "Next Chapter (Click in Page)", Icons.Default.Mouse, onClick = onNextChapterClicked))
+                list.add(
+                    TopBarActionItem(
+                        id = "tts",
+                        title = "TTS Read Aloud",
+                        icon = Icons.Default.Headphones,
+                        tint = if (isLiveReading) primaryColor else null,
+                        background = if (isLiveReading) primaryContainerColor else Color.Transparent,
+                        onClick = onLiveReadClicked
+                    )
+                )
+                activeShortcuts.forEach { sc ->
+                    list.add(
+                        TopBarActionItem(
+                            id = "shortcut_${sc.id}",
+                            title = sc.name,
+                            icon = getShortcutIcon(sc.iconName),
+                            tint = secondaryColor,
+                            onClick = { onTriggerShortcut(sc.selector) }
+                        )
+                    )
+                }
+                list
+            }
+
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    .padding(vertical = 2.dp)
             ) {
-                // History Back
-                IconButton(
-                    onClick = onBackClicked,
-                    enabled = canGoBack,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        Icons.Default.ChevronLeft,
-                        contentDescription = "Back",
-                        modifier = Modifier.size(20.dp),
-                        tint = if (canGoBack) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    )
+                val buttonWidth = 36.dp
+                val overflowMenuWidth = 38.dp
+                val maxDirectFit = ((maxWidth - overflowMenuWidth) / buttonWidth).toInt().coerceAtLeast(1)
+
+                val directlyShownItems = if (visibleActionItems.size <= maxDirectFit) {
+                    visibleActionItems
+                } else {
+                    visibleActionItems.take(maxDirectFit)
                 }
 
-                // History Forward
-                IconButton(
-                    onClick = onForwardClicked,
-                    enabled = canGoForward,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        Icons.Default.ChevronRight,
-                        contentDescription = "Forward",
-                        modifier = Modifier.size(20.dp),
-                        tint = if (canGoForward) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    )
+                val overflowedVisibleItems = if (visibleActionItems.size <= maxDirectFit) {
+                    emptyList()
+                } else {
+                    visibleActionItems.drop(maxDirectFit)
                 }
 
-                // Reload
-                IconButton(
-                    onClick = onReloadClicked,
-                    modifier = Modifier.size(34.dp)
+                var showMenu by remember { mutableStateOf(false) }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Reload", modifier = Modifier.size(18.dp))
-                }
-
-                // Home (Google)
-                IconButton(
-                    onClick = onHomeClicked,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Default.Home, contentDescription = "Home (Google)", modifier = Modifier.size(18.dp))
-                }
-
-                // New Tab
-                IconButton(
-                    onClick = onNewTabClicked,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "New Tab", modifier = Modifier.size(18.dp))
-                }
-
-                // Reading Mode Toggle Button (Replaces tabs button)
-                IconButton(
-                    onClick = onReadingModeClicked,
-                    modifier = Modifier
-                        .size(34.dp)
-                        .background(
-                            if (isReaderMode) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                        contentDescription = if (isReaderMode) "Exit Reading Mode" else "Enter Reading Mode",
-                        tint = if (isReaderMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Batch Download Loop (placed directly next to New Tab +)
-                IconButton(
-                    onClick = onLoopClicked,
-                    modifier = Modifier
-                        .size(34.dp)
-                        .background(
-                            if (isDownloading) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            shape = CircleShape
-                        )
-                ) {
-                    Icon(
-                        Icons.Default.Repeat,
-                        contentDescription = "Batch Download Loop",
-                        tint = if (isDownloading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .height(20.dp)
-                        .width(1.dp)
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
-                )
-
-                // Single Chapter Download (Clean HTML)
-                IconButton(
-                    onClick = onSaveFrozenHtmlClicked,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Default.Save, contentDescription = "Save Chapter HTML", modifier = Modifier.size(18.dp))
-                }
-
-                // Raw HTML Code Viewer (Monaco Editor)
-                IconButton(
-                    onClick = onRawCodeClicked,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Code,
-                        contentDescription = "View Raw HTML (Monaco Editor)",
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                // Next Chapter (Click in Webpage)
-                IconButton(
-                    onClick = onNextChapterClicked,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Mouse,
-                        contentDescription = "Next Chapter (Click in Page)",
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-
-                // Next Chapter Selector Settings
-                if (onNextSelectorClicked != null) {
-                    IconButton(
-                        onClick = onNextSelectorClicked,
-                        modifier = Modifier.size(34.dp)
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Next Chapter Selector Settings",
-                            modifier = Modifier.size(18.dp)
-                        )
+                        directlyShownItems.forEach { item ->
+                            IconButton(
+                                onClick = item.onClick,
+                                enabled = item.enabled,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(item.background, shape = RoundedCornerShape(8.dp))
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = item.title,
+                                    tint = item.tint ?: (if (item.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
                     }
-                }
 
-                // Ignored Elements (Filter) Settings
-                if (onIgnoredSelectorsClicked != null) {
-                    IconButton(
-                        onClick = onIgnoredSelectorsClicked,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.FilterList,
-                            contentDescription = "Ignored Elements Filter Settings",
-                            modifier = Modifier.size(18.dp)
-                        )
+                    // 3-Dot Overflow Menu pinned to the right
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More Options",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            // Overflowed primary buttons (on smaller screens)
+                            if (overflowedVisibleItems.isNotEmpty()) {
+                                overflowedVisibleItems.forEach { item ->
+                                    DropdownMenuItem(
+                                        text = { Text(item.title) },
+                                        leadingIcon = {
+                                            Icon(
+                                                item.icon,
+                                                contentDescription = null,
+                                                tint = item.tint ?: MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        },
+                                        onClick = {
+                                            showMenu = false
+                                            item.onClick()
+                                        }
+                                    )
+                                }
+                                HorizontalDivider()
+                            }
+
+                            // Secondary browser features
+                            DropdownMenuItem(
+                                text = { Text("Inspect Page Clickables") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.FindInPage,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onInspectClickables()
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Manage Navbar Shortcuts") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Star,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onManageShortcuts()
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("View Raw HTML") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(20.dp))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onRawCodeClicked()
+                                }
+                            )
+
+                            if (onNextSelectorClicked != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Next Chapter Selectors") },
+                                    leadingIcon = {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onNextSelectorClicked()
+                                    }
+                                )
+                            }
+
+                            if (onIgnoredSelectorsClicked != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Ignored Elements Filter") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onIgnoredSelectorsClicked()
+                                    }
+                                )
+                            }
+
+                            DropdownMenuItem(
+                                text = { Text("Extensions & Userscripts") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Extension,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onExtensionsClicked()
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Browser Settings") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(20.dp))
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onSettingsClicked()
+                                }
+                            )
+
+                            if (onDevLogsClicked != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Developer Logs") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.BugReport,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        onDevLogsClicked()
+                                    }
+                                )
+                            }
+                        }
                     }
-                }
-
-                // Read Aloud / TTS - Matching ReaderTopBar design
-                IconButton(
-                    onClick = onLiveReadClicked,
-                    modifier = Modifier.size(38.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Headphones,
-                        contentDescription = "TTS Read Aloud",
-                        tint = if (isLiveReading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Settings Modal
-                IconButton(
-                    onClick = onSettingsClicked,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(Icons.Default.Tune, contentDescription = "Browser Settings", modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -1666,6 +1945,9 @@ private fun createConfiguredWebView(
                 if (viewModel.uiState.value.settings.autoClickOnScroll) {
                     viewModel.clickNextChapter()
                 }
+            },
+            onLongPressClickableCallback = { selector, text, hostname ->
+                viewModel.onLongPressClickable(selector, text, hostname)
             }
         )
         addJavascriptInterface(bridge, com.novelarrow.reader.browser.engine.BrowserBridge.INTERFACE_NAME)

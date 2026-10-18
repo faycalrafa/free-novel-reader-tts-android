@@ -10,6 +10,14 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import java.util.regex.Pattern
 
+import com.novelarrow.reader.data.model.RuleImpact
+import com.novelarrow.reader.data.model.RuleType
+
+data class ParseResult(
+    val paragraphs: List<Paragraph>,
+    val ruleImpacts: List<RuleImpact>
+)
+
 object ChapterParser {
 
     private val IGNORE_SELECTORS = listOf(
@@ -73,8 +81,53 @@ object ChapterParser {
         footerSkipRules: List<SkipRule> = emptyList(),
         folderPath: String? = null,
         novelUrl: String? = null,
-        contentSelectors: List<ContentSelectorRule> = emptyList()
+        contentSelectors: List<ContentSelectorRule> = emptyList(),
+        ignoredSelectors: List<String> = emptyList()
     ): List<Paragraph> {
+        return parseWithDiagnostics(
+            content = content,
+            fileName = fileName,
+            contentSelector = contentSelector,
+            contentSelectorEnabled = contentSelectorEnabled,
+            pronunciationRules = pronunciationRules,
+            pronunciationRulesEnabled = pronunciationRulesEnabled,
+            skipWords = skipWords,
+            skipWordsEnabled = skipWordsEnabled,
+            headerSkipString = headerSkipString,
+            headerSkipEnabled = headerSkipEnabled,
+            footerSkipString = footerSkipString,
+            footerSkipEnabled = footerSkipEnabled,
+            headerSkipRules = headerSkipRules,
+            footerSkipRules = footerSkipRules,
+            folderPath = folderPath,
+            novelUrl = novelUrl,
+            contentSelectors = contentSelectors,
+            ignoredSelectors = ignoredSelectors
+        ).paragraphs
+    }
+
+    fun parseWithDiagnostics(
+        content: String,
+        fileName: String,
+        contentSelector: String = "",
+        contentSelectorEnabled: Boolean = true,
+        pronunciationRules: List<PronunciationRule> = emptyList(),
+        pronunciationRulesEnabled: Boolean = true,
+        skipWords: List<SkipWord> = emptyList(),
+        skipWordsEnabled: Boolean = true,
+        headerSkipString: String = "",
+        headerSkipEnabled: Boolean = true,
+        footerSkipString: String = "",
+        footerSkipEnabled: Boolean = true,
+        headerSkipRules: List<SkipRule> = emptyList(),
+        footerSkipRules: List<SkipRule> = emptyList(),
+        folderPath: String? = null,
+        novelUrl: String? = null,
+        contentSelectors: List<ContentSelectorRule> = emptyList(),
+        ignoredSelectors: List<String> = emptyList()
+    ): ParseResult {
+        val impactsMap = mutableMapOf<String, RuleImpact>()
+
         val effectiveSelector = if (contentSelectorEnabled) contentSelector else ""
         val effectiveRules = if (pronunciationRulesEnabled) {
             pronunciationRules.filter { isRuleInScope(it, folderPath, novelUrl) }
@@ -94,19 +147,25 @@ object ChapterParser {
                 content.contains("<p>", ignoreCase = true)
 
         val rawParagraphs = if (isHtml) {
-            parseHtml(content, effectiveSelector, contentSelectors, folderPath, novelUrl)
+            parseHtml(content, effectiveSelector, contentSelectors, folderPath, novelUrl, ignoredSelectors, impactsMap)
         } else {
             parsePlainText(content)
         }
 
         val filteredParagraphs = rawParagraphs.filterNot { (text, _) -> isNonContentText(text) }
-        val scopedParagraphs = applyHeaderAndFooterSkip(
+        val (scopedParagraphs, headerImpact, footerImpact) = applyHeaderAndFooterSkipWithDiagnostics(
             filteredParagraphs,
             effectiveHeader,
             effectiveFooter,
             effectiveHeaderRules,
             effectiveFooterRules
         )
+
+        headerImpact?.let { impactsMap[it.id] = it }
+        footerImpact?.let { impactsMap[it.id] = it }
+
+        val skipCharImpacts = mutableMapOf<String, Int>()
+        val pronunCharImpacts = mutableMapOf<String, Int>()
 
         val result = mutableListOf<Paragraph>()
         var counter = 0
@@ -126,7 +185,15 @@ object ChapterParser {
                 val trimmedChunk = chunk.trim()
                 if (trimmedChunk.length < 2 || isNonContentText(trimmedChunk)) continue
 
-                val spoken = applyRulesAndSkips(trimmedChunk, effectiveRules, effectiveSkips, folderPath, novelUrl)
+                val spoken = applyRulesAndSkipsWithMetrics(
+                    text = trimmedChunk,
+                    pronunciationRules = effectiveRules,
+                    skipWords = effectiveSkips,
+                    folderPath = folderPath,
+                    novelUrl = novelUrl,
+                    skipCharImpacts = skipCharImpacts,
+                    pronunCharImpacts = pronunCharImpacts
+                )
                 result.add(
                     Paragraph(
                         index = counter++,
@@ -138,7 +205,36 @@ object ChapterParser {
             }
         }
 
-        return result
+        for (skip in effectiveSkips) {
+            val chars = skipCharImpacts[skip.id] ?: 0
+            if (chars > 0) {
+                impactsMap[skip.id] = RuleImpact(
+                    id = skip.id,
+                    name = skip.text,
+                    ruleType = RuleType.SKIP_WORD,
+                    charsFiltered = chars,
+                    enabled = true,
+                    details = "$chars characters removed"
+                )
+            }
+        }
+
+        for (rule in effectiveRules) {
+            val chars = pronunCharImpacts[rule.id] ?: 0
+            if (chars > 0) {
+                impactsMap[rule.id] = RuleImpact(
+                    id = rule.id,
+                    name = "${rule.from} ➔ ${rule.to}",
+                    ruleType = RuleType.PRONUNCIATION,
+                    charsFiltered = chars,
+                    enabled = true,
+                    details = "$chars characters replaced"
+                )
+            }
+        }
+
+        val sortedImpacts = impactsMap.values.sortedByDescending { it.charsFiltered }
+        return ParseResult(paragraphs = result, ruleImpacts = sortedImpacts)
     }
 
     fun isNonContentText(text: String): Boolean {
@@ -154,7 +250,25 @@ object ChapterParser {
         headerSkipRules: List<SkipRule> = emptyList(),
         footerSkipRules: List<SkipRule> = emptyList()
     ): List<Pair<String, Boolean>> {
+        return applyHeaderAndFooterSkipWithDiagnostics(
+            rawParagraphs,
+            headerSkipString,
+            footerSkipString,
+            headerSkipRules,
+            footerSkipRules
+        ).first
+    }
+
+    fun applyHeaderAndFooterSkipWithDiagnostics(
+        rawParagraphs: List<Pair<String, Boolean>>,
+        headerSkipString: String = "",
+        footerSkipString: String = "",
+        headerSkipRules: List<SkipRule> = emptyList(),
+        footerSkipRules: List<SkipRule> = emptyList()
+    ): Triple<List<Pair<String, Boolean>>, RuleImpact?, RuleImpact?> {
         var workingList = rawParagraphs
+        var headerImpact: RuleImpact? = null
+        var footerImpact: RuleImpact? = null
 
         val activeHeaderRules: List<SkipRule> = if (headerSkipRules.isNotEmpty()) {
             headerSkipRules
@@ -171,9 +285,11 @@ object ChapterParser {
         if (activeHeaderRules.isNotEmpty()) {
             var matchIndex = -1
             var bestSubIndex = -1
+            var matchedRule: SkipRule? = null
             for ((idx, pair) in workingList.withIndex()) {
                 val (text, _) = pair
                 var minSub = -1
+                var ruleForMin: SkipRule? = null
                 for (rule in activeHeaderRules) {
                     val sub = if (rule.exactMatch) {
                         val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
@@ -184,16 +300,26 @@ object ChapterParser {
                     }
                     if (sub != -1 && (minSub == -1 || sub < minSub)) {
                         minSub = sub
+                        ruleForMin = rule
                     }
                 }
                 if (minSub != -1) {
                     matchIndex = idx
                     bestSubIndex = minSub
+                    matchedRule = ruleForMin
                     break
                 }
             }
 
-            if (matchIndex != -1) {
+            if (matchIndex != -1 && matchedRule != null) {
+                var charsCut = 0
+                for (i in 0 until matchIndex) {
+                    charsCut += workingList[i].first.length
+                }
+                if (bestSubIndex > 0) {
+                    charsCut += bestSubIndex
+                }
+
                 val (matchText, isHeading) = workingList[matchIndex]
                 val trimmedFirst = if (bestSubIndex > 0) {
                     matchText.substring(bestSubIndex).trim()
@@ -206,6 +332,15 @@ object ChapterParser {
                 } else {
                     remainder
                 }
+
+                headerImpact = RuleImpact(
+                    id = matchedRule.id,
+                    name = matchedRule.text,
+                    ruleType = RuleType.HEADER_SKIP,
+                    charsFiltered = charsCut,
+                    enabled = true,
+                    details = "$charsCut header characters skipped"
+                )
             }
         }
 
@@ -224,9 +359,11 @@ object ChapterParser {
         if (activeFooterRules.isNotEmpty()) {
             var matchIndex = -1
             var bestSubIndex = -1
+            var matchedRule: SkipRule? = null
             for ((idx, pair) in workingList.withIndex()) {
                 val (text, _) = pair
                 var minSub = -1
+                var ruleForMin: SkipRule? = null
                 for (rule in activeFooterRules) {
                     val sub = if (rule.exactMatch) {
                         val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
@@ -237,32 +374,49 @@ object ChapterParser {
                     }
                     if (sub != -1 && (minSub == -1 || sub < minSub)) {
                         minSub = sub
+                        ruleForMin = rule
                     }
                 }
                 if (minSub != -1) {
                     matchIndex = idx
                     bestSubIndex = minSub
+                    matchedRule = ruleForMin
                     break
                 }
             }
 
-            if (matchIndex != -1) {
+            if (matchIndex != -1 && matchedRule != null) {
+                var charsCut = 0
                 val (matchText, isHeading) = workingList[matchIndex]
                 val trimmedLast = if (bestSubIndex >= 0) {
+                    charsCut += (matchText.length - bestSubIndex)
                     matchText.substring(0, bestSubIndex).trim()
                 } else {
                     matchText
                 }
+                for (i in (matchIndex + 1) until workingList.size) {
+                    charsCut += workingList[i].first.length
+                }
+
                 val prefix = workingList.subList(0, matchIndex)
                 workingList = if (trimmedLast.length >= 2) {
                     prefix + listOf(trimmedLast to isHeading)
                 } else {
                     prefix
                 }
+
+                footerImpact = RuleImpact(
+                    id = matchedRule.id,
+                    name = matchedRule.text,
+                    ruleType = RuleType.FOOTER_SKIP,
+                    charsFiltered = charsCut,
+                    enabled = true,
+                    details = "$charsCut footer characters skipped"
+                )
             }
         }
 
-        return workingList
+        return Triple(workingList, headerImpact, footerImpact)
     }
 
     private fun parseHtml(
@@ -270,17 +424,46 @@ object ChapterParser {
         contentSelector: String,
         contentSelectors: List<ContentSelectorRule> = emptyList(),
         folderPath: String? = null,
-        novelUrl: String? = null
+        novelUrl: String? = null,
+        ignoredSelectors: List<String> = emptyList(),
+        impactsMap: MutableMap<String, RuleImpact>? = null
     ): List<Pair<String, Boolean>> {
         val doc = Jsoup.parse(html)
+        val initialBodyChars = doc.body()?.text()?.length ?: 0
+
         for (selector in IGNORE_SELECTORS) {
             try {
                 doc.select(selector).remove()
             } catch (_: Exception) {}
         }
+
+        // Custom user-configured ignored selectors
+        for (selector in ignoredSelectors) {
+            val trimmed = selector.trim()
+            if (trimmed.isNotBlank()) {
+                try {
+                    val matched = doc.select(trimmed)
+                    val strippedChars = matched.sumOf { it.text().length }
+                    if (strippedChars > 0 && impactsMap != null) {
+                        impactsMap["ignored_$trimmed"] = RuleImpact(
+                            id = "ignored_$trimmed",
+                            name = trimmed,
+                            ruleType = RuleType.IGNORED_SELECTOR,
+                            charsFiltered = strippedChars,
+                            enabled = true,
+                            details = "$strippedChars characters removed by selector"
+                        )
+                    }
+                    matched.remove()
+                } catch (_: Exception) {}
+            }
+        }
+
         doc.select("[style*='display: none'], [style*='display:none'], [hidden]").remove()
 
         var selectedElement: Element? = null
+        var matchedRuleId: String? = null
+        var matchedSelectorName: String? = null
 
         // 1. Evaluate multiple content selectors in priority order
         val activeRules = contentSelectors.filter { it.enabled }
@@ -295,6 +478,8 @@ object ChapterParser {
                     val cand = doc.selectFirst(rule.selector)
                     if (cand != null && (cand.text().trim().length >= 50 || cand.select("p").size >= 2)) {
                         selectedElement = cand
+                        matchedRuleId = rule.id
+                        matchedSelectorName = rule.selector
                         break
                     }
                 } catch (_: Exception) {}
@@ -305,7 +490,26 @@ object ChapterParser {
         if (selectedElement == null && contentSelector.isNotBlank()) {
             try {
                 selectedElement = doc.selectFirst(contentSelector)
+                if (selectedElement != null) {
+                    matchedRuleId = "legacy_content_selector"
+                    matchedSelectorName = contentSelector
+                }
             } catch (_: Exception) {}
+        }
+
+        if (selectedElement != null && impactsMap != null && matchedSelectorName != null) {
+            val containerChars = selectedElement.text().length
+            val excludedChars = (initialBodyChars - containerChars).coerceAtLeast(0)
+            if (excludedChars > 0) {
+                impactsMap[matchedRuleId ?: matchedSelectorName] = RuleImpact(
+                    id = matchedRuleId ?: matchedSelectorName,
+                    name = matchedSelectorName,
+                    ruleType = RuleType.CONTENT_SELECTOR,
+                    charsFiltered = excludedChars,
+                    enabled = true,
+                    details = "Isolated content container (excluded $excludedChars outer characters)"
+                )
+            }
         }
 
         val rootElement: Element = selectedElement ?: doc.body()
@@ -429,6 +633,24 @@ object ChapterParser {
         folderPath: String? = null,
         novelUrl: String? = null
     ): String {
+        return applyRulesAndSkipsWithMetrics(
+            text = text,
+            pronunciationRules = pronunciationRules,
+            skipWords = skipWords,
+            folderPath = folderPath,
+            novelUrl = novelUrl
+        )
+    }
+
+    fun applyRulesAndSkipsWithMetrics(
+        text: String,
+        pronunciationRules: List<PronunciationRule>,
+        skipWords: List<SkipWord>,
+        folderPath: String? = null,
+        novelUrl: String? = null,
+        skipCharImpacts: MutableMap<String, Int>? = null,
+        pronunCharImpacts: MutableMap<String, Int>? = null
+    ): String {
         var processed = text
 
         val activeRules = pronunciationRules.filter { isRuleInScope(it, folderPath, novelUrl) }
@@ -437,25 +659,134 @@ object ChapterParser {
         for (rule in activeRules) {
             if (rule.from.isBlank()) continue
             val escaped = Regex.escape(rule.from)
+            val beforeLen = processed.length
             processed = if (rule.exactMatch) {
                 val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
                 processed.replace(Regex(pattern), rule.to)
             } else {
                 processed.replace(rule.from, rule.to, ignoreCase = true)
             }
+            if (pronunCharImpacts != null && processed != text) {
+                val diff = kotlin.math.abs(processed.length - beforeLen) + rule.from.length
+                pronunCharImpacts[rule.id] = (pronunCharImpacts[rule.id] ?: 0) + diff
+            }
         }
 
         for (skip in activeSkips) {
             if (skip.text.isBlank()) continue
             val escaped = Regex.escape(skip.text)
+            val beforeLen = processed.length
             processed = if (skip.exactMatch) {
                 val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
                 processed.replace(Regex(pattern), "")
             } else {
                 processed.replace(skip.text, "", ignoreCase = true)
             }
+            val removed = (beforeLen - processed.length).coerceAtLeast(0)
+            if (skipCharImpacts != null && removed > 0) {
+                skipCharImpacts[skip.id] = (skipCharImpacts[skip.id] ?: 0) + removed
+            }
         }
 
         return processed.replace(Regex("\\s+"), " ").trim()
+    }
+
+    fun parseWebParagraphsWithDiagnostics(
+        rawParagraphs: List<String>,
+        currentUrl: String,
+        headerSkipRules: List<SkipRule> = emptyList(),
+        headerSkipEnabled: Boolean = true,
+        footerSkipRules: List<SkipRule> = emptyList(),
+        footerSkipEnabled: Boolean = true,
+        pronunciationRules: List<PronunciationRule> = emptyList(),
+        pronunciationRulesEnabled: Boolean = true,
+        skipWords: List<SkipWord> = emptyList(),
+        skipWordsEnabled: Boolean = true,
+        containerImpact: RuleImpact? = null,
+        ignoredSelectorImpacts: List<RuleImpact> = emptyList()
+    ): ParseResult {
+        val impactsMap = mutableMapOf<String, RuleImpact>()
+        containerImpact?.let { impactsMap[it.id] = it }
+        for (imp in ignoredSelectorImpacts) {
+            impactsMap[imp.id] = imp
+        }
+
+        val effectiveHeaderRules = if (headerSkipEnabled) headerSkipRules else emptyList()
+        val effectiveFooterRules = if (footerSkipEnabled) footerSkipRules else emptyList()
+        val effectiveRules = if (pronunciationRulesEnabled) pronunciationRules else emptyList()
+        val effectiveSkips = if (skipWordsEnabled) skipWords else emptyList()
+
+        val parsedPairs = rawParagraphs.map { it to false }
+        val (scopedParagraphs, headerImpact, footerImpact) = applyHeaderAndFooterSkipWithDiagnostics(
+            rawParagraphs = parsedPairs,
+            headerSkipRules = effectiveHeaderRules,
+            footerSkipRules = effectiveFooterRules
+        )
+
+        headerImpact?.let { impactsMap[it.id] = it }
+        footerImpact?.let { impactsMap[it.id] = it }
+
+        val skipCharImpacts = mutableMapOf<String, Int>()
+        val pronunCharImpacts = mutableMapOf<String, Int>()
+
+        val result = mutableListOf<Paragraph>()
+        var counter = 0
+
+        for ((text, isHeader) in scopedParagraphs) {
+            val cleaned = text.trim()
+            if (cleaned.length < 2 || isNonContentText(cleaned)) continue
+
+            val spoken = applyRulesAndSkipsWithMetrics(
+                text = cleaned,
+                pronunciationRules = effectiveRules,
+                skipWords = effectiveSkips,
+                folderPath = null,
+                novelUrl = currentUrl,
+                skipCharImpacts = skipCharImpacts,
+                pronunCharImpacts = pronunCharImpacts
+            )
+
+            result.add(
+                Paragraph(
+                    index = counter++,
+                    rawText = cleaned,
+                    spokenText = spoken,
+                    isHeading = isHeader
+                )
+            )
+        }
+
+        for (skip in effectiveSkips) {
+            val chars = skipCharImpacts[skip.id] ?: 0
+            if (chars > 0) {
+                impactsMap[skip.id] = RuleImpact(
+                    id = skip.id,
+                    name = skip.text,
+                    ruleType = RuleType.SKIP_WORD,
+                    charsFiltered = chars,
+                    enabled = true,
+                    details = "$chars characters removed"
+                )
+            }
+        }
+
+        for (rule in effectiveRules) {
+            val chars = pronunCharImpacts[rule.id] ?: 0
+            if (chars > 0) {
+                impactsMap[rule.id] = RuleImpact(
+                    id = rule.id,
+                    name = "${rule.from} ➔ ${rule.to}",
+                    ruleType = RuleType.PRONUNCIATION,
+                    charsFiltered = chars,
+                    enabled = true,
+                    details = "$chars characters modified"
+                )
+            }
+        }
+
+        return ParseResult(
+            paragraphs = result,
+            ruleImpacts = impactsMap.values.toList().sortedByDescending { it.charsFiltered }
+        )
     }
 }

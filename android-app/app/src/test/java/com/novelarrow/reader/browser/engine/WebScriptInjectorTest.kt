@@ -109,6 +109,7 @@ class WebScriptInjectorTest {
         assertTrue(script.contains("window.AndroidBridge.onScrolledToBottom"))
         assertTrue(script.contains("window.GM_notification"))
         assertTrue(script.contains("window.BrowserBridge"))
+        assertTrue(script.contains("onLongPressClickable"))
     }
 
     @Test
@@ -135,5 +136,54 @@ class WebScriptInjectorTest {
 
         val clearScript = WebScriptInjector.buildClearHighlightScript()
         assertTrue(clearScript.contains("classList.remove('na-tts-highlight')"))
+    }
+
+    @Test
+    fun testBuildNextChapterScript_multiRules() {
+        val rules = listOf(
+            com.novelarrow.reader.data.model.NextChapterSelectorRule(
+                id = "rule1",
+                selector = "#domain-next",
+                domain = "example.com",
+                enabled = true
+            ),
+            com.novelarrow.reader.data.model.NextChapterSelectorRule(
+                id = "rule2",
+                selector = "#disabled-next",
+                domain = "example.com",
+                enabled = false
+            ),
+            com.novelarrow.reader.data.model.NextChapterSelectorRule(
+                id = "rule3",
+                selector = ".global-next",
+                domain = "",
+                enabled = true
+            )
+        )
+
+        // Matching example.com
+        val scriptMatching = WebScriptInjector.buildNextChapterScript(rules = rules, currentUrl = "https://example.com/chapter/1")
+        assertTrue(scriptMatching.contains("#domain-next"))
+        assertTrue(scriptMatching.contains(".global-next"))
+        assertFalse(scriptMatching.contains("#disabled-next"))
+
+        // Other domain -> only global
+        val scriptOther = WebScriptInjector.buildNextChapterScript(rules = rules, currentUrl = "https://other.com/chapter/1")
+        assertFalse(scriptOther.contains("#domain-next"))
+        assertTrue(scriptOther.contains(".global-next"))
+    }
+
+    @Test
+    fun testBuildClickElementScript() {
+        val clickScript = WebScriptInjector.buildClickElementScript(".custom-button")
+        assertTrue(clickScript.contains(".custom-button"))
+        assertTrue(clickScript.contains("click()"))
+    }
+
+    @Test
+    fun testBuildClickableInspectorScript() {
+        val inspectorScript = WebScriptInjector.buildClickableInspectorScript()
+        assertTrue(inspectorScript.contains("querySelectorAll"))
+        assertTrue(inspectorScript.contains("JSON.stringify"))
     }
 }

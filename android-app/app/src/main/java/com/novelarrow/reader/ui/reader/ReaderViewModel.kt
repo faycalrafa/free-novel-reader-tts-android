@@ -30,6 +30,8 @@ import com.novelarrow.reader.data.updater.SignatureCompatibility
 import com.novelarrow.reader.data.updater.UpdateInfo
 import com.novelarrow.reader.data.backup.BackupRestoreManager
 import com.novelarrow.reader.data.backup.ExistingConfigsReport
+import com.novelarrow.reader.data.model.RuleImpact
+import com.novelarrow.reader.data.model.RuleType
 import com.novelarrow.reader.data.model.WebBrowserSettings
 import com.novelarrow.reader.data.repository.UserPreferencesBackup
 import com.novelarrow.reader.util.AppLogger
@@ -78,7 +80,10 @@ data class ReaderUiState(
     val showSignatureMismatchDialog: Boolean = false,
     val signatureMismatchInfo: SignatureCompatibility.Mismatch? = null,
     val showExistingConfigsDialog: Boolean = false,
-    val existingConfigsReport: ExistingConfigsReport? = null
+    val existingConfigsReport: ExistingConfigsReport? = null,
+    val lastActiveNovelId: String? = null,
+    val flashHandleRed: Boolean = false,
+    val activeRuleImpacts: List<RuleImpact> = emptyList()
 )
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
@@ -162,17 +167,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 if (progress.source == PlaybackSource.READER) {
                     val curNovel = _uiState.value.currentNovel
                     val isMatchingNovel = curNovel != null && progress.novelId == curNovel.id
+                    if (progress.novelId != null) {
+                        syncActiveProgress(
+                            novelId = progress.novelId,
+                            chapterIndex = progress.chapterIndex,
+                            chapterId = progress.chapterId,
+                            paragraphIndex = progress.currentParagraphIndex,
+                            isCompleted = false
+                        )
+                        _uiState.update { it.copy(lastActiveNovelId = progress.novelId) }
+                    }
                     if (isMatchingNovel) {
                         val currentChap = _uiState.value.currentChapter
                         val isSameChapter = currentChap != null && (progress.chapterId == currentChap.id || progress.chapterIndex == currentChap.orderIndex)
                         if (isSameChapter) {
-                            syncActiveProgress(
-                                novelId = curNovel.id,
-                                chapterIndex = progress.chapterIndex,
-                                chapterId = progress.chapterId,
-                                paragraphIndex = progress.currentParagraphIndex,
-                                isCompleted = false
-                            )
                             _uiState.update {
                                 it.copy(
                                     isPlaying = progress.isPlaying,
@@ -184,13 +192,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                             val newChap = chapters.firstOrNull { it.id == progress.chapterId }
                                 ?: chapters.getOrNull(progress.chapterIndex)
                             if (newChap != null && newChap.id != currentChap?.id) {
-                                syncActiveProgress(
-                                    novelId = curNovel.id,
-                                    chapterIndex = newChap.orderIndex,
-                                    chapterId = newChap.id,
-                                    paragraphIndex = progress.currentParagraphIndex,
-                                    isCompleted = false
-                                )
                                 _uiState.update {
                                     it.copy(
                                         currentChapter = newChap,
@@ -201,6 +202,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                 loadChapterContent(newChap, restoreProgress = false)
                             }
                         }
+                    } else if (progress.novelId != null) {
+                        _uiState.update { it.copy(isPlaying = progress.isPlaying) }
                     } else if (progress.novelId == null) {
                         _uiState.update { it.copy(isPlaying = progress.isPlaying) }
                     }
@@ -244,14 +247,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         prevSettings.skipWordsEnabled != settings.skipWordsEnabled ||
                         prevSettings.headerSkipRules != settings.headerSkipRules ||
                         prevSettings.footerSkipRules != settings.footerSkipRules ||
-                        prevSettings.contentSelectors != settings.contentSelectors
+                        prevSettings.contentSelectors != settings.contentSelectors ||
+                        prevSettings.ignoredSelectors != settings.ignoredSelectors
 
                 val currentChapter = _uiState.value.currentChapter
                 if (filtersChanged && currentChapter != null && _uiState.value.paragraphs.isNotEmpty()) {
                     try {
                         val content = libraryRepository.readChapterContent(currentChapter)
-                        val newParagraphs = withContext(Dispatchers.Default) {
-                            ChapterParser.parse(
+                        val parseResult = withContext(Dispatchers.Default) {
+                            ChapterParser.parseWithDiagnostics(
                                 content = content,
                                 fileName = currentChapter.title,
                                 contentSelector = settings.contentSelector,
@@ -268,15 +272,21 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                 footerSkipRules = settings.footerSkipRules,
                                 folderPath = currentChapter.fileUri.ifBlank { _uiState.value.currentNovel?.rootTreeUri },
                                 novelUrl = currentChapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl,
-                                contentSelectors = settings.contentSelectors
+                                contentSelectors = settings.contentSelectors,
+                                ignoredSelectors = settings.ignoredSelectors
                             )
                         }
+                        val newParagraphs = parseResult.paragraphs
                         val safeIndex = _uiState.value.currentParagraphIndex.coerceIn(0, (newParagraphs.size - 1).coerceAtLeast(0))
                         _uiState.update {
                             it.copy(
                                 paragraphs = newParagraphs,
-                                currentParagraphIndex = safeIndex
+                                currentParagraphIndex = safeIndex,
+                                activeRuleImpacts = parseResult.ruleImpacts
                             )
+                        }
+                        if (_uiState.value.isPlaying) {
+                            AudioPlaybackCoordinator.updateActiveParagraphs(newParagraphs)
                         }
                     } catch (e: Exception) {
                         com.novelarrow.reader.util.AppLogger.e("ReaderViewModel", "Failed to dynamically re-parse chapter on settings update: ${e.message}", e)
@@ -736,13 +746,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectNovel(novel: Novel) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, currentNovel = novel) }
-            val chapters = libraryRepository.getChapters(novel.id)
-            val chapterIdx = if (novel.currentChapterId != null) {
-                val idx = chapters.indexOfFirst { it.id == novel.currentChapterId }
-                if (idx >= 0) idx else novel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+            _uiState.update { it.copy(isLoading = true, lastActiveNovelId = novel.id) }
+            val freshNovel = libraryRepository.getNovel(novel.id) ?: novel
+            _uiState.update { it.copy(currentNovel = freshNovel) }
+            val chapters = libraryRepository.getChapters(freshNovel.id)
+            val chapterIdx = if (freshNovel.currentChapterId != null) {
+                val idx = chapters.indexOfFirst { it.id == freshNovel.currentChapterId }
+                if (idx >= 0) idx else freshNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
             } else {
-                novel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+                freshNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
             }
             val currentChapter = chapters.getOrNull(chapterIdx)
 
@@ -827,8 +839,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         try {
             val content = libraryRepository.readChapterContent(chapter)
             val settings = _uiState.value.settings
-            val paragraphs = withContext(Dispatchers.Default) {
-                ChapterParser.parse(
+            val parseResult = withContext(Dispatchers.Default) {
+                ChapterParser.parseWithDiagnostics(
                     content = content,
                     fileName = chapter.title,
                     contentSelector = settings.contentSelector,
@@ -845,9 +857,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     footerSkipRules = settings.footerSkipRules,
                     folderPath = chapter.fileUri.ifBlank { _uiState.value.currentNovel?.rootTreeUri },
                     novelUrl = chapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl,
-                    contentSelectors = settings.contentSelectors
+                    contentSelectors = settings.contentSelectors,
+                    ignoredSelectors = settings.ignoredSelectors
                 )
             }
+            val paragraphs = parseResult.paragraphs
 
             val targetIndex = if (restoreProgress) {
                 chapter.lastReadParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
@@ -868,7 +882,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 it.copy(
                     paragraphs = paragraphs,
                     currentParagraphIndex = targetIndex,
-                    isLoading = false
+                    isLoading = false,
+                    activeRuleImpacts = parseResult.ruleImpacts
                 )
             }
 
@@ -897,9 +912,19 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val novel = state.currentNovel ?: return
         val chapter = state.currentChapter ?: return
         val paragraphs = state.paragraphs
-        if (paragraphs.isEmpty()) return
+        val readableParagraphs = paragraphs.filter { it.spokenText.isNotBlank() }
+        if (readableParagraphs.isEmpty()) {
+            _uiState.update {
+                it.copy(
+                    flashHandleRed = true,
+                    isTtsDockVisible = true,
+                    toastMessage = "No text detected. Check if filters or selectors are misconfigured."
+                )
+            }
+            return
+        }
 
-        _uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true) }
+        _uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true, flashHandleRed = false) }
 
         AudioPlaybackCoordinator.playReaderChapter(
             context = getApplication(),
@@ -909,14 +934,51 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             chapterTitle = chapter.title,
             chapterIndex = chapter.orderIndex,
             totalChapters = state.chapters.size,
-            paragraphs = paragraphs,
-            startParagraphIndex = state.currentParagraphIndex,
+            paragraphs = readableParagraphs,
+            startParagraphIndex = state.currentParagraphIndex.coerceIn(0, readableParagraphs.size - 1),
             autoNext = state.settings.autoNextChapter || state.isAutoLoopActive,
             rate = state.settings.speechRate,
             pitch = state.settings.speechPitch,
             voiceName = state.settings.selectedVoiceName
         )
+    }
 
+    fun resetFlashHandleRed() {
+        _uiState.update { it.copy(flashHandleRed = false) }
+    }
+
+    fun toggleActiveRule(rule: RuleImpact, enabled: Boolean) {
+        viewModelScope.launch {
+            when (rule.ruleType) {
+                RuleType.CONTENT_CONTAINER, RuleType.CONTENT_SELECTOR -> {
+                    settingsRepository.toggleContentSelector(rule.id, enabled)
+                }
+                RuleType.IGNORED_SELECTOR -> {
+                    val cleanSel = rule.name
+                    if (enabled) {
+                        settingsRepository.addBrowserIgnoredSelector(cleanSel)
+                    } else {
+                        settingsRepository.removeBrowserIgnoredSelector(cleanSel)
+                    }
+                }
+                RuleType.SKIP_WORD -> {
+                    settingsRepository.toggleSkipWord(rule.id, enabled)
+                }
+                RuleType.PRONUNCIATION -> {
+                    settingsRepository.togglePronunciationRule(rule.id, enabled)
+                }
+                RuleType.HEADER_SKIP -> {
+                    settingsRepository.setHeaderSkipEnabled(enabled)
+                }
+                RuleType.FOOTER_SKIP -> {
+                    settingsRepository.setFooterSkipEnabled(enabled)
+                }
+            }
+            val currentChap = _uiState.value.currentChapter
+            if (currentChap != null) {
+                loadChapterContent(currentChap, restoreProgress = true)
+            }
+        }
     }
 
     fun pauseTts() {
@@ -935,6 +997,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setSleepTimer(minutes: Int) {
         AudioPlaybackCoordinator.setSleepTimer(minutes)
+    }
+
+    fun seekToParagraph(index: Int) {
+        speakAtParagraph(index)
     }
 
     fun speakAtParagraph(index: Int) {

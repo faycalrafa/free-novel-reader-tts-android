@@ -597,5 +597,86 @@ class ChapterParserTest {
         assertTrue(unmatchedParas.map { it.rawText }.any { it.contains("generic fallback text") })
         assertFalse(unmatchedParas.map { it.rawText }.any { it.contains("royalroad.com") })
     }
+
+    @Test
+    fun testParseWithDiagnostics_tracksRuleImpactsAndCharsFiltered() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <p>Preamble: Unwanted site greeting before header.</p>
+                <p>Header: Introduction and title line.</p>
+                <p class="ad-banner">Advertisement: Click here to buy coins!</p>
+                <p>The MC fought against the demon king bravely.</p>
+                <p>This chapter was sponsored by our sponsor.</p>
+                <p>Footer: End of chapter 1 notes.</p>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val skipWords = listOf(
+            SkipWord(id = "sw1", text = "sponsor", enabled = true)
+        )
+        val pronRules = listOf(
+            PronunciationRule(id = "pr1", from = "MC", to = "Main Character", enabled = true)
+        )
+        val ignoredSelectors = listOf(".ad-banner")
+        val headerRules = listOf(com.novelarrow.reader.data.model.SkipRule(text = "Header:"))
+        val footerRules = listOf(com.novelarrow.reader.data.model.SkipRule(text = "Footer:"))
+
+        val result = ChapterParser.parseWithDiagnostics(
+            content = html,
+            fileName = "chap1.html",
+            skipWords = skipWords,
+            pronunciationRules = pronRules,
+            ignoredSelectors = ignoredSelectors,
+            headerSkipRules = headerRules,
+            footerSkipRules = footerRules
+        )
+
+        // Preamble should be stripped by header skip rule
+        assertFalse(result.paragraphs.any { it.rawText.contains("Preamble:") })
+        // Ad banner was stripped at DOM level
+        assertFalse(result.paragraphs.any { it.rawText.contains("Advertisement") })
+        // Check footer stripped
+        assertFalse(result.paragraphs.any { it.rawText.contains("Footer:") })
+
+        // Check diagnostics
+        val impacts = result.ruleImpacts
+        assertTrue(impacts.isNotEmpty())
+
+        val skipImpact = impacts.firstOrNull { it.ruleType == com.novelarrow.reader.data.model.RuleType.SKIP_WORD }
+        org.junit.Assert.assertNotNull(skipImpact)
+        assertTrue(skipImpact!!.charsFiltered > 0)
+
+        val pronImpact = impacts.firstOrNull { it.ruleType == com.novelarrow.reader.data.model.RuleType.PRONUNCIATION }
+        org.junit.Assert.assertNotNull(pronImpact)
+
+        val headerImpact = impacts.firstOrNull { it.ruleType == com.novelarrow.reader.data.model.RuleType.HEADER_SKIP }
+        org.junit.Assert.assertNotNull(headerImpact)
+        assertTrue(headerImpact!!.charsFiltered > 0)
+    }
+
+    @Test
+    fun testParseWebParagraphsWithDiagnostics_detectsFilteredText() {
+        val rawParas = listOf(
+            "This is sponsored chapter content from patron.",
+            "Please support our sponsor today."
+        )
+        val skipWords = listOf(
+            SkipWord(id = "sw1", text = "sponsor", enabled = true)
+        )
+
+        val result = ChapterParser.parseWebParagraphsWithDiagnostics(
+            rawParagraphs = rawParas,
+            currentUrl = "https://example.com/novel/1",
+            skipWords = skipWords,
+            pronunciationRules = emptyList()
+        )
+
+        val skipImpact = result.ruleImpacts.firstOrNull { it.ruleType == com.novelarrow.reader.data.model.RuleType.SKIP_WORD }
+        org.junit.Assert.assertNotNull(skipImpact)
+        assertTrue(skipImpact!!.charsFiltered > 0)
+    }
 }
 

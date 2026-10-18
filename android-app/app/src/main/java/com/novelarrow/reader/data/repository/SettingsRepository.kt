@@ -1,7 +1,10 @@
 package com.novelarrow.reader.data.repository
 
 import android.content.Context
+import com.novelarrow.reader.data.model.BrowserNavbarShortcut
+import com.novelarrow.reader.data.model.BrowserTab
 import com.novelarrow.reader.data.model.ContentSelectorRule
+import com.novelarrow.reader.data.model.NextChapterSelectorRule
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.SkipWord
@@ -41,7 +44,8 @@ data class SharedTtsSettings(
     val favoriteVoiceFrench: String? = null,
     val selectedEngineType: String = "SYSTEM",
     val selectedTtsEnginePackage: String? = null,
-    val contentSelectors: List<ContentSelectorRule> = emptyList()
+    val contentSelectors: List<ContentSelectorRule> = emptyList(),
+    val ignoredSelectors: List<String> = emptyList()
 )
 
 @Serializable
@@ -257,6 +261,61 @@ class SettingsRepository(private val context: Context) {
         _browserSettingsFlow.value = defaults
     }
 
+    suspend fun updateBrowserTabs(tabs: List<BrowserTab>, currentTabId: String) = updateBrowserSettings {
+        it.copy(tabs = tabs, currentTabId = currentTabId)
+    }
+
+    suspend fun addNextChapterRule(rule: NextChapterSelectorRule) = updateBrowserSettings {
+        val filtered = it.nextChapterRules.filterNot { r -> r.id == rule.id }
+        it.copy(nextChapterRules = filtered + rule)
+    }
+
+    suspend fun updateNextChapterRule(rule: NextChapterSelectorRule) = updateBrowserSettings {
+        val updated = it.nextChapterRules.map { r -> if (r.id == rule.id) rule else r }
+        it.copy(nextChapterRules = updated)
+    }
+
+    suspend fun toggleNextChapterRule(id: String, enabled: Boolean) = updateBrowserSettings {
+        val updated = it.nextChapterRules.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
+        it.copy(nextChapterRules = updated)
+    }
+
+    suspend fun deleteNextChapterRule(id: String) = updateBrowserSettings {
+        val filtered = it.nextChapterRules.filterNot { r -> r.id == id }
+        it.copy(nextChapterRules = filtered)
+    }
+
+    suspend fun addNextChapterSelectorRule(rule: NextChapterSelectorRule) = addNextChapterRule(rule)
+    suspend fun updateNextChapterSelectorRule(rule: NextChapterSelectorRule) = updateNextChapterRule(rule)
+    suspend fun toggleNextChapterSelectorRule(id: String, enabled: Boolean) = toggleNextChapterRule(id, enabled)
+    suspend fun removeNextChapterSelectorRule(id: String) = deleteNextChapterRule(id)
+    suspend fun resetNextChapterSelectorRules() = resetNextChapterRules()
+    suspend fun resetNextChapterRules() = updateBrowserSettings {
+        it.copy(nextChapterRules = WebBrowserSettings().nextChapterRules)
+    }
+
+    suspend fun addNavbarShortcut(shortcut: BrowserNavbarShortcut) = updateBrowserSettings {
+        val filtered = it.navbarShortcuts.filterNot { s -> s.id == shortcut.id }
+        it.copy(navbarShortcuts = filtered + shortcut)
+    }
+
+    suspend fun updateNavbarShortcut(shortcut: BrowserNavbarShortcut) = updateBrowserSettings {
+        val updated = it.navbarShortcuts.map { s -> if (s.id == shortcut.id) shortcut else s }
+        it.copy(navbarShortcuts = updated)
+    }
+
+    suspend fun toggleNavbarShortcut(id: String, enabled: Boolean) = updateBrowserSettings {
+        val updated = it.navbarShortcuts.map { s -> if (s.id == id) s.copy(enabled = enabled) else s }
+        it.copy(navbarShortcuts = updated)
+    }
+
+    suspend fun deleteNavbarShortcut(id: String) = updateBrowserSettings {
+        val filtered = it.navbarShortcuts.filterNot { s -> s.id == id }
+        it.copy(navbarShortcuts = filtered)
+    }
+
+    suspend fun removeNavbarShortcut(id: String) = deleteNavbarShortcut(id)
+
     // =========================================================================
     // Consolidated Shared TTS Configuration (Applied Everywhere)
     // =========================================================================
@@ -279,7 +338,8 @@ class SettingsRepository(private val context: Context) {
                 favoriteVoiceFrench = _settingsFlow.value.favoriteVoiceFrench,
                 selectedEngineType = _settingsFlow.value.selectedEngineType,
                 selectedTtsEnginePackage = _settingsFlow.value.selectedTtsEnginePackage,
-                contentSelectors = _settingsFlow.value.contentSelectors
+                contentSelectors = _settingsFlow.value.contentSelectors,
+                ignoredSelectors = _settingsFlow.value.ignoredSelectors.ifEmpty { _browserSettingsFlow.value.ignoredSelectors }
             )
             val newShared = transform(currentShared)
             val updatedReader = _settingsFlow.value.copy(
@@ -298,7 +358,8 @@ class SettingsRepository(private val context: Context) {
                 favoriteVoiceFrench = newShared.favoriteVoiceFrench,
                 selectedEngineType = newShared.selectedEngineType,
                 selectedTtsEnginePackage = newShared.selectedTtsEnginePackage,
-                contentSelectors = newShared.contentSelectors
+                contentSelectors = newShared.contentSelectors,
+                ignoredSelectors = newShared.ignoredSelectors
             )
             val updatedBrowser = _browserSettingsFlow.value.copy(
                 ttsRate = newShared.speechRate,
@@ -308,7 +369,11 @@ class SettingsRepository(private val context: Context) {
                 skipWords = newShared.skipWords,
                 skipWordsEnabled = newShared.skipWordsEnabled,
                 pronunciationRules = newShared.pronunciationRules,
-                pronunciationRulesEnabled = newShared.pronunciationRulesEnabled
+                pronunciationRulesEnabled = newShared.pronunciationRulesEnabled,
+                contentSelectors = newShared.contentSelectors,
+                headerSkipRules = newShared.headerSkipRules,
+                footerSkipRules = newShared.footerSkipRules,
+                ignoredSelectors = if (newShared.ignoredSelectors.isNotEmpty()) newShared.ignoredSelectors else _browserSettingsFlow.value.ignoredSelectors
             )
 
             _settingsFlow.value = updatedReader

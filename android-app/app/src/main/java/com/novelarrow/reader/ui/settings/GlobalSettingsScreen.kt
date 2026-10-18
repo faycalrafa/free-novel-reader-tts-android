@@ -132,13 +132,6 @@ fun GlobalSettingsScreen(
                         subtitle = "Select speech engine, favorite voices for EN, AR, FR & preview samples",
                         onClick = onNavigateToVoiceEngine
                     )
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    SettingsNavigationItem(
-                        icon = Icons.AutoMirrored.Filled.VolumeUp,
-                        title = "Speech & TTS Quick Settings",
-                        subtitle = "Speed, pitch, system voices, sleep timer & audio controls",
-                        onClick = onOpenAudioSettings
-                    )
                 }
             }
 

@@ -13,7 +13,8 @@ import android.widget.Toast
 class BrowserBridge(
     private val context: Context? = null,
     private val onParagraphClickedCallback: (Int) -> Unit = {},
-    private val onScrolledToBottomCallback: () -> Unit = {}
+    private val onScrolledToBottomCallback: () -> Unit = {},
+    private val onLongPressClickableCallback: (selector: String, text: String, hostname: String) -> Unit = { _, _, _ -> }
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -44,6 +45,13 @@ class BrowserBridge(
             mainHandler.post {
                 onScrolledToBottomCallback.invoke()
             }
+        }
+    }
+
+    @JavascriptInterface
+    fun onLongPressClickable(selector: String, text: String, hostname: String) {
+        mainHandler.post {
+            onLongPressClickableCallback.invoke(selector, text, hostname)
         }
     }
 

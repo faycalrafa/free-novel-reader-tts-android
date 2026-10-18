@@ -5,7 +5,16 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColor
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -105,8 +114,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material.icons.filled.Tab
-import com.novelarrow.reader.ui.browser.BrowserTab
+import com.novelarrow.reader.data.model.BrowserTab
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.draw.scale
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import com.novelarrow.reader.ui.common.AppLoadingIndicator
@@ -220,6 +231,9 @@ fun ReaderScreen(
                 progressText = progressText,
                 isTtsDockVisible = uiState.isTtsDockVisible,
                 isTextChapter = uiState.currentChapter?.isTextBased() == true,
+                currentParagraphIndex = uiState.currentParagraphIndex,
+                totalParagraphs = uiState.paragraphs.size,
+                onSeekParagraph = { viewModel.seekToParagraph(it) },
                 onMenuClick = onOpenDrawer,
                 onTtsToggleClick = {
                     val playbackProgress = AudioPlaybackCoordinator.playbackProgressState.value
@@ -253,7 +267,7 @@ fun ReaderScreen(
             val isAudioFilePlaying = playbackProgress.source == PlaybackSource.AUDIO_FILE
 
             AnimatedVisibility(
-                visible = uiState.isTtsDockVisible || isBrowserPlaying || isAudioFilePlaying,
+                visible = uiState.isTtsDockVisible || isBrowserPlaying || isAudioFilePlaying || uiState.flashHandleRed,
                 enter = slideInVertically(initialOffsetY = { it }),
                 exit = slideOutVertically(targetOffsetY = { it })
             ) {
@@ -319,7 +333,11 @@ fun ReaderScreen(
                         onSeekParagraph = { paraIdx -> viewModel.speakAtParagraph(paraIdx) },
                         isBrowserMode = false,
                         onOpenAudioSettings = { showUnifiedAudioSettings = true },
-                        onCloseClick = { viewModel.stopTts() }
+                        onCloseClick = { viewModel.stopTts() },
+                        activeRuleImpacts = uiState.activeRuleImpacts,
+                        onToggleRule = { rule, enabled -> viewModel.toggleActiveRule(rule, enabled) },
+                        flashHandleRed = uiState.flashHandleRed,
+                        onResetFlashHandle = { viewModel.resetFlashHandleRed() }
                     )
                 }
             }
@@ -335,6 +353,7 @@ fun ReaderScreen(
             if (uiState.currentNovel == null || uiState.paragraphs.isEmpty()) {
                 EmptyState(
                     novels = uiState.novels,
+                    lastActiveNovelId = uiState.lastActiveNovelId,
                     onOpenFolder = onAddFolder,
                     onLoadSampleNovel = { viewModel.loadSampleNovel() },
                     onResumeNovel = { viewModel.selectNovel(it) },
@@ -490,6 +509,9 @@ fun ReaderTopBar(
     progressText: String,
     isTtsDockVisible: Boolean,
     isTextChapter: Boolean,
+    currentParagraphIndex: Int = 0,
+    totalParagraphs: Int = 0,
+    onSeekParagraph: (Int) -> Unit = {},
     onMenuClick: () -> Unit,
     onTtsToggleClick: () -> Unit,
     onRawCodeClick: () -> Unit,
@@ -514,11 +536,11 @@ fun ReaderTopBar(
                     Icon(Icons.Default.Menu, contentDescription = "Library Drawer", modifier = Modifier.size(20.dp))
                 }
 
-                Box(
+                Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .padding(horizontal = 6.dp),
+                    verticalArrangement = Arrangement.Center
                 ) {
                     if (progressText.isNotBlank()) {
                         Surface(
@@ -529,12 +551,29 @@ fun ReaderTopBar(
                                 text = progressText,
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 ),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
+                    }
+                    if (totalParagraphs > 1) {
+                        Slider(
+                            value = currentParagraphIndex.toFloat().coerceIn(0f, (totalParagraphs - 1).toFloat()),
+                            onValueChange = { onSeekParagraph(it.toInt().coerceIn(0, totalParagraphs - 1)) },
+                            valueRange = 0f..(totalParagraphs - 1).toFloat(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(16.dp),
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                            )
+                        )
                     }
                 }
 
@@ -807,11 +846,30 @@ fun TtsDock(
     audioFilePositionMs: Long = 0L,
     audioFileDurationMs: Long = 0L,
     onSeekAudioPosition: (Long) -> Unit = {},
-    onCloseClick: () -> Unit = {}
+    onCloseClick: () -> Unit = {},
+    activeRuleImpacts: List<com.novelarrow.reader.data.model.RuleImpact> = emptyList(),
+    onToggleRule: (com.novelarrow.reader.data.model.RuleImpact, Boolean) -> Unit = { _, _ -> },
+    flashHandleRed: Boolean = false,
+    onResetFlashHandle: () -> Unit = {}
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var dragParaIndex by remember(currentParagraph) { mutableFloatStateOf(currentParagraph.toFloat()) }
     var dragAudioMs by remember(audioFilePositionMs) { mutableFloatStateOf(audioFilePositionMs.toFloat()) }
+    var isRulesSheetExpanded by remember { mutableStateOf(false) }
+
+    val hasActiveRules = activeRuleImpacts.isNotEmpty()
+    val showHandle = hasActiveRules || flashHandleRed
+
+    val infiniteTransition = rememberInfiniteTransition(label = "flashRedTransition")
+    val redFlashColor by infiniteTransition.animateColor(
+        initialValue = Color(0xFFFF1744),
+        targetValue = Color(0xFFFF8A80),
+        animationSpec = infiniteRepeatable(
+            animation = tween(400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "handleFlashColor"
+    )
 
     val maxAudioDuration = audioFileDurationMs.coerceAtLeast(1000L).toFloat()
 
@@ -832,8 +890,146 @@ fun TtsDock(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
+            // Slide-up grabbing handle (ONLY visible when there is at least one active rule or flashHandleRed)
+            if (showHandle) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            isRulesSheetExpanded = !isRulesSheetExpanded
+                            if (flashHandleRed) onResetFlashHandle()
+                        }
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(42.dp)
+                            .height(5.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (flashHandleRed) redFlashColor
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                            )
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = if (flashHandleRed && activeRuleImpacts.isEmpty()) "No text detected • Check rules"
+                            else if (flashHandleRed) "No text detected • ${activeRuleImpacts.size} active rules"
+                            else "Active Rules & Filters (${activeRuleImpacts.size})",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = if (flashHandleRed) Color(0xFFFF1744) else MaterialTheme.colorScheme.primary
+                            )
+                        )
+                        Icon(
+                            imageVector = if (isRulesSheetExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                            contentDescription = null,
+                            tint = if (flashHandleRed) Color(0xFFFF1744) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                // Expanded Active Rules Sheet
+                AnimatedVisibility(
+                    visible = isRulesSheetExpanded && hasActiveRules,
+                    enter = slideInVertically() + fadeIn(),
+                    exit = slideOutVertically() + fadeOut()
+                ) {
+                    val sortedRules = remember(activeRuleImpacts) {
+                        activeRuleImpacts.sortedByDescending { it.charsFiltered }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        sortedRules.forEach { rule ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = rule.ruleType.label,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                            if (rule.charsFiltered > 0) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFFFF5722).copy(alpha = 0.15f)
+                                                ) {
+                                                    Text(
+                                                        text = "-${rule.charsFiltered} chars",
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            color = Color(0xFFFF5722),
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 10.sp
+                                                        ),
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = rule.name,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (rule.details.isNotBlank()) {
+                                            Text(
+                                                text = rule.details,
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    Switch(
+                                        checked = rule.enabled,
+                                        onCheckedChange = { isChecked ->
+                                            onToggleRule(rule, isChecked)
+                                        },
+                                        modifier = Modifier.scale(0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
             // Slider controls progress within current chapter/audio, with settings gear & close button to right
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1084,10 +1280,12 @@ fun TtsDock(
         }
     }
 }
+}
 
 @Composable
 fun EmptyState(
     novels: List<Novel>,
+    lastActiveNovelId: String? = null,
     onOpenFolder: () -> Unit,
     onLoadSampleNovel: () -> Unit,
     onResumeNovel: (Novel) -> Unit,
@@ -1184,7 +1382,9 @@ fun EmptyState(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            val lastNovel = novels.first()
+            val lastNovel = novels.firstOrNull { it.id == lastActiveNovelId }
+                ?: novels.maxByOrNull { it.lastUpdated }
+                ?: novels.first()
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(12.dp),
@@ -1486,7 +1686,7 @@ fun LibraryDrawerContent(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Default.Tab,
+                                    Icons.Default.Language,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
@@ -1727,12 +1927,57 @@ fun LibraryDrawerContent(
                                     modifier = Modifier.width(28.dp)
                                 )
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = chapter.title,
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (isCurrent) {
+                                            val heartbeatTransition = rememberInfiniteTransition(label = "chapterHeartbeat")
+                                            val heartbeatScale by heartbeatTransition.animateFloat(
+                                                initialValue = 0.8f,
+                                                targetValue = 1.35f,
+                                                animationSpec = infiniteRepeatable(
+                                                    animation = tween(700, easing = FastOutSlowInEasing),
+                                                    repeatMode = RepeatMode.Reverse
+                                                ),
+                                                label = "heartbeatScale"
+                                            )
+                                            val heartbeatAlpha by heartbeatTransition.animateFloat(
+                                                initialValue = 0.5f,
+                                                targetValue = 1.0f,
+                                                animationSpec = infiniteRepeatable(
+                                                    animation = tween(700, easing = FastOutSlowInEasing),
+                                                    repeatMode = RepeatMode.Reverse
+                                                ),
+                                                label = "heartbeatAlpha"
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .scale(heartbeatScale)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFFFF9800).copy(alpha = heartbeatAlpha))
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                        }
+
+                                        Text(
+                                            text = chapter.title,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                                            ),
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
                                         )
-                                    )
+
+                                        if (chapter.isCompleted) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = "Chapter read",
+                                                tint = Color(0xFF4CAF50),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 // Actions: Read status toggle & Delete Chapter (only when long-pressed)

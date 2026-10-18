@@ -359,6 +359,20 @@ object AudioPlaybackCoordinator {
         speakCurrentParagraph()
     }
 
+    fun updateActiveParagraphs(newParas: List<Paragraph>) {
+        currentParagraphs = newParas
+        totalParagraphsCount = newParas.size
+        _playbackProgressState.update {
+            it.copy(
+                totalParagraphs = newParas.size,
+                currentParagraphText = newParas.getOrNull(currentParagraphIndex)?.spokenText ?: ""
+            )
+        }
+        if (_isPlayingState.value && currentParagraphs.isNotEmpty()) {
+            speakCurrentParagraph()
+        }
+    }
+
     fun saveCurrentReaderProgress() {
         val novelId = currentNovelId ?: return
         val chapIdx = currentChapterIndex
@@ -1076,7 +1090,7 @@ object AudioPlaybackCoordinator {
         if (idx !in paras.indices) return
 
         val p = paras[idx]
-        val spoken = p.spokenText.ifBlank { p.rawText }.trim()
+        val spoken = p.spokenText.trim()
         if (spoken.isBlank()) {
             if (queueMode == android.speech.tts.TextToSpeech.QUEUE_FLUSH) {
                 handleParagraphDone(idx)

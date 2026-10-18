@@ -7,7 +7,10 @@ import org.json.JSONTokener
 
 data class ExtractedContent(
     val title: String,
-    val paragraphs: List<String>
+    val paragraphs: List<String>,
+    val matchedContainerSelector: String? = null,
+    val ignoredSelectorStats: Map<String, Int> = emptyMap(),
+    val containerFilteredChars: Int = 0
 )
 
 object WebContentExtractor {
@@ -58,12 +61,17 @@ object WebContentExtractor {
                         }
                     }
 
+                    var ignoredStats = {};
                     function isIgnored(el) {
                         if (!el) return true;
                         try {
                             for (var i = 0; i < ignored.length; i++) {
                                 var sel = ignored[i];
-                                if (sel && (el.matches(sel) || el.closest(sel))) return true;
+                                if (sel && (el.matches(sel) || el.closest(sel))) {
+                                    var len = (el.textContent || '').length;
+                                    ignoredStats[sel] = (ignoredStats[sel] || 0) + len;
+                                    return true;
+                                }
                             }
                         } catch(e) {}
                         return false;
@@ -100,17 +108,16 @@ object WebContentExtractor {
 
                     // 1. Container selection from multiple prioritized selectors
                     var container = null;
+                    var matchedSelector = null;
                     for (var s = 0; s < candidateSelectors.length; s++) {
                         var sel = candidateSelectors[s];
                         if (sel && sel.length > 0) {
                             try {
                                 var cand = document.querySelector(sel);
                                 if (cand) {
-                                    var testRes = extractFrom(cand, true);
-                                    if (testRes.paras.length >= 2 || (testRes.paras.length >= 1 && testRes.paras[0].length >= 50)) {
-                                        container = cand;
-                                        break;
-                                    }
+                                    container = cand;
+                                    matchedSelector = sel;
+                                    break;
                                 }
                             } catch(e) {}
                         }
@@ -126,11 +133,19 @@ object WebContentExtractor {
                             var cand = document.querySelector(candidates[c]);
                             if (cand && cand.querySelectorAll('p').length >= 2) {
                                 container = cand;
+                                matchedSelector = candidates[c];
                                 break;
                             }
                         }
                     }
                     if (!container) container = document.body;
+
+                    var containerFilteredChars = 0;
+                    if (container !== document.body) {
+                        var totalBodyChars = (document.body.textContent || '').length;
+                        var containerChars = (container.textContent || '').length;
+                        containerFilteredChars = Math.max(0, totalBodyChars - containerChars);
+                    }
 
                     // 2. Heading
                     var heading = '';
@@ -140,54 +155,10 @@ object WebContentExtractor {
                     }
                     if (!heading) heading = (document.title || '').trim();
 
-                    // 3. Elements extraction with filters
+                    // 3. Elements extraction with filters inside container
                     var res = extractFrom(container, true);
                     var paras = res.paras;
                     var elements = res.elements;
-
-                    // 4. FALLBACK: If caught nothing using filters, IGNORE them and start from the first <p> in the page
-                    if (paras.length === 0) {
-                        var allPs = Array.from(document.body.querySelectorAll('p'));
-                        var firstPIndex = -1;
-                        for (var p = 0; p < allPs.length; p++) {
-                            var pEl = allPs[p];
-                            if (pEl.matches('script, style, noscript, iframe') || pEl.closest('script, style, noscript, iframe')) continue;
-                            var pText = (pEl.textContent || '').replace(/\s+/g, ' ').trim();
-                            if (pText.length >= 2) {
-                                firstPIndex = p;
-                                break;
-                            }
-                        }
-
-                        if (firstPIndex !== -1) {
-                            paras = [];
-                            elements = [];
-                            for (var q = firstPIndex; q < allPs.length; q++) {
-                                var elQ = allPs[q];
-                                if (elQ.matches('script, style, noscript, iframe') || elQ.closest('script, style, noscript, iframe')) continue;
-                                var tQ = (elQ.textContent || '').replace(/\s+/g, ' ').trim();
-                                if (tQ.length >= 2) {
-                                    paras.push(tQ);
-                                    elements.push(elQ);
-                                }
-                            }
-                        } else {
-                            var fallbackRes = extractFrom(document.body, false);
-                            paras = fallbackRes.paras;
-                            elements = fallbackRes.elements;
-                        }
-                    }
-
-                    // 5. Final fallback if still empty: split document.body.innerText by newlines
-                    if (paras.length === 0) {
-                        var rawLines = (document.body.innerText || '').split('\n');
-                        for (var l = 0; l < rawLines.length; l++) {
-                            var line = rawLines[l].replace(/\s+/g, ' ').trim();
-                            if (line.length >= 2) {
-                                paras.push(line);
-                            }
-                        }
-                    }
 
                     // Tag matched elements for click-to-seek and auto-scroll highlighting
                     for (var idx = 0; idx < elements.length; idx++) {
@@ -196,12 +167,18 @@ object WebContentExtractor {
 
                     return JSON.stringify({
                         title: heading,
-                        paragraphs: paras
+                        paragraphs: paras,
+                        matchedContainerSelector: matchedSelector || '',
+                        ignoredSelectorStats: ignoredStats,
+                        containerFilteredChars: containerFilteredChars
                     });
                 } catch(err) {
                     return JSON.stringify({
                         title: document.title || '',
                         paragraphs: [],
+                        matchedContainerSelector: '',
+                        ignoredSelectorStats: {},
+                        containerFilteredChars: 0,
                         error: err.toString()
                     });
                 }
@@ -238,7 +215,24 @@ object WebContentExtractor {
             val p = paragraphsArray.optString(i, "").trim()
             if (p.isNotBlank()) paragraphs.add(p)
         }
-        return ExtractedContent(title = title, paragraphs = paragraphs)
+        val matchedContainer = json?.optString("matchedContainerSelector")?.takeIf { it.isNotBlank() }
+        val ignoredStats = mutableMapOf<String, Int>()
+        val ignoredObj = json?.optJSONObject("ignoredSelectorStats")
+        if (ignoredObj != null) {
+            val keys = ignoredObj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                ignoredStats[k] = ignoredObj.optInt(k, 0)
+            }
+        }
+        val containerFilteredChars = json?.optInt("containerFilteredChars", 0) ?: 0
+        return ExtractedContent(
+            title = title,
+            paragraphs = paragraphs,
+            matchedContainerSelector = matchedContainer,
+            ignoredSelectorStats = ignoredStats,
+            containerFilteredChars = containerFilteredChars
+        )
     }
 
     fun buildRawHtmlExtractionScript(customSelector: String): String {

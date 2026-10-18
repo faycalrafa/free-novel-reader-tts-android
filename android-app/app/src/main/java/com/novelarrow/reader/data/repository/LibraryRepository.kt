@@ -372,6 +372,13 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
+    suspend fun getNovel(novelId: String): Novel? = withContext(Dispatchers.IO) {
+        dbMutex.withLock {
+            val currentDb = loadDatabaseLocked()
+            currentDb.novels.firstOrNull { it.id == novelId }
+        }
+    }
+
     suspend fun getArchivedNovels(): List<Novel> = withContext(Dispatchers.IO) {
         dbMutex.withLock {
             val currentDb = loadDatabaseLocked()

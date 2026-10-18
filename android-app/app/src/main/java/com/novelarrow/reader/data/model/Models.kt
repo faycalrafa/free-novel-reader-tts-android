@@ -225,14 +225,71 @@ data class ReaderSettings(
     val pronunciationRulesEnabled: Boolean = true,
     val sleepTimerMinutes: Int = 0,
     val quickToolbarSettings: QuickToolbarSettings = QuickToolbarSettings(),
-    val hardwareButtonSettings: HardwareButtonSettings = HardwareButtonSettings()
+    val hardwareButtonSettings: HardwareButtonSettings = HardwareButtonSettings(),
+    val ignoredSelectors: List<String> = emptyList()
+)
+
+@Serializable
+enum class RuleType(val label: String) {
+    SKIP_WORD("Skip Word"),
+    HEADER_SKIP("Header Skip"),
+    FOOTER_SKIP("Footer Skip"),
+    PRONUNCIATION("Pronunciation"),
+    CONTENT_SELECTOR("Content Selector"),
+    CONTENT_CONTAINER("Content Container"),
+    IGNORED_SELECTOR("Ignored Element")
+}
+
+@Serializable
+data class RuleImpact(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val ruleType: RuleType,
+    val charsFiltered: Int,
+    val enabled: Boolean = true,
+    val details: String = ""
+)
+
+@Serializable
+data class NextChapterSelectorRule(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val selector: String,
+    val enabled: Boolean = true,
+    val domain: String = "", // empty = global
+    val name: String = ""
+)
+
+@Serializable
+data class BrowserNavbarShortcut(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val selector: String,
+    val iconName: String = "Mouse", // Preset: Mouse, Next, Star, Play, Link, Bookmark, Code
+    val domain: String = "", // empty = global
+    val enabled: Boolean = true
+)
+
+@Serializable
+data class BrowserTab(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val url: String = "https://www.google.com",
+    val title: String = "Google"
 )
 
 @Serializable
 data class WebBrowserSettings(
     val lastUrl: String = "https://www.google.com",
+    val tabs: List<BrowserTab> = listOf(BrowserTab()),
+    val currentTabId: String = "",
     val nextSelector: String = "button[title*=\"Next Chapter\"], a[title*=\"Next Chapter\"], button[title=\"Next chapter\"], a[title=\"Next chapter\"], #next_chap, .next-chap, .next-chapter, .btn-next, a.next",
+    val nextChapterRules: List<NextChapterSelectorRule> = listOf(
+        NextChapterSelectorRule(
+            selector = "button[title*=\"Next Chapter\"], a[title*=\"Next Chapter\"], button[title=\"Next chapter\"], a[title=\"Next chapter\"], #next_chap, .next-chap, .next-chapter, .btn-next, a.next",
+            name = "Default Next Buttons"
+        )
+    ),
     val contentSelector: String = "",
+    val contentSelectors: List<ContentSelectorRule> = emptyList(),
     val countdownDelayMs: Long = 1000L,
     val loopCount: Int = 100,
     val autoClickOnScroll: Boolean = false,
@@ -256,5 +313,10 @@ data class WebBrowserSettings(
     val skipWords: List<SkipWord> = emptyList(),
     val skipWordsEnabled: Boolean = true,
     val pronunciationRules: List<PronunciationRule> = emptyList(),
-    val pronunciationRulesEnabled: Boolean = true
+    val pronunciationRulesEnabled: Boolean = true,
+    val headerSkipRules: List<SkipRule> = emptyList(),
+    val headerSkipEnabled: Boolean = true,
+    val footerSkipRules: List<SkipRule> = emptyList(),
+    val footerSkipEnabled: Boolean = true,
+    val navbarShortcuts: List<BrowserNavbarShortcut> = emptyList()
 )

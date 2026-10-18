@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.10.1"
+          DATE_TAG="v3.11.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.10.1"
-        run: ./gradlew assembleRelease -PappVersionName=3.10.1 --no-daemon
+          APP_VERSION_NAME: "3.11.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.11.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,21 +53,40 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.10.1 (Stable)
+          name: BookReader v3.11.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.10.1 (Stable) 📚🎙️⚡
+            ### BookReader v3.11.0 (Stable) 📚🎙️⚡
 
-            **BookReader v3.10.1** is a patch release fixing a Composable function invocation compilation issue in `VoiceEngineScreen`, following the major v3.10.0 streamlining release!
+            **BookReader v3.11.0** delivers a major upgrade featuring chapter read status tracking, real-time rules diagnostics, interactive scrubbable paragraph seekers, custom media notifications, and responsive browser navbar controls!
 
             #### Key Updates:
-            - **VoiceEngineScreen Composable Context Fix**:
-              - Imported `androidx.compose.material3.*` (specifically resolving `AlertDialog` and `TextButton`), ensuring button click callbacks and composable content lambdas compile seamlessly.
-            - **Massive 65MB+ APK Size Reduction**:
-              - Completely eliminated embedded Sherpa-ONNX binaries (`sherpa-onnx-1.13.8.aar`, 25.5MB) and bundled Piper voice assets (19MB, 360+ files).
-              - Removed unused neural downloaders, catalogs, and offline engine services for an ultra-lean, performant build.
-            - **Native Built-in TTS Default Experience**:
-              - Streamlined the Voice Engine screen to open directly to Built-in Android TTS voice management.
+            - **Chapter Read Status & Heartbeat Dot**:
+              - Permanent green read status eye icon on completed chapters (`isCompleted`).
+              - Animated glowing orange heartbeat dot indicating active playback chapter.
+              - Real-time synchronization of the last-listened chapter on the Home screen Resume card.
+            - **Notification Media Player Artwork**:
+              - Notification and MediaSession now feature high-resolution artwork replacing procedural canvas book cover.
+            - **Multi-Tab Reboot Persistence**:
+              - Open browser tabs and active tab selection persist seamlessly across app restarts and device reboots.
+            - **Interactive Scrubbable Slider in TopBar**:
+              - Quick scrubbable slider under paragraph progress in both Reader and Browser top bars for smooth in-chapter navigation.
+            - **Long-Press Auto-Clicker Target & Multi-Rule Next Selectors**:
+              - Long-press any link or button in the browser to instantly bind it as a site-specific next chapter auto-clicker.
+              - Upgraded Next Chapter Selectors to a multi-rule system with domain scoping, presets, and toggle switches.
+            - **Filter & Rules Diagnostic Engine**:
+              - Real-time tracking of filtered character counts across skip words, pronunciation rules, header/footer skips, and CSS element isolations.
+              - Slide-up bottom sheet handle appears when rules are active, sorting rules by highest to lowest character impact.
+              - Empty text protection: flashes handle red and displays alert toast if misconfigured rules filter out all playable text.
+            - **Reading Mode Content Isolation**:
+              - Reading mode respects matched content container selectors and isolates the novel body text cleanly.
+            - **Ignored Elements Selector in Quick Audio Settings**:
+              - Ignored CSS element selectors now directly accessible in Unified Audio Settings for both local library files and web reading.
+            - **Page Clickables Inspector & Domain Navbar Shortcuts**:
+              - Inspect all clickable elements on the current web page in DOM order with full-text search.
+              - Pin discovered buttons as domain-specific shortcut buttons directly into the browser navbar.
+            - **Streamlined Browser Navbar**:
+              - Clean primary bar with responsive 3-dot overflow menu for secondary tools, automatically adapting to small screens.
               - Intuitive language tabs (English, Arabic, French), search, voice preview, and system engine launcher right at your fingertips.
             - **Return-to-Source Back Navigation**:
               - Navigating to any settings sub-screen (Voice Engine, Pronunciation Rules, Skip Words, Header/Footer Skips, Content Selectors, Ignored Selectors, Next Selector, Hardware Buttons) from Reader, Browser, Audio Studio, or Settings now remembers the originating screen and returns you right where you left off.
