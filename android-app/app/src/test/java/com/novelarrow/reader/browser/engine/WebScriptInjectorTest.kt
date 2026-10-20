@@ -186,4 +186,14 @@ class WebScriptInjectorTest {
         assertTrue(inspectorScript.contains("querySelectorAll"))
         assertTrue(inspectorScript.contains("JSON.stringify"))
     }
+
+    @Test
+    fun testHelperScript_toolbarButtonPolyfills() {
+        val helperScript = WebScriptInjector.buildHelperScript()
+        assertTrue(helperScript.contains("window.GM_registerToolbarButton"))
+        assertTrue(helperScript.contains("window.GM_addButton"))
+        assertTrue(helperScript.contains("window.__triggerCustomToolbarButton"))
+        assertTrue(helperScript.contains("window.GM_openDownloadDialog"))
+        assertTrue(helperScript.contains("registerCustomButton"))
+    }
 }

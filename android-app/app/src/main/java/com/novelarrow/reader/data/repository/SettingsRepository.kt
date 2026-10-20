@@ -35,6 +35,7 @@ data class SharedTtsSettings(
     val sleepTimerMinutes: Int = 0,
     val skipWords: List<SkipWord> = emptyList(),
     val skipWordsEnabled: Boolean = true,
+    val skipWordsIgnoreSymbols: Boolean = true,
     val pronunciationRules: List<PronunciationRule> = emptyList(),
     val pronunciationRulesEnabled: Boolean = true,
     val headerSkipRules: List<SkipRule> = emptyList(),
@@ -203,9 +204,15 @@ class SettingsRepository(private val context: Context) {
         updateSharedTts { it.copy(skipWordsEnabled = enabled) }
     }
 
+    suspend fun setSkipWordsIgnoreSymbols(enabled: Boolean) = withContext(Dispatchers.IO) {
+        updateSharedTts { it.copy(skipWordsIgnoreSymbols = enabled) }
+    }
+
     suspend fun setBrowserPronunciationRulesEnabled(enabled: Boolean) = setPronunciationRulesEnabled(enabled)
 
     suspend fun setBrowserSkipWordsEnabled(enabled: Boolean) = setSkipWordsEnabled(enabled)
+
+    suspend fun setBrowserSkipWordsIgnoreSymbols(enabled: Boolean) = setSkipWordsIgnoreSymbols(enabled)
 
     suspend fun setSleepTimerMinutes(minutes: Int) = withContext(Dispatchers.IO) {
         updateSharedTts { it.copy(sleepTimerMinutes = minutes) }
@@ -329,6 +336,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun removeNavbarShortcut(id: String) = deleteNavbarShortcut(id)
 
+    suspend fun updateToolbarButtonOrder(order: List<String>) = updateBrowserSettings {
+        it.copy(toolbarButtonOrder = order)
+    }
+
     // =========================================================================
     // Consolidated Shared TTS Configuration (Applied Everywhere)
     // =========================================================================
@@ -342,6 +353,7 @@ class SettingsRepository(private val context: Context) {
                 sleepTimerMinutes = _settingsFlow.value.sleepTimerMinutes,
                 skipWords = _settingsFlow.value.skipWords,
                 skipWordsEnabled = _settingsFlow.value.skipWordsEnabled,
+                skipWordsIgnoreSymbols = _settingsFlow.value.skipWordsIgnoreSymbols,
                 pronunciationRules = _settingsFlow.value.pronunciationRules,
                 pronunciationRulesEnabled = _settingsFlow.value.pronunciationRulesEnabled,
                 headerSkipRules = _settingsFlow.value.headerSkipRules,
@@ -362,6 +374,7 @@ class SettingsRepository(private val context: Context) {
                 sleepTimerMinutes = newShared.sleepTimerMinutes,
                 skipWords = newShared.skipWords,
                 skipWordsEnabled = newShared.skipWordsEnabled,
+                skipWordsIgnoreSymbols = newShared.skipWordsIgnoreSymbols,
                 pronunciationRules = newShared.pronunciationRules,
                 pronunciationRulesEnabled = newShared.pronunciationRulesEnabled,
                 headerSkipRules = newShared.headerSkipRules,
@@ -381,6 +394,7 @@ class SettingsRepository(private val context: Context) {
                 sleepTimerMinutes = newShared.sleepTimerMinutes,
                 skipWords = newShared.skipWords,
                 skipWordsEnabled = newShared.skipWordsEnabled,
+                skipWordsIgnoreSymbols = newShared.skipWordsIgnoreSymbols,
                 pronunciationRules = newShared.pronunciationRules,
                 pronunciationRulesEnabled = newShared.pronunciationRulesEnabled,
                 contentSelectors = newShared.contentSelectors,
@@ -765,6 +779,7 @@ class SettingsRepository(private val context: Context) {
             sleepTimerMinutes = sleepMinutes,
             skipWords = mergedSkips,
             skipWordsEnabled = reader.skipWordsEnabled,
+            skipWordsIgnoreSymbols = reader.skipWordsIgnoreSymbols,
             pronunciationRules = mergedRules,
             pronunciationRulesEnabled = reader.pronunciationRulesEnabled,
             headerSkipRules = reader.headerSkipRules,
@@ -802,6 +817,7 @@ class SettingsRepository(private val context: Context) {
             sleepTimerMinutes = shared.sleepTimerMinutes,
             skipWords = shared.skipWords,
             skipWordsEnabled = shared.skipWordsEnabled,
+            skipWordsIgnoreSymbols = shared.skipWordsIgnoreSymbols,
             pronunciationRules = shared.pronunciationRules,
             pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
             headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
@@ -820,6 +836,7 @@ class SettingsRepository(private val context: Context) {
             sleepTimerMinutes = shared.sleepTimerMinutes,
             skipWords = shared.skipWords,
             skipWordsEnabled = shared.skipWordsEnabled,
+            skipWordsIgnoreSymbols = shared.skipWordsIgnoreSymbols,
             pronunciationRules = shared.pronunciationRules,
             pronunciationRulesEnabled = shared.pronunciationRulesEnabled
         )
@@ -847,6 +864,7 @@ class SettingsRepository(private val context: Context) {
                 sleepTimerMinutes = currentReader.sleepTimerMinutes,
                 skipWords = currentReader.skipWords,
                 skipWordsEnabled = currentReader.skipWordsEnabled,
+                skipWordsIgnoreSymbols = currentReader.skipWordsIgnoreSymbols,
                 pronunciationRules = currentReader.pronunciationRules,
                 pronunciationRulesEnabled = currentReader.pronunciationRulesEnabled,
                 headerSkipRules = currentReader.headerSkipRules,

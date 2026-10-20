@@ -232,10 +232,32 @@ class ChapterParserTest {
         val spoken1 = ChapterParser.applyRulesAndSkips(text1, emptyList(), skips)
         assertEquals("That fool was goddamned.", spoken1)
 
-        // Substring match strips 'bad' everywhere
+        // Substring match strips 'bad' everywhere (with ignoreSymbols = false, punctuation is preserved)
         val text2 = "The badge is bad."
-        val spoken2 = ChapterParser.applyRulesAndSkips(text2, emptyList(), skips)
+        val spoken2 = ChapterParser.applyRulesAndSkips(text2, emptyList(), skips, skipWordsIgnoreSymbols = false)
         assertEquals("The ge is .", spoken2)
+    }
+
+    @Test
+    fun testSkipWords_ignoreSymbolsToggle() {
+        val skips = listOf(
+            com.novelarrow.reader.data.model.SkipWord(text = "bad", exactMatch = false),
+            com.novelarrow.reader.data.model.SkipWord(text = "note", exactMatch = true)
+        )
+
+        val text1 = "The badge is bad."
+        // With ignoreSymbols = true (default), punctuation attached to the skipped word is also removed
+        val spokenWithSymbolsIgnored = ChapterParser.applyRulesAndSkips(text1, emptyList(), skips, skipWordsIgnoreSymbols = true)
+        assertEquals("The ge is", spokenWithSymbolsIgnored)
+
+        // With ignoreSymbols = false, punctuation is preserved
+        val spokenWithSymbolsPreserved = ChapterParser.applyRulesAndSkips(text1, emptyList(), skips, skipWordsIgnoreSymbols = false)
+        assertEquals("The ge is .", spokenWithSymbolsPreserved)
+
+        // Exact match with enclosing symbols e.g. [note]
+        val text2 = "Hello [note] world"
+        val spokenNoteIgnored = ChapterParser.applyRulesAndSkips(text2, emptyList(), skips, skipWordsIgnoreSymbols = true)
+        assertEquals("Hello world", spokenNoteIgnored)
     }
 
     @Test

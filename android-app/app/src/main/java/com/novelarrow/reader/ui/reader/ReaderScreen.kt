@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Headphones
@@ -694,8 +695,9 @@ fun ReaderContentView(
                             )
                         }
 
+                        val textToDisplay = paragraph.spokenText.ifBlank { paragraph.rawText }
                         Text(
-                            text = paragraph.rawText,
+                            text = textToDisplay,
                             style = if (paragraph.isHeading) {
                                 MaterialTheme.typography.titleMedium.copy(
                                     fontSize = (fontSizeSp + 4).sp,
@@ -841,10 +843,9 @@ fun TtsDock(
     var isDragging by remember { mutableStateOf(false) }
     var dragParaIndex by remember(currentParagraph) { mutableFloatStateOf(currentParagraph.toFloat()) }
     var dragAudioMs by remember(audioFilePositionMs) { mutableFloatStateOf(audioFilePositionMs.toFloat()) }
-    var isRulesSheetExpanded by remember { mutableStateOf(false) }
+    var showActiveFiltersDialog by remember { mutableStateOf(false) }
 
     val hasActiveRules = activeRuleImpacts.isNotEmpty()
-    val showHandle = hasActiveRules || flashHandleRed
 
     val infiniteTransition = rememberInfiniteTransition(label = "flashRedTransition")
     val redFlashColor by infiniteTransition.animateColor(
@@ -857,6 +858,26 @@ fun TtsDock(
         label = "handleFlashColor"
     )
 
+    val heartbeatTransition = rememberInfiniteTransition(label = "filterHeartbeat")
+    val heartbeatScale by heartbeatTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "heartbeatScale"
+    )
+    val heartbeatColor by heartbeatTransition.animateColor(
+        initialValue = Color(0xFFFF9800),
+        targetValue = Color(0xFFFF5722),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "heartbeatColor"
+    )
+
     val maxAudioDuration = audioFileDurationMs.coerceAtLeast(1000L).toFloat()
 
     val displayPara = if (isDragging) {
@@ -867,49 +888,23 @@ fun TtsDock(
         ((displayPara + 1).toFloat() / totalParagraphs.toFloat() * 100).toInt()
     } else 0
 
-    var sheetDragOffsetY by remember { mutableFloatStateOf(0f) }
-
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f),
         shadowElevation = 8.dp,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier.pointerInput(showHandle, isRulesSheetExpanded) {
-            if (showHandle) {
-                detectVerticalDragGestures(
-                    onVerticalDrag = { change, dragAmount ->
-                        change.consume()
-                        sheetDragOffsetY += dragAmount
-                        if (sheetDragOffsetY < -35f && !isRulesSheetExpanded) {
-                            isRulesSheetExpanded = true
-                            sheetDragOffsetY = 0f
-                            if (flashHandleRed) onResetFlashHandle()
-                        } else if (sheetDragOffsetY > 35f && isRulesSheetExpanded) {
-                            isRulesSheetExpanded = false
-                            sheetDragOffsetY = 0f
-                        }
-                    },
-                    onDragEnd = {
-                        sheetDragOffsetY = 0f
-                    },
-                    onDragCancel = {
-                        sheetDragOffsetY = 0f
-                    }
-                )
-            }
-        }
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            // 1. TOP: Media Controls (Always on top)
+            // Media Controls
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
-                // Slider controls progress within current chapter/audio, with settings gear & close button to right
+                // Slider controls progress within current chapter/audio, with active filters, settings gear & close button to right
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -949,6 +944,30 @@ fun TtsDock(
                     )
 
                     Spacer(modifier = Modifier.width(6.dp))
+
+                    // Dedicated Active Filters button immediately right of the progress bar
+                    IconButton(
+                        onClick = {
+                            showActiveFiltersDialog = true
+                            if (flashHandleRed) onResetFlashHandle()
+                        },
+                        modifier = Modifier
+                            .size(32.dp)
+                            .graphicsLayer {
+                                val scale = if (hasActiveRules || flashHandleRed) heartbeatScale else 1.0f
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterAlt,
+                            contentDescription = "Active Rules & Filters",
+                            tint = if (flashHandleRed) redFlashColor else if (hasActiveRules) heartbeatColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     // Settings gear button
                     IconButton(
@@ -1157,147 +1176,156 @@ fun TtsDock(
                     }
                 }
             }
+        }
+    }
 
-            // 2. BOTTOM: Active Rules & Filters (Underneath controls, draggable/flickable)
-            if (showHandle) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+    if (showActiveFiltersDialog) {
+        ActiveFiltersDialog(
+            rules = activeRuleImpacts,
+            onToggleRule = onToggleRule,
+            onDismiss = { showActiveFiltersDialog = false }
+        )
+    }
+}
 
+@Composable
+fun ActiveFiltersDialog(
+    rules: List<com.novelarrow.reader.data.model.RuleImpact>,
+    onToggleRule: (com.novelarrow.reader.data.model.RuleImpact, Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier
+            .fillMaxWidth(0.96f)
+            .padding(vertical = 16.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.FilterAlt,
+                        contentDescription = null,
+                        tint = Color(0xFFFF9800),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Active Rules & Filters (${rules.size})",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(20.dp))
+                }
+            }
+        },
+        text = {
+            if (rules.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No filters or rules are currently applied to this chapter.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                val sortedRules = remember(rules) {
+                    rules.sortedByDescending { it.charsFiltered }
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
-                            isRulesSheetExpanded = !isRulesSheetExpanded
-                            if (flashHandleRed) onResetFlashHandle()
-                        }
-                        .padding(top = 6.dp, bottom = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .width(42.dp)
-                            .height(5.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (flashHandleRed) redFlashColor
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                            )
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = if (flashHandleRed && activeRuleImpacts.isEmpty()) "No text detected • Check rules"
-                            else if (flashHandleRed) "No text detected • ${activeRuleImpacts.size} active rules"
-                            else "Active Rules & Filters (${activeRuleImpacts.size})",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = if (flashHandleRed) Color(0xFFFF1744) else MaterialTheme.colorScheme.primary
-                            )
-                        )
-                        Icon(
-                            imageVector = if (isRulesSheetExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                            contentDescription = null,
-                            tint = if (flashHandleRed) Color(0xFFFF1744) else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
-                // Expanded Active Rules Sheet
-                AnimatedVisibility(
-                    visible = isRulesSheetExpanded && hasActiveRules,
-                    enter = slideInVertically() + fadeIn(),
-                    exit = slideOutVertically() + fadeOut()
-                ) {
-                    val sortedRules = remember(activeRuleImpacts) {
-                        activeRuleImpacts.sortedByDescending { it.charsFiltered }
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 240.dp)
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        sortedRules.forEach { rule ->
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                modifier = Modifier.fillMaxWidth()
+                    sortedRules.forEach { rule ->
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = rule.ruleType.label,
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontWeight = FontWeight.Bold
-                                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = rule.ruleType.label,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold
                                             )
-                                            if (rule.charsFiltered > 0) {
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                val isContentSelector = rule.ruleType == com.novelarrow.reader.data.model.RuleType.CONTENT_SELECTOR ||
-                                                        rule.ruleType == com.novelarrow.reader.data.model.RuleType.CONTENT_CONTAINER
-                                                val badgeText = if (isContentSelector) "+${rule.charsFiltered} chars" else "-${rule.charsFiltered} chars"
-                                                val badgeColor = if (isContentSelector) Color(0xFF4CAF50) else Color(0xFFFF5722)
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = badgeColor.copy(alpha = 0.15f)
-                                                ) {
-                                                    Text(
-                                                        text = badgeText,
-                                                        style = MaterialTheme.typography.labelSmall.copy(
-                                                            color = badgeColor,
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontSize = 10.sp
-                                                        ),
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                                    )
-                                                }
+                                        )
+                                        if (rule.charsFiltered > 0) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            val isContentSelector = rule.ruleType == com.novelarrow.reader.data.model.RuleType.CONTENT_SELECTOR ||
+                                                    rule.ruleType == com.novelarrow.reader.data.model.RuleType.CONTENT_CONTAINER
+                                            val badgeText = if (isContentSelector) "+${rule.charsFiltered} chars" else "-${rule.charsFiltered} chars"
+                                            val badgeColor = if (isContentSelector) Color(0xFF4CAF50) else Color(0xFFFF5722)
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = badgeColor.copy(alpha = 0.15f)
+                                            ) {
+                                                Text(
+                                                    text = badgeText,
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        color = badgeColor,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp
+                                                    ),
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
                                             }
                                         }
-                                        Text(
-                                            text = rule.name,
-                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        if (rule.details.isNotBlank()) {
-                                            Text(
-                                                text = rule.details,
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                ),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
                                     }
-                                    Switch(
-                                        checked = rule.enabled,
-                                        onCheckedChange = { isChecked ->
-                                            onToggleRule(rule, isChecked)
-                                        },
-                                        modifier = Modifier.scale(0.8f)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = rule.name,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+                                    if (rule.details.isNotBlank()) {
+                                        Text(
+                                            text = rule.details,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                        )
+                                    }
                                 }
+                                Switch(
+                                    checked = rule.enabled,
+                                    onCheckedChange = { isChecked ->
+                                        onToggleRule(rule, isChecked)
+                                    }
+                                )
                             }
                         }
                     }
                 }
             }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
         }
-    }
+    )
 }
 
 @Composable

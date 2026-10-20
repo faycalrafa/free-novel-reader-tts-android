@@ -112,6 +112,57 @@ object WebScriptInjector {
                     };
                 }
 
+                // Polyfill Greasemonkey GM_registerToolbarButton & GM_addButton API
+                window.__gmCustomButtons = window.__gmCustomButtons || {};
+                if (typeof window.GM_registerToolbarButton === 'undefined') {
+                    window.GM_registerToolbarButton = function(options, callback) {
+                        if (!options) return '';
+                        var id = options.id || ('btn_' + Math.random().toString(36).substr(2, 9));
+                        var title = options.title || options.name || 'Button';
+                        var icon = options.icon || 'Extension';
+                        var badge = options.badge || '';
+                        var handler = callback || options.onClick;
+                        if (typeof handler === 'function') {
+                            window.__gmCustomButtons[id] = handler;
+                        }
+                        var payload = JSON.stringify({
+                            id: id,
+                            title: title,
+                            icon: icon,
+                            badge: badge
+                        });
+                        if (window.BrowserBridge && window.BrowserBridge.registerCustomButton) {
+                            window.BrowserBridge.registerCustomButton(payload);
+                        } else if (window.AndroidBridge && window.AndroidBridge.registerCustomButton) {
+                            window.AndroidBridge.registerCustomButton(payload);
+                        }
+                        return id;
+                    };
+                    window.GM_addButton = window.GM_registerToolbarButton;
+                }
+
+                // Global dispatcher for custom button clicks invoked from native UI
+                window.__triggerCustomToolbarButton = function(btnId) {
+                    if (window.__gmCustomButtons && typeof window.__gmCustomButtons[btnId] === 'function') {
+                        try {
+                            window.__gmCustomButtons[btnId]();
+                        } catch (err) {
+                            console.error('Error invoking custom button ' + btnId, err);
+                        }
+                    }
+                };
+
+                // Polyfill openDownloadDialog helper
+                if (typeof window.GM_openDownloadDialog === 'undefined') {
+                    window.GM_openDownloadDialog = function() {
+                        if (window.BrowserBridge && window.BrowserBridge.openDownloadDialog) {
+                            window.BrowserBridge.openDownloadDialog();
+                        } else if (window.AndroidBridge && window.AndroidBridge.openDownloadDialog) {
+                            window.AndroidBridge.openDownloadDialog();
+                        }
+                    };
+                }
+
                 // 1. Inject highlight and hover styles
                 if (!document.getElementById('na-tts-styles')) {
                     var styleEl = document.createElement('style');

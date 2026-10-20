@@ -105,6 +105,10 @@ import com.novelarrow.reader.ui.settings.ToolbarSettingsScreen
 import com.novelarrow.reader.ui.settings.VoiceEngineScreen
 import com.novelarrow.reader.ui.studio.AudioStudioScreen
 import com.novelarrow.reader.util.AppLogger
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.zIndex
+import com.novelarrow.reader.ui.browser.BrowserReorderButtonsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,6 +126,7 @@ enum class AppScreen {
     SETTINGS_CONTENT_SELECTOR,
     SETTINGS_BROWSER_IGNORED_SELECTORS,
     SETTINGS_BROWSER_NEXT_SELECTOR,
+    BROWSER_REORDER_BUTTONS,
     VOICE_ENGINE,
     DEV_LOGS,
     ARCHIVE,
@@ -184,6 +189,12 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.uiState.collectAsState()
             val browserUiState by browserViewModel.uiState.collectAsState()
             var currentScreen by rememberSaveable { mutableStateOf(AppScreen.READER) }
+            var hasVisitedBrowser by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(currentScreen) {
+                if (currentScreen == AppScreen.BROWSER) {
+                    hasVisitedBrowser = true
+                }
+            }
             var subScreenSourceScreen by rememberSaveable { mutableStateOf(AppScreen.SETTINGS) }
             val navigateToSubScreen: (AppScreen) -> Unit = { target ->
                 if (currentScreen in listOf(AppScreen.READER, AppScreen.BROWSER, AppScreen.TEXT_TO_MP3, AppScreen.SETTINGS)) {
@@ -295,7 +306,7 @@ class MainActivity : ComponentActivity() {
                 currentScreen = AppScreen.ABOUT
             }
 
-            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS || currentScreen == AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR)) {
+            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS || currentScreen == AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR || currentScreen == AppScreen.BROWSER_REORDER_BUTTONS)) {
                 currentScreen = subScreenSourceScreen
             }
 
@@ -441,7 +452,47 @@ class MainActivity : ComponentActivity() {
                     Surface(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        when (currentScreen) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (hasVisitedBrowser) {
+                                val isBrowserActive = currentScreen == AppScreen.BROWSER
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(if (isBrowserActive) 1f else 0f)
+                                        .alpha(if (isBrowserActive) 1f else 0f)
+                                ) {
+                                    BrowserScreen(
+                                        isActive = isBrowserActive,
+                                        viewModel = browserViewModel,
+                                        onNavigateBack = {
+                                            viewModel.refreshLibrary()
+                                            currentScreen = AppScreen.READER
+                                        },
+                                        onOpenDownloadedNovel = { novelId ->
+                                            viewModel.refreshLibrary(novelId)
+                                            currentScreen = AppScreen.READER
+                                        },
+                                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                                        onNavigateToPronunciationRules = { navigateToSubScreen(AppScreen.SETTINGS_PRONUNCIATION) },
+                                        onNavigateToSkipWords = { navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS) },
+                                        onNavigateToVoiceEngine = { navigateToSubScreen(AppScreen.VOICE_ENGINE) },
+                                        onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
+                                        onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) },
+                                        onNavigateToNextSelector = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR) },
+                                        onNavigateToIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) },
+                                        onNavigateToReorderButtons = { navigateToSubScreen(AppScreen.BROWSER_REORDER_BUTTONS) },
+                                        onNavigateToDevLogs = { currentScreen = AppScreen.DEV_LOGS }
+                                    )
+                                }
+                            }
+
+                            if (currentScreen != AppScreen.BROWSER) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .zIndex(2f)
+                                ) {
+                                    when (currentScreen) {
                             AppScreen.READER -> {
                                 ReaderScreen(
                                     viewModel = viewModel,
@@ -491,6 +542,8 @@ class MainActivity : ComponentActivity() {
                             }
                             AppScreen.SETTINGS -> {
                                 GlobalSettingsScreen(
+                                    currentTheme = uiState.settings.theme,
+                                    onThemeChange = { viewModel.updateTheme(it) },
                                     onOpenDrawer = { scope.launch { drawerState.open() } },
                                     onNavigateToToolbarSettings = { navigateToSubScreen(AppScreen.TOOLBAR_SETTINGS) },
                                     onNavigateToHardwareButtons = { navigateToSubScreen(AppScreen.HARDWARE_BUTTON_SETTINGS) },
@@ -527,7 +580,9 @@ class MainActivity : ComponentActivity() {
                                 SkipWordsScreen(
                                     masterEnabled = uiState.settings.skipWordsEnabled,
                                     skipWords = uiState.settings.skipWords,
+                                    ignoreSymbols = uiState.settings.skipWordsIgnoreSymbols,
                                     onToggleMaster = { viewModel.updateSkipWordsEnabled(it) },
+                                    onToggleIgnoreSymbols = { viewModel.updateSkipWordsIgnoreSymbols(it) },
                                     onAddSkipWord = { word -> viewModel.addSkipWord(word) },
                                     onUpdateSkipWord = { word -> viewModel.updateSkipWord(word) },
                                     onToggleSkipWord = { id, enabled -> viewModel.toggleSkipWord(id, enabled) },
@@ -603,25 +658,17 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             AppScreen.BROWSER -> {
-                                BrowserScreen(
-                                    viewModel = browserViewModel,
-                                    onNavigateBack = {
-                                        viewModel.refreshLibrary()
-                                        currentScreen = AppScreen.READER
+                                // Handled in retained Box above
+                            }
+                            AppScreen.BROWSER_REORDER_BUTTONS -> {
+                                BrowserReorderButtonsScreen(
+                                    currentOrder = browserUiState.settings.toolbarButtonOrder,
+                                    customButtons = browserUiState.customToolbarButtons,
+                                    shortcuts = browserUiState.settings.navbarShortcuts,
+                                    onOrderChanged = { newOrder ->
+                                        browserViewModel.updateToolbarButtonOrder(newOrder)
                                     },
-                                    onOpenDownloadedNovel = { novelId ->
-                                        viewModel.refreshLibrary(novelId)
-                                        currentScreen = AppScreen.READER
-                                    },
-                                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                                    onNavigateToPronunciationRules = { navigateToSubScreen(AppScreen.SETTINGS_PRONUNCIATION) },
-                                    onNavigateToSkipWords = { navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS) },
-                                    onNavigateToVoiceEngine = { navigateToSubScreen(AppScreen.VOICE_ENGINE) },
-                                    onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
-                                    onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) },
-                                    onNavigateToNextSelector = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR) },
-                                    onNavigateToIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) },
-                                    onNavigateToDevLogs = { currentScreen = AppScreen.DEV_LOGS }
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
                             AppScreen.ARCHIVE -> {
@@ -665,6 +712,9 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
+                    }
+                }
+            }
 
                         // System Update Dialogs available across all routes
                         if (uiState.showUpdateDialog && uiState.updateInfo != null) {

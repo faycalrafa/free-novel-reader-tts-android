@@ -59,6 +59,41 @@ Displays a native Android Toast notification on the user's screen.
 
 ---
 
+### `GM_registerToolbarButton(options, callback)` / `GM_addButton(options, callback)`
+Registers a custom button in BookReader's browser navigation toolbar and binds it to a script action.
+
+- **Parameters (`options`)**:
+  - `id` *(string, optional)*: Unique identifier for the button. Auto-generated if omitted.
+  - `title` *(string, required)*: User-facing title and tooltip for the button.
+  - `icon` *(string, optional)*: Name of the icon to display. Default: `'Extension'`.
+  - `badge` *(string, optional)*: Badge text or indicator overlay.
+  - `onClick` *(function, optional)*: Action executed when the button is clicked (can also be passed as the second argument `callback`).
+- **Supported Icon Names**:
+  `CloudDownload`, `Repeat`, `Star`, `Bookmark`, `Code`, `Link`, `Mouse`, `Play`, `Filter`, `Refresh`, `Save`, `Tune`, `Headphones`, `MenuBook`, `ChevronLeft`, `ChevronRight`, `FindInPage`, `Extension`.
+- **Returns**: The button `id` (string).
+- **Example: Registering a Batch Download Toolbar Button**:
+  ```javascript
+  // ==UserScript==
+  // @name         Batch Downloader
+  // @version      1.0.0
+  // @match        *://*/*
+  // @grant        GM_registerToolbarButton
+  // ==/UserScript==
+
+  GM_registerToolbarButton({
+      id: 'multi_download',
+      title: 'Batch Download Loop',
+      icon: 'CloudDownload',
+      onClick: function() {
+          if (window.BrowserBridge && window.BrowserBridge.openDownloadDialog) {
+              window.BrowserBridge.openDownloadDialog();
+          }
+      }
+  });
+  ```
+
+---
+
 ### `window.BrowserBridge` / `window.AndroidBridge`
 BookReader exposes native JavaScript interfaces for deep reader integration:
 

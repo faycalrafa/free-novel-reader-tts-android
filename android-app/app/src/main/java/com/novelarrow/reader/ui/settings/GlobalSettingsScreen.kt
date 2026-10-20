@@ -52,9 +52,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clip
+import com.novelarrow.reader.data.model.ThemeMode
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlobalSettingsScreen(
+    currentTheme: ThemeMode = ThemeMode.SEPIA,
+    onThemeChange: (ThemeMode) -> Unit = {},
     onOpenDrawer: () -> Unit,
     onNavigateToToolbarSettings: () -> Unit,
     onNavigateToHardwareButtons: () -> Unit,
@@ -98,6 +105,63 @@ fun GlobalSettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
+            Text(
+                text = "APPEARANCE",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "App Theme",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Select reading and application theme",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ThemeOptionChip(
+                            label = "Light",
+                            icon = "☀️",
+                            isSelected = currentTheme == ThemeMode.LIGHT,
+                            onClick = { onThemeChange(ThemeMode.LIGHT) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        ThemeOptionChip(
+                            label = "Sepia",
+                            icon = "📜",
+                            isSelected = currentTheme == ThemeMode.SEPIA,
+                            onClick = { onThemeChange(ThemeMode.SEPIA) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        ThemeOptionChip(
+                            label = "Dark",
+                            icon = "🌙",
+                            isSelected = currentTheme == ThemeMode.DARK,
+                            onClick = { onThemeChange(ThemeMode.DARK) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             Text(
                 text = "AUDIO & HARDWARE",
                 style = MaterialTheme.typography.labelMedium.copy(
@@ -324,6 +388,41 @@ private fun SettingsNavigationItem(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                 modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemeOptionChip(
+    label: String,
+    icon: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                 else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(text = icon, fontSize = 20.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                )
             )
         }
     }

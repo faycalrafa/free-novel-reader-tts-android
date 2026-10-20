@@ -154,7 +154,8 @@ data class BrowserUiState(
     val showClickablesInspector: Boolean = false,
     val showShortcutsManager: Boolean = false,
     val flashHandleRed: Boolean = false,
-    val activeRuleImpacts: List<RuleImpact> = emptyList()
+    val activeRuleImpacts: List<RuleImpact> = emptyList(),
+    val customToolbarButtons: List<com.novelarrow.reader.data.model.CustomToolbarButton> = emptyList()
 )
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -162,6 +163,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val libraryRepository = LibraryRepository(application)
     private val settingsRepository = SettingsRepository(application)
     private val userscriptRepository = UserscriptRepository(application)
+    private val savedReadingPositions = mutableMapOf<String, Int>()
 
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
@@ -272,10 +274,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             AudioPlaybackCoordinator.playbackProgressState.collect { progress ->
                 if (progress.source == PlaybackSource.BROWSER) {
                     val idx = progress.currentParagraphIndex
+                    val curUrl = _uiState.value.currentUrl
+                    if (curUrl.isNotBlank()) {
+                        savedReadingPositions[curUrl] = idx
+                    }
                     _uiState.update {
                         it.copy(
                             isLivePlaying = progress.isPlaying,
-                            liveCurrentParagraphIndex = idx
+                            liveCurrentParagraphIndex = idx,
+                            readerModeCurrentParagraphIndex = if (it.isReaderMode) idx else it.readerModeCurrentParagraphIndex
                         )
                     }
                     highlightWebParagraph(idx)
@@ -1186,17 +1193,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
                 skipWords = settings.skipWords,
                 skipWordsEnabled = settings.skipWordsEnabled,
+                skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
                 containerImpact = containerImpact,
                 ignoredSelectorImpacts = ignoredImpacts
             )
 
             val paragraphs = parseResult.paragraphs
+            val curPos = (savedReadingPositions[currentUrl] ?: 0).coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
             _uiState.update {
                 it.copy(
                     isReaderMode = true,
                     readerModeTitle = title,
                     readerModeParagraphs = paragraphs,
-                    readerModeCurrentParagraphIndex = 0,
+                    readerModeCurrentParagraphIndex = curPos,
                     readerModeIsLoadingNext = false,
                     liveParagraphs = if (paragraphs.isNotEmpty()) paragraphs else it.liveParagraphs,
                     activeRuleImpacts = parseResult.ruleImpacts
@@ -1297,6 +1306,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
                     skipWords = settings.skipWords,
                     skipWordsEnabled = settings.skipWordsEnabled,
+                    skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
                     containerImpact = containerImpact,
                     ignoredSelectorImpacts = ignoredImpacts
                 )
@@ -1305,7 +1315,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 val readableParagraphs = paragraphs.filter { it.spokenText.isNotBlank() }
 
                 if (readableParagraphs.isNotEmpty()) {
-                    val targetIndex = if (forceStartAtBeginning) 0 else 0
+                    val targetIndex = if (forceStartAtBeginning) {
+                        0
+                    } else {
+                        (savedReadingPositions[currentUrl] ?: _uiState.value.liveCurrentParagraphIndex)
+                            .coerceIn(0, (readableParagraphs.size - 1).coerceAtLeast(0))
+                    }
                     _uiState.update {
                         it.copy(
                             liveParagraphs = readableParagraphs,
@@ -1361,7 +1376,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             pronunciationRules = rules,
             skipWords = skips,
             folderPath = null,
-            novelUrl = url
+            novelUrl = url,
+            skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols
         )
     }
 
@@ -1411,6 +1427,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val paras = _uiState.value.liveParagraphs
         if (paras.isEmpty()) return
         val target = index.coerceIn(0, paras.size - 1)
+        val curUrl = _uiState.value.currentUrl
+        if (curUrl.isNotBlank()) {
+            savedReadingPositions[curUrl] = target
+        }
         AudioPlaybackCoordinator.seekToParagraph(target)
         _uiState.update { it.copy(liveCurrentParagraphIndex = target, isLivePlaying = true, isLiveReading = true) }
     }
@@ -1963,6 +1983,39 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             } else if (_uiState.value.isReaderMode) {
                 enterReadingMode()
             }
+        }
+    }
+
+    fun registerCustomToolbarButton(payload: String) {
+        try {
+            val obj = org.json.JSONObject(payload)
+            val id = obj.optString("id", "")
+            if (id.isBlank()) return
+            val title = obj.optString("title", "Button")
+            val icon = obj.optString("icon", "Extension")
+            val badge = obj.optString("badge", "")
+            val btn = com.novelarrow.reader.data.model.CustomToolbarButton(id = id, title = title, icon = icon, badge = badge)
+            _uiState.update { state ->
+                val filtered = state.customToolbarButtons.filterNot { it.id == id }
+                state.copy(customToolbarButtons = filtered + btn)
+            }
+            AppLogger.d(TAG, "Registered custom toolbar button: $id ($title)")
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to parse custom toolbar button payload: ${e.message}", e)
+        }
+    }
+
+    fun onCustomToolbarButtonClicked(buttonId: String) {
+        AppLogger.i(TAG, "Custom toolbar button clicked: $buttonId")
+        if (buttonId == "multi_download") {
+            openDownloadDialog()
+        }
+        dispatchEvaluateJs("window.__triggerCustomToolbarButton('$buttonId');")
+    }
+
+    fun updateToolbarButtonOrder(order: List<String>) {
+        viewModelScope.launch {
+            settingsRepository.updateToolbarButtonOrder(order)
         }
     }
 

@@ -46,33 +46,15 @@ class BookReaderTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        AppLogger.i(TAG, "Quick Settings Tile tapped: restoring last reading session and opening app")
+        AppLogger.i(TAG, "Quick Settings Tile tapped: triggering TTS playback directly in background")
 
-        // 1. Initialize and resume audio playback where user last left off
-        AudioPlaybackCoordinator.initialize(applicationContext)
-        AudioPlaybackCoordinator.restoreLastHearingSession(autoPlay = true)
+        val application = applicationContext
+        AudioPlaybackCoordinator.initialize(application)
 
-        // 2. Launch MainActivity to bring user to active reading screen
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(MainActivity.EXTRA_RESUME_PLAYBACK, true)
-        }
-
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                val pendingIntent = PendingIntent.getActivity(
-                    this,
-                    1001,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                startActivityAndCollapse(pendingIntent)
-            } else {
-                @Suppress("DEPRECATION")
-                startActivityAndCollapse(intent)
-            }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to launch MainActivity from Tile: ${e.message}", e)
+        if (AudioPlaybackCoordinator.isPlayingState.value) {
+            AudioPlaybackCoordinator.pause()
+        } else {
+            AudioPlaybackCoordinator.restoreLastHearingSession(autoPlay = true)
         }
 
         updateTileState()

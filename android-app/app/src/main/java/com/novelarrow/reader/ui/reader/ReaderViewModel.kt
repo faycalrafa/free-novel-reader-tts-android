@@ -264,6 +264,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                 pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
                                 skipWords = settings.skipWords,
                                 skipWordsEnabled = settings.skipWordsEnabled,
+                                skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
                                 headerSkipString = settings.headerSkipString,
                                 headerSkipEnabled = settings.headerSkipEnabled,
                                 footerSkipString = settings.footerSkipString,
@@ -853,6 +854,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
                     skipWords = settings.skipWords,
                     skipWordsEnabled = settings.skipWordsEnabled,
+                    skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
                     headerSkipString = settings.headerSkipString,
                     headerSkipEnabled = settings.headerSkipEnabled,
                     footerSkipString = settings.footerSkipString,
@@ -1498,6 +1500,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setSkipWordsEnabled(enabled: Boolean) {
         updateSkipWordsEnabled(enabled)
+    }
+
+    fun updateSkipWordsIgnoreSymbols(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setSkipWordsIgnoreSymbols(enabled)
+            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
+        }
     }
 
     fun addSkipWord(word: String, exactMatch: Boolean) {

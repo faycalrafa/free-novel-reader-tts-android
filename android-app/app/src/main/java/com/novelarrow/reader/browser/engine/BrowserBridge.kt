@@ -14,7 +14,9 @@ class BrowserBridge(
     private val context: Context? = null,
     private val onParagraphClickedCallback: (Int) -> Unit = {},
     private val onScrolledToBottomCallback: () -> Unit = {},
-    private val onLongPressClickableCallback: (selector: String, text: String, hostname: String) -> Unit = { _, _, _ -> }
+    private val onLongPressClickableCallback: (selector: String, text: String, hostname: String) -> Unit = { _, _, _ -> },
+    private val onRegisterCustomButtonCallback: (String) -> Unit = {},
+    private val onOpenDownloadDialogCallback: () -> Unit = {}
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -52,6 +54,20 @@ class BrowserBridge(
     fun onLongPressClickable(selector: String, text: String, hostname: String) {
         mainHandler.post {
             onLongPressClickableCallback.invoke(selector, text, hostname)
+        }
+    }
+
+    @JavascriptInterface
+    fun registerCustomButton(payload: String) {
+        mainHandler.post {
+            onRegisterCustomButtonCallback.invoke(payload)
+        }
+    }
+
+    @JavascriptInterface
+    fun openDownloadDialog() {
+        mainHandler.post {
+            onOpenDownloadDialogCallback.invoke()
         }
     }
 

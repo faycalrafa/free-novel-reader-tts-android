@@ -221,6 +221,7 @@ data class ReaderSettings(
     val footerSkipRules: List<SkipRule> = emptyList(),
     val skipWords: List<SkipWord> = emptyList(),
     val skipWordsEnabled: Boolean = true,
+    val skipWordsIgnoreSymbols: Boolean = true,
     val pronunciationRules: List<PronunciationRule> = emptyList(),
     val pronunciationRulesEnabled: Boolean = true,
     val sleepTimerMinutes: Int = 0,
@@ -270,6 +271,15 @@ data class BrowserNavbarShortcut(
 )
 
 @Serializable
+data class CustomToolbarButton(
+    val id: String,
+    val title: String,
+    val icon: String = "Extension",
+    val badge: String = "",
+    val scriptId: String = ""
+)
+
+@Serializable
 data class BrowserTab(
     val id: String = java.util.UUID.randomUUID().toString(),
     val url: String = "https://www.google.com",
@@ -292,8 +302,8 @@ data class WebBrowserSettings(
     val contentSelectors: List<ContentSelectorRule> = emptyList(),
     val countdownDelayMs: Long = 1000L,
     val loopCount: Int = 100,
-    val autoClickOnScroll: Boolean = false,
-    val autoReadNextChapter: Boolean = false,
+    val autoClickOnScroll: Boolean = true,
+    val autoReadNextChapter: Boolean = true,
     val ttsAutoStart: Boolean = false,
     val ttsVoice: String? = null,
     val ttsRate: Float = 1.0f,
@@ -312,11 +322,13 @@ data class WebBrowserSettings(
     ),
     val skipWords: List<SkipWord> = emptyList(),
     val skipWordsEnabled: Boolean = true,
+    val skipWordsIgnoreSymbols: Boolean = true,
     val pronunciationRules: List<PronunciationRule> = emptyList(),
     val pronunciationRulesEnabled: Boolean = true,
     val headerSkipRules: List<SkipRule> = emptyList(),
     val headerSkipEnabled: Boolean = true,
     val footerSkipRules: List<SkipRule> = emptyList(),
     val footerSkipEnabled: Boolean = true,
-    val navbarShortcuts: List<BrowserNavbarShortcut> = emptyList()
+    val navbarShortcuts: List<BrowserNavbarShortcut> = emptyList(),
+    val toolbarButtonOrder: List<String> = emptyList()
 )

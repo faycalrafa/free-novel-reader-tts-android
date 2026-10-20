@@ -1,5 +1,6 @@
 package com.novelarrow.reader.data.repository
 
+import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.WebBrowserSettings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -164,9 +165,18 @@ class LibraryProgressAndSortTest {
     }
 
     @Test
-    fun testWebBrowserSettingsAutoReadDefaultIsOff() {
+    fun testWebBrowserSettingsDefaults() {
         val settings = WebBrowserSettings()
-        assertFalse("Auto-read when next chapter loads must be Off by default", settings.autoReadNextChapter)
+        assertTrue("Auto-read when next chapter loads must be On by default", settings.autoReadNextChapter)
+        assertTrue("Auto-click on scroll (auto next) must be On by default", settings.autoClickOnScroll)
+        assertTrue("Skip words ignore symbols must be On by default", settings.skipWordsIgnoreSymbols)
+    }
+
+    @Test
+    fun testReaderSettingsDefaults() {
+        val settings = ReaderSettings()
+        assertTrue("Auto next chapter must be On by default", settings.autoNextChapter)
+        assertTrue("Skip words ignore symbols must be On by default", settings.skipWordsIgnoreSymbols)
     }
 
     @Test

@@ -79,6 +79,36 @@ class UserscriptRepository(private val context: Context) {
                 }
             })();
         """.trimIndent()
+
+        val DEFAULT_MULTI_DOWNLOAD_SCRIPT = """
+            // ==UserScript==
+            // @name         Multi-Download
+            // @version      1.0.0
+            // @description  Batch download loop for web novel chapters with automatic chapter navigation.
+            // @match        *://*/*
+            // @run-at       document-end
+            // @grant        GM_registerToolbarButton
+            // @grant        GM_notification
+            // ==/UserScript==
+
+            (function() {
+                'use strict';
+                if (typeof GM_registerToolbarButton === 'function') {
+                    GM_registerToolbarButton({
+                        id: 'multi_download',
+                        title: 'Batch Download Loop',
+                        icon: 'CloudDownload',
+                        onClick: function() {
+                            if (window.BrowserBridge && window.BrowserBridge.openDownloadDialog) {
+                                window.BrowserBridge.openDownloadDialog();
+                            } else if (window.AndroidBridge && window.AndroidBridge.openDownloadDialog) {
+                                window.AndroidBridge.openDownloadDialog();
+                            }
+                        }
+                    });
+                }
+            })();
+        """.trimIndent()
     }
 
     private val _scriptsFlow: MutableStateFlow<List<UserscriptEntity>>
@@ -97,46 +127,49 @@ class UserscriptRepository(private val context: Context) {
         // Sync directory in background to detect files placed in Downloads
         try {
             ensureScriptsDirectory()
-            val synced = syncFromDiskInternal()
-            if (synced.isEmpty() && _scriptsFlow.value.isEmpty()) {
-                seedDefaultDemoScript()
-            }
+            syncFromDiskInternal()
+            seedDefaultScripts()
         } catch (e: Exception) {
             Log.w(TAG, "Initial sync failed: ${e.message}")
         }
     }
 
-    private fun seedDefaultDemoScript() {
+    private fun seedDefaultScripts() {
+        seedScriptFile("Clean_Novel_Reader.user.js", DEFAULT_DEMO_SCRIPT, "Clean Novel Reader (Ad & Clutter Remover)")
+        seedScriptFile("Multi-Download.user.js", DEFAULT_MULTI_DOWNLOAD_SCRIPT, "Multi-Download")
+    }
+
+    private fun seedScriptFile(fileName: String, scriptCode: String, fallbackName: String) {
         try {
             val scriptsDir = ensureScriptsDirectory()
-            val fileName = "Clean_Novel_Reader.user.js"
             val targetFile = File(scriptsDir, fileName)
-            val demoCode = DEFAULT_DEMO_SCRIPT.trimIndent()
-            targetFile.writeText(demoCode, Charsets.UTF_8)
+            if (!targetFile.exists()) {
+                targetFile.writeText(scriptCode.trimIndent(), Charsets.UTF_8)
+            }
 
-            val parsed = UserscriptMetadataParser.parse(demoCode, fallbackName = "Clean Novel Reader (Ad & Clutter Remover)")
-            val demoEntity = UserscriptEntity(
-                id = UUID.randomUUID().toString(),
-                name = parsed.name,
-                version = parsed.version,
-                filePath = targetFile.absolutePath,
-                isEnabled = true,
-                matchPatterns = parsed.matchPatterns,
-                runAt = parsed.runAt,
-                description = parsed.description,
-                author = parsed.author,
-                grantList = parsed.grantList,
-                lastModified = targetFile.lastModified()
-            )
+            val parsed = UserscriptMetadataParser.parse(scriptCode.trimIndent(), fallbackName = fallbackName)
             val current = _scriptsFlow.value.toMutableList()
-            if (current.none { it.name == demoEntity.name }) {
-                current.add(demoEntity)
+            if (current.none { it.name == parsed.name || it.name == fallbackName }) {
+                val entity = UserscriptEntity(
+                    id = UUID.randomUUID().toString(),
+                    name = parsed.name,
+                    version = parsed.version,
+                    filePath = targetFile.absolutePath,
+                    isEnabled = true,
+                    matchPatterns = parsed.matchPatterns,
+                    runAt = parsed.runAt,
+                    description = parsed.description,
+                    author = parsed.author,
+                    grantList = parsed.grantList,
+                    lastModified = targetFile.lastModified()
+                )
+                current.add(entity)
                 saveDatabase(current)
                 _scriptsFlow.value = current
-                Log.i(TAG, "Successfully seeded default demo userscript: ${demoEntity.name}")
+                Log.i(TAG, "Successfully seeded default userscript: ${entity.name}")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to seed demo userscript: ${e.message}")
+            Log.w(TAG, "Failed to seed default userscript $fileName: ${e.message}")
         }
     }
 

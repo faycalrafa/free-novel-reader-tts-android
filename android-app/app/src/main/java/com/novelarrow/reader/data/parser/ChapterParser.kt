@@ -73,6 +73,7 @@ object ChapterParser {
         pronunciationRulesEnabled: Boolean = true,
         skipWords: List<SkipWord> = emptyList(),
         skipWordsEnabled: Boolean = true,
+        skipWordsIgnoreSymbols: Boolean = true,
         headerSkipString: String = "",
         headerSkipEnabled: Boolean = true,
         footerSkipString: String = "",
@@ -93,6 +94,7 @@ object ChapterParser {
             pronunciationRulesEnabled = pronunciationRulesEnabled,
             skipWords = skipWords,
             skipWordsEnabled = skipWordsEnabled,
+            skipWordsIgnoreSymbols = skipWordsIgnoreSymbols,
             headerSkipString = headerSkipString,
             headerSkipEnabled = headerSkipEnabled,
             footerSkipString = footerSkipString,
@@ -115,6 +117,7 @@ object ChapterParser {
         pronunciationRulesEnabled: Boolean = true,
         skipWords: List<SkipWord> = emptyList(),
         skipWordsEnabled: Boolean = true,
+        skipWordsIgnoreSymbols: Boolean = true,
         headerSkipString: String = "",
         headerSkipEnabled: Boolean = true,
         footerSkipString: String = "",
@@ -189,11 +192,13 @@ object ChapterParser {
                     text = trimmedChunk,
                     pronunciationRules = effectiveRules,
                     skipWords = effectiveSkips,
+                    skipWordsIgnoreSymbols = skipWordsIgnoreSymbols,
                     folderPath = folderPath,
                     novelUrl = novelUrl,
                     skipCharImpacts = skipCharImpacts,
                     pronunCharImpacts = pronunCharImpacts
                 )
+                if (spoken.isBlank()) continue
                 result.add(
                     Paragraph(
                         index = counter++,
@@ -628,14 +633,16 @@ object ChapterParser {
         pronunciationRules: List<PronunciationRule>,
         skipWords: List<SkipWord>,
         folderPath: String? = null,
-        novelUrl: String? = null
+        novelUrl: String? = null,
+        skipWordsIgnoreSymbols: Boolean = true
     ): String {
         return applyRulesAndSkipsWithMetrics(
             text = text,
             pronunciationRules = pronunciationRules,
             skipWords = skipWords,
             folderPath = folderPath,
-            novelUrl = novelUrl
+            novelUrl = novelUrl,
+            skipWordsIgnoreSymbols = skipWordsIgnoreSymbols
         )
     }
 
@@ -646,7 +653,8 @@ object ChapterParser {
         folderPath: String? = null,
         novelUrl: String? = null,
         skipCharImpacts: MutableMap<String, Int>? = null,
-        pronunCharImpacts: MutableMap<String, Int>? = null
+        pronunCharImpacts: MutableMap<String, Int>? = null,
+        skipWordsIgnoreSymbols: Boolean = true
     ): String {
         var processed = text
 
@@ -673,11 +681,21 @@ object ChapterParser {
             if (skip.text.isBlank()) continue
             val escaped = Regex.escape(skip.text)
             val beforeLen = processed.length
-            processed = if (skip.exactMatch) {
-                val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
-                processed.replace(Regex(pattern), "")
+            processed = if (skipWordsIgnoreSymbols) {
+                if (skip.exactMatch) {
+                    val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])(?:[\\p{P}\\p{S}]*)${escaped}(?:[\\p{P}\\p{S}]*)(?=[^\\p{L}\\p{N}]|$)"
+                    processed.replace(Regex(pattern), "")
+                } else {
+                    val pattern = "(?i)(?:[\\p{P}\\p{S}]*)${escaped}(?:[\\p{P}\\p{S}]*)"
+                    processed.replace(Regex(pattern), "")
+                }
             } else {
-                processed.replace(skip.text, "", ignoreCase = true)
+                if (skip.exactMatch) {
+                    val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
+                    processed.replace(Regex(pattern), "")
+                } else {
+                    processed.replace(skip.text, "", ignoreCase = true)
+                }
             }
             val removed = (beforeLen - processed.length).coerceAtLeast(0)
             if (skipCharImpacts != null && removed > 0) {
@@ -699,6 +717,7 @@ object ChapterParser {
         pronunciationRulesEnabled: Boolean = true,
         skipWords: List<SkipWord> = emptyList(),
         skipWordsEnabled: Boolean = true,
+        skipWordsIgnoreSymbols: Boolean = true,
         containerImpact: RuleImpact? = null,
         ignoredSelectorImpacts: List<RuleImpact> = emptyList()
     ): ParseResult {
@@ -740,8 +759,11 @@ object ChapterParser {
                 folderPath = null,
                 novelUrl = currentUrl,
                 skipCharImpacts = skipCharImpacts,
-                pronunCharImpacts = pronunCharImpacts
+                pronunCharImpacts = pronunCharImpacts,
+                skipWordsIgnoreSymbols = skipWordsIgnoreSymbols
             )
+
+            if (spoken.isBlank()) continue
 
             result.add(
                 Paragraph(

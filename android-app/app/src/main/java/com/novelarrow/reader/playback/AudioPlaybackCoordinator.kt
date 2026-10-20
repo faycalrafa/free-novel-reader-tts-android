@@ -60,6 +60,15 @@ object AudioPlaybackCoordinator {
     private val _previewingVoiceName = MutableStateFlow<String?>(null)
     val previewingVoiceName: StateFlow<String?> = _previewingVoiceName.asStateFlow()
 
+    var lastActiveSource: PlaybackSource = PlaybackSource.NONE
+        private set
+    var lastActiveBrowserChapterTitle: String = ""
+        private set
+    var lastActiveBrowserParagraphs: List<Paragraph> = emptyList()
+        private set
+    var lastActiveBrowserParagraphIndex: Int = 0
+        private set
+
     private var currentSource: PlaybackSource = PlaybackSource.NONE
     private var currentNovelId: String? = null
     private var currentNovelTitle: String = "BookReader"
@@ -242,6 +251,7 @@ object AudioPlaybackCoordinator {
         }
 
         currentSource = PlaybackSource.READER
+        lastActiveSource = PlaybackSource.READER
         currentNovelId = novelId
         currentNovelTitle = novelTitle
         currentChapterId = chapterId
@@ -328,6 +338,10 @@ object AudioPlaybackCoordinator {
         }
 
         currentSource = PlaybackSource.BROWSER
+        lastActiveSource = PlaybackSource.BROWSER
+        lastActiveBrowserChapterTitle = chapterTitle
+        lastActiveBrowserParagraphs = paragraphs
+        lastActiveBrowserParagraphIndex = startParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
         currentNovelId = null
         currentNovelTitle = "Web Reading"
         currentChapterId = null
@@ -576,6 +590,53 @@ object AudioPlaybackCoordinator {
 
     fun restoreLastHearingSession(autoPlay: Boolean = false, callback: (() -> Unit)? = null) {
         coordinatorScope.launch(Dispatchers.IO) {
+            if (lastActiveSource == PlaybackSource.BROWSER && lastActiveBrowserParagraphs.isNotEmpty()) {
+                val paragraphs = lastActiveBrowserParagraphs
+                val title = lastActiveBrowserChapterTitle
+                val idx = lastActiveBrowserParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+                withContext(Dispatchers.Main) {
+                    currentSource = PlaybackSource.BROWSER
+                    currentNovelId = null
+                    currentNovelTitle = "Web Reading"
+                    currentChapterId = null
+                    currentChapterTitle = title
+                    currentChapterIndex = 0
+                    totalChaptersCount = 1
+                    currentParagraphs = paragraphs
+                    totalParagraphsCount = paragraphs.size
+                    currentParagraphIndex = idx
+
+                    _playbackProgressState.update {
+                        it.copy(
+                            isPlaying = autoPlay,
+                            source = PlaybackSource.BROWSER,
+                            novelId = null,
+                            novelTitle = "Web Reading",
+                            chapterId = null,
+                            chapterTitle = title,
+                            chapterIndex = 0,
+                            totalChapters = 1,
+                            currentParagraphIndex = idx,
+                            totalParagraphs = paragraphs.size,
+                            currentParagraphText = paragraphs.getOrNull(idx)?.spokenText ?: ""
+                        )
+                    }
+
+                    currentProgressText = "¶ ${idx + 1}/${paragraphs.size}"
+                    appContext?.let { ctx ->
+                        ensureServiceRunning(ctx)
+                    }
+                    updateServiceState()
+
+                    if (autoPlay) {
+                        _isPlayingState.value = true
+                        speakCurrentParagraph()
+                    }
+                    callback?.invoke()
+                }
+                return@launch
+            }
+
             val repo = libraryRepository
             if (repo == null) {
                 AppLogger.d("AudioPlaybackCoordinator", "Cannot restore hearing session: LibraryRepository is null")
@@ -1194,6 +1255,9 @@ object AudioPlaybackCoordinator {
         lastProgressTimestamp = System.currentTimeMillis()
         consecutiveErrorCount = 0
         currentParagraphIndex = index
+        if (currentSource == PlaybackSource.BROWSER) {
+            lastActiveBrowserParagraphIndex = index
+        }
         _isPlayingState.value = true
         _playbackProgressState.update {
             it.copy(

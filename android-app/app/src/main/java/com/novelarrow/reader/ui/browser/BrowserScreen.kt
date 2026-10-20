@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Headphones
@@ -163,6 +164,7 @@ import com.novelarrow.reader.ui.common.MonacoCodeEditorDialog
 
 @Composable
 fun BrowserScreen(
+    isActive: Boolean = true,
     viewModel: BrowserViewModel,
     onNavigateBack: () -> Unit,
     onOpenDownloadedNovel: (novelId: String) -> Unit = {},
@@ -174,6 +176,7 @@ fun BrowserScreen(
     onNavigateToContentSelector: (() -> Unit)? = null,
     onNavigateToNextSelector: (() -> Unit)? = null,
     onNavigateToIgnoredSelectors: (() -> Unit)? = null,
+    onNavigateToReorderButtons: (() -> Unit)? = null,
     onNavigateToDevLogs: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -192,7 +195,7 @@ fun BrowserScreen(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = isActive) {
         if (uiState.isDownloading) {
             viewModel.stopDownloadLoop()
         } else if (uiState.isReaderMode) {
@@ -273,7 +276,11 @@ fun BrowserScreen(
                     keyboardController?.hide()
                     viewModel.navigateTo(it)
                 },
-                onOpenDrawer = onOpenDrawer
+                onOpenDrawer = onOpenDrawer,
+                toolbarButtonOrder = uiState.settings.toolbarButtonOrder,
+                customButtons = uiState.customToolbarButtons,
+                onCustomButtonClicked = { viewModel.onCustomToolbarButtonClicked(it) },
+                onReorderButtonsClicked = { onNavigateToReorderButtons?.invoke() }
             )
 
             // Linear Progress Indicator
@@ -306,6 +313,8 @@ fun BrowserScreen(
                     },
                     update = { wv ->
                         webViewInstance = wv
+                        wv.isEnabled = isActive
+                        wv.visibility = if (isActive) android.view.View.VISIBLE else android.view.View.INVISIBLE
                     },
                     modifier = Modifier.fillMaxSize()
                 )
@@ -545,6 +554,7 @@ fun BrowserScreen(
                 onNavigateToContentSelector = onNavigateToContentSelector,
                 onNavigateToNextSelector = onNavigateToNextSelector,
                 onNavigateToIgnoredSelectors = onNavigateToIgnoredSelectors,
+                onNavigateToReorderButtons = onNavigateToReorderButtons,
                 onResetDefaults = { viewModel.resetSettingsToDefaults() },
                 onDismiss = { viewModel.dismissSettingsDialog() }
             )
@@ -751,7 +761,11 @@ private fun BrowserTopBar(
     onDevLogsClicked: (() -> Unit)? = null,
     onUrlChanged: (String) -> Unit,
     onUrlSubmitted: (String) -> Unit,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    toolbarButtonOrder: List<String> = emptyList(),
+    customButtons: List<com.novelarrow.reader.data.model.CustomToolbarButton> = emptyList(),
+    onCustomButtonClicked: (String) -> Unit = {},
+    onReorderButtonsClicked: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -876,63 +890,132 @@ private fun BrowserTopBar(
             val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
             val secondaryColor = MaterialTheme.colorScheme.secondary
 
-            val visibleActionItems = remember(
+            val allAvailableMap = remember(
                 canGoBack,
                 canGoForward,
                 isReaderMode,
                 isDownloading,
                 isLiveReading,
+                customButtons,
                 activeShortcuts,
                 primaryColor,
                 primaryContainerColor,
                 secondaryColor
             ) {
-                val list = mutableListOf<TopBarActionItem>()
-                list.add(TopBarActionItem("back", "Back", Icons.Default.ChevronLeft, enabled = canGoBack, onClick = onBackClicked))
-                list.add(TopBarActionItem("forward", "Forward", Icons.Default.ChevronRight, enabled = canGoForward, onClick = onForwardClicked))
-                list.add(TopBarActionItem("reload", "Reload", Icons.Default.Refresh, onClick = onReloadClicked))
-                list.add(
-                    TopBarActionItem(
-                        id = "reader_mode",
-                        title = if (isReaderMode) "Exit Reading Mode" else "Reading Mode",
-                        icon = Icons.AutoMirrored.Filled.MenuBook,
-                        tint = if (isReaderMode) primaryColor else null,
-                        background = if (isReaderMode) primaryContainerColor else Color.Transparent,
-                        onClick = onReadingModeClicked
-                    )
+                val map = mutableMapOf<String, TopBarActionItem>()
+                map["tts"] = TopBarActionItem(
+                    id = "tts",
+                    title = "TTS Read Aloud",
+                    icon = Icons.Default.Headphones,
+                    tint = if (isLiveReading) primaryColor else null,
+                    background = if (isLiveReading) primaryContainerColor else Color.Transparent,
+                    onClick = onLiveReadClicked
                 )
-                list.add(
-                    TopBarActionItem(
-                        id = "loop",
-                        title = "Batch Download Loop",
-                        icon = Icons.Default.Repeat,
-                        tint = if (isDownloading) primaryColor else null,
-                        background = if (isDownloading) primaryContainerColor else Color.Transparent,
-                        onClick = onLoopClicked
-                    )
+                map["reader_mode"] = TopBarActionItem(
+                    id = "reader_mode",
+                    title = if (isReaderMode) "Exit Reading Mode" else "Reading Mode",
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
+                    tint = if (isReaderMode) primaryColor else null,
+                    background = if (isReaderMode) primaryContainerColor else Color.Transparent,
+                    onClick = onReadingModeClicked
                 )
-                list.add(TopBarActionItem("save", "Save Chapter HTML", Icons.Default.Save, onClick = onSaveFrozenHtmlClicked))
-                list.add(TopBarActionItem("auto_clicker", "Next Chapter (Click in Page)", Icons.Default.Mouse, onClick = onNextChapterClicked))
-                list.add(
-                    TopBarActionItem(
-                        id = "tts",
-                        title = "TTS Read Aloud",
-                        icon = Icons.Default.Headphones,
-                        tint = if (isLiveReading) primaryColor else null,
-                        background = if (isLiveReading) primaryContainerColor else Color.Transparent,
-                        onClick = onLiveReadClicked
-                    )
+                map["auto_clicker"] = TopBarActionItem(
+                    id = "auto_clicker",
+                    title = "Next Chapter (Click in Page)",
+                    icon = Icons.Default.Mouse,
+                    onClick = onNextChapterClicked
                 )
+                map["multi_download"] = TopBarActionItem(
+                    id = "multi_download",
+                    title = "Batch Download Loop",
+                    icon = Icons.Default.CloudDownload,
+                    tint = if (isDownloading) primaryColor else null,
+                    background = if (isDownloading) primaryContainerColor else Color.Transparent,
+                    onClick = onLoopClicked
+                )
+                map["loop"] = map["multi_download"]!!
+                map["reload"] = TopBarActionItem(
+                    id = "reload",
+                    title = "Reload",
+                    icon = Icons.Default.Refresh,
+                    onClick = onReloadClicked
+                )
+                map["forward"] = TopBarActionItem(
+                    id = "forward",
+                    title = "Forward",
+                    icon = Icons.Default.ChevronRight,
+                    enabled = canGoForward,
+                    onClick = onForwardClicked
+                )
+                map["back"] = TopBarActionItem(
+                    id = "back",
+                    title = "Back",
+                    icon = Icons.Default.ChevronLeft,
+                    enabled = canGoBack,
+                    onClick = onBackClicked
+                )
+                map["save"] = TopBarActionItem(
+                    id = "save",
+                    title = "Save Chapter HTML",
+                    icon = Icons.Default.Save,
+                    onClick = onSaveFrozenHtmlClicked
+                )
+                map["extensions"] = TopBarActionItem(
+                    id = "extensions",
+                    title = "Extensions & Userscripts",
+                    icon = Icons.Default.Extension,
+                    tint = primaryColor,
+                    onClick = onExtensionsClicked
+                )
+                map["inspect_clickables"] = TopBarActionItem(
+                    id = "inspect_clickables",
+                    title = "Inspect Page Clickables",
+                    icon = Icons.Default.FindInPage,
+                    tint = primaryColor,
+                    onClick = onInspectClickables
+                )
+
+                // Add custom toolbar buttons from userscripts
+                customButtons.forEach { btn ->
+                    map[btn.id] = TopBarActionItem(
+                        id = btn.id,
+                        title = btn.title,
+                        icon = resolveToolbarIcon(btn.icon),
+                        tint = primaryColor,
+                        onClick = { onCustomButtonClicked(btn.id) }
+                    )
+                }
+
+                // Add active shortcuts
                 activeShortcuts.forEach { sc ->
-                    list.add(
-                        TopBarActionItem(
-                            id = "shortcut_${sc.id}",
-                            title = sc.name,
-                            icon = getShortcutIcon(sc.iconName),
-                            tint = secondaryColor,
-                            onClick = { onTriggerShortcut(sc.selector) }
-                        )
+                    val scId = "shortcut_${sc.id}"
+                    map[scId] = TopBarActionItem(
+                        id = scId,
+                        title = sc.name,
+                        icon = getShortcutIcon(sc.iconName),
+                        tint = secondaryColor,
+                        onClick = { onTriggerShortcut(sc.selector) }
                     )
+                }
+                map
+            }
+
+            // Order buttons according to user's saved preferences
+            val effectiveOrder = remember(toolbarButtonOrder) {
+                if (toolbarButtonOrder.isEmpty()) DEFAULT_TOOLBAR_BUTTON_ORDER else toolbarButtonOrder
+            }
+
+            val orderedButtons = remember(allAvailableMap, effectiveOrder) {
+                val list = mutableListOf<TopBarActionItem>()
+                val seen = mutableSetOf<String>()
+                effectiveOrder.forEach { id ->
+                    val actualId = if (id == "loop") "multi_download" else id
+                    allAvailableMap[actualId]?.let {
+                        if (seen.add(it.id)) list.add(it)
+                    }
+                }
+                allAvailableMap.values.forEach { item ->
+                    if (item.id != "loop" && seen.add(item.id)) list.add(item)
                 }
                 list
             }
@@ -944,18 +1027,19 @@ private fun BrowserTopBar(
             ) {
                 val buttonWidth = 36.dp
                 val overflowMenuWidth = 38.dp
-                val maxDirectFit = ((maxWidth - overflowMenuWidth) / buttonWidth).toInt().coerceAtLeast(1)
+                val screenFit = ((maxWidth - overflowMenuWidth) / buttonWidth).toInt().coerceAtLeast(1)
+                val maxDirectFit = minOf(8, screenFit)
 
-                val directlyShownItems = if (visibleActionItems.size <= maxDirectFit) {
-                    visibleActionItems
+                val directlyShownItems = if (orderedButtons.size <= maxDirectFit) {
+                    orderedButtons
                 } else {
-                    visibleActionItems.take(maxDirectFit)
+                    orderedButtons.take(maxDirectFit)
                 }
 
-                val overflowedVisibleItems = if (visibleActionItems.size <= maxDirectFit) {
+                val overflowedVisibleItems = if (orderedButtons.size <= maxDirectFit) {
                     emptyList()
                 } else {
-                    visibleActionItems.drop(maxDirectFit)
+                    orderedButtons.drop(maxDirectFit)
                 }
 
                 var showMenu by remember { mutableStateOf(false) }
@@ -971,7 +1055,8 @@ private fun BrowserTopBar(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        directlyShownItems.forEach { item ->
+                        // Display ordered right-to-left: #1 is closest to the 3-dot menu on the right
+                        directlyShownItems.reversed().forEach { item ->
                             IconButton(
                                 onClick = item.onClick,
                                 enabled = item.enabled,
@@ -1007,7 +1092,7 @@ private fun BrowserTopBar(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
-                            // Overflowed primary buttons (on smaller screens)
+                            // Overflowed primary buttons (positions 9+)
                             if (overflowedVisibleItems.isNotEmpty()) {
                                 overflowedVisibleItems.forEach { item ->
                                     DropdownMenuItem(
@@ -1028,6 +1113,25 @@ private fun BrowserTopBar(
                                 }
                                 HorizontalDivider()
                             }
+
+                            // Dedicated Reorder Buttons option
+                            DropdownMenuItem(
+                                text = { Text("Reorder Buttons") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.DragHandle,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onReorderButtonsClicked()
+                                }
+                            )
+
+                            HorizontalDivider()
 
                             // Secondary browser features
                             DropdownMenuItem(
@@ -1598,6 +1702,7 @@ private fun BrowserSettingsDialog(
     onNavigateToContentSelector: (() -> Unit)? = null,
     onNavigateToNextSelector: (() -> Unit)? = null,
     onNavigateToIgnoredSelectors: (() -> Unit)? = null,
+    onNavigateToReorderButtons: (() -> Unit)? = null,
     onResetDefaults: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1787,6 +1892,26 @@ private fun BrowserSettingsDialog(
                         onCheckedChange = onToggleAutoClickOnScroll
                     )
                 }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Text(
+                    text = "TOOLBAR & NAVIGATION",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                BrowserSettingsNavCard(
+                    icon = Icons.Default.DragHandle,
+                    title = "Reorder Toolbar Buttons",
+                    subtitle = "Drag to reorder right-to-left buttons and control overflow",
+                    onClick = {
+                        onDismiss()
+                        onNavigateToReorderButtons?.invoke()
+                    }
+                )
             }
         },
         confirmButton = {
@@ -1909,6 +2034,12 @@ private fun createConfiguredWebView(
             },
             onLongPressClickableCallback = { selector, text, hostname ->
                 viewModel.onLongPressClickable(selector, text, hostname)
+            },
+            onRegisterCustomButtonCallback = { payload ->
+                viewModel.registerCustomToolbarButton(payload)
+            },
+            onOpenDownloadDialogCallback = {
+                viewModel.openDownloadDialog()
             }
         )
         addJavascriptInterface(bridge, com.novelarrow.reader.browser.engine.BrowserBridge.INTERFACE_NAME)
@@ -2078,8 +2209,9 @@ private fun BrowserReaderView(
                             Spacer(modifier = Modifier.width(8.dp))
                         }
 
+                        val textToDisplay = paragraph.spokenText.ifBlank { paragraph.rawText }
                         Text(
-                            text = paragraph.rawText,
+                            text = textToDisplay,
                             style = if (paragraph.isHeading) {
                                 MaterialTheme.typography.titleMedium.copy(
                                     fontSize = 20.sp,

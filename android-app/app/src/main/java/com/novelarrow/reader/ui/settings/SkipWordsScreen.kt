@@ -33,7 +33,9 @@ import com.novelarrow.reader.data.model.SkipWord
 fun SkipWordsScreen(
     masterEnabled: Boolean,
     skipWords: List<SkipWord>,
+    ignoreSymbols: Boolean = true,
     onToggleMaster: (Boolean) -> Unit,
+    onToggleIgnoreSymbols: (Boolean) -> Unit = {},
     onAddSkipWord: (SkipWord) -> Unit,
     onUpdateSkipWord: (SkipWord) -> Unit,
     onToggleSkipWord: (String, Boolean) -> Unit,
@@ -193,6 +195,43 @@ fun SkipWordsScreen(
                     Switch(
                         checked = masterEnabled,
                         onCheckedChange = onToggleMaster
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Ignore Symbols Toggle Card
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Ignore Symbols",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            if (ignoreSymbols) "Punctuation and symbols enclosing or attached to skip words are stripped"
+                            else "Punctuation and symbols are matched strictly",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = ignoreSymbols,
+                        onCheckedChange = onToggleIgnoreSymbols
                     )
                 }
             }
