@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.12.0"
+          DATE_TAG="v3.13.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.12.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.12.0 --no-daemon
+          APP_VERSION_NAME: "3.13.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.13.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,26 +53,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.12.0 (Stable)
+          name: BookReader v3.13.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.12.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.13.0 (Stable) 📚🎙️⚡
 
-            **BookReader v3.12.0** brings major enhancements, modernization, and stability across the Browser, Extensions, and Audio subsystems:
+            **BookReader v3.13.0** introduces userscript usability fixes, direct Monaco editor mobile typing, enhanced reading automation, and a standalone JavaScript multi-download engine:
 
             #### Key Updates:
-            - **Skip Words – Ignore Symbols Toggle**: Added an "Ignore Symbols" toggle (enabled by default) so punctuation and symbols surrounding skipped words are cleanly stripped.
-            - **Library & Browser Reading Modes – Clean Spoken View**: Rendered text displays only the exact text to be read aloud with filtered and skipped words stripped out.
-            - **Browser Navigation Performance & Reading Position Persistence**: Reusable WebView instances prevent lag when navigating between screens, and exact reading positions/sentences are restored upon return.
-            - **Browser Playback Stability**: Browser TTS playback and lifecycle state now share the stable pipeline with the Library reader.
-            - **Extensions Custom Button `GM_API`**: New `GM_registerToolbarButton(options, callback)` (alias `GM_addButton`) allows userscripts to add custom native toolbar buttons with icons.
-            - **Multi-Download Standalone Extension**: Converted the batch chapter downloader into a default userscript powered by the new `GM_registerToolbarButton` API.
-            - **Browser Toolbar Reordering Route**: Added a dedicated "Reorder Buttons" configuration screen to customize right-to-left button order with drag-and-drop ordering.
-            - **Nav Bar Button Limit & Overflow**: Enforced a maximum of 8 visible buttons in the Browser navigation bar, automatically placing subsequent buttons in the 3-dot overflow menu.
-            - **Media Control Bar Active Filters Button & Heartbeat**: Dedicated Active Rules & Filters button next to the dock progress bar with an orange pulsating heartbeat indicator and a full-width dialog.
-            - **Global Settings Theme Switcher**: Added an integrated theme selector (Light, Sepia, Dark) directly in the main Settings screen.
-            - **Default Settings Updated**: Auto-read when next chapter loads and auto-next chapter/page scroll are now enabled by default.
-            - **Quick Settings Tile Background Playback**: Unified resume playback from the most recently active source (Library or Browser) directly in the background.
+            - **Userscript Item Squishing Fixed**: Resolved version badge horizontal squishing in Userscript Bottom Sheet and Manager Dialog using `FlowRow` and `softWrap = false`.
+            - **Userscript Naming & Renaming**: Users can name and rename scripts via `// @name` in Monaco or via the dedicated "Rename" action in Userscript Manager and Monaco editor header.
+            - **Monaco Code Editor Direct Typing on Mobile**: Full Android touch focus and IME soft-keyboard support enabled so users can tap and write code directly in Monaco.
+            - **Browser Automation Defaults Updated**:
+              - *Auto-load next page on scroll to bottom* is now default **OFF**.
+              - *Auto-load next page on finished reading last paragraph* is now added and default **ON**.
+            - **Standalone Pure JS Multi-Download Userscript**: Refactored the batch chapter downloader into a pure JavaScript extension featuring an in-page modal dialog (Novel Name, Starting Chapter #, Chapters Quantity, Delay Between Chapters), filtered clean text extraction (matching Reading Mode), and automated chapter navigation loop. The old native download dialog has been removed.
             - **Live Resume Tracking**: Audio playback coordinator now persists progress in real-time on chapter start, seek, and pause, ensuring the Home screen Resume card immediately reflects the exact chapter.
             - **Notification Media Player Artwork**:
               - Notification and MediaSession now feature high-resolution artwork replacing procedural canvas book cover.

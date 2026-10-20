@@ -152,14 +152,10 @@ object WebScriptInjector {
                     }
                 };
 
-                // Polyfill openDownloadDialog helper
+                // Polyfill openDownloadDialog helper (redirects to multi_download script dialog)
                 if (typeof window.GM_openDownloadDialog === 'undefined') {
                     window.GM_openDownloadDialog = function() {
-                        if (window.BrowserBridge && window.BrowserBridge.openDownloadDialog) {
-                            window.BrowserBridge.openDownloadDialog();
-                        } else if (window.AndroidBridge && window.AndroidBridge.openDownloadDialog) {
-                            window.AndroidBridge.openDownloadDialog();
-                        }
+                        window.__triggerCustomToolbarButton('multi_download');
                     };
                 }
 

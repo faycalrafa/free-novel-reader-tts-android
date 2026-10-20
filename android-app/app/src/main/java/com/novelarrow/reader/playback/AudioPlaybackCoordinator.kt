@@ -83,6 +83,7 @@ object AudioPlaybackCoordinator {
     private var consecutiveErrorCount: Int = 0
     private var currentParagraphs: List<Paragraph> = emptyList()
     private var autoNextChapterEnabled: Boolean = true
+    var autoNextOnFinishedPage: Boolean = true
     private var currentPlaylist: List<File> = emptyList()
     private var currentAudioFile: File? = null
     private var pendingAudioFile: File? = null
@@ -894,6 +895,9 @@ object AudioPlaybackCoordinator {
             speakCurrentParagraph()
         } else if (currentSource == PlaybackSource.READER && autoNextChapterEnabled) {
             advanceToNextChapter()
+        } else if (currentSource == PlaybackSource.BROWSER && autoNextOnFinishedPage) {
+            AppLogger.i(TAG, "Browser playback manual next at end of page, triggering next chapter")
+            browserNextChapterCallback?.invoke()
         }
     }
 
@@ -1305,6 +1309,9 @@ object AudioPlaybackCoordinator {
         } else {
             if (currentSource == PlaybackSource.READER && autoNextChapterEnabled) {
                 advanceToNextChapter()
+            } else if (currentSource == PlaybackSource.BROWSER && autoNextOnFinishedPage) {
+                AppLogger.i(TAG, "Browser playback finished last paragraph, advancing to next page")
+                browserNextChapterCallback?.invoke()
             } else {
                 pause()
             }

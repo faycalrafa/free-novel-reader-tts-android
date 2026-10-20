@@ -445,24 +445,6 @@ fun BrowserScreen(
             }
         }
 
-        // Batch Download Setup Dialog
-        if (uiState.showDownloadDialog) {
-            DownloadSetupDialog(
-                detectedTitle = uiState.detectedTitle,
-                detectedChapter = uiState.detectedChapter,
-                novelTitle = uiState.dialogNovelTitle,
-                startingChapter = uiState.dialogStartingChapter,
-                loopCount = uiState.dialogLoopCount,
-                delayMs = uiState.dialogDelayMs,
-                onTitleChange = { viewModel.setDialogNovelTitle(it) },
-                onChapterChange = { viewModel.setDialogStartingChapter(it) },
-                onLoopCountChange = { viewModel.setDialogLoopCount(it) },
-                onDelayMsChange = { viewModel.setDialogDelayMs(it) },
-                onConfirm = { viewModel.startDownloadLoop() },
-                onDismiss = { viewModel.dismissDownloadDialog() }
-            )
-        }
-
         // Sleep Timer Dialog - Reuses SleepTimerDialog from ReaderScreen
         if (uiState.showSleepTimerDialog) {
             SleepTimerDialog(
@@ -549,6 +531,7 @@ fun BrowserScreen(
                 onToggleTtsAutoScroll = { viewModel.toggleTtsAutoScroll(it) },
                 onToggleTtsAutoStart = { viewModel.toggleTtsAutoStart(it) },
                 onToggleAutoClickOnScroll = { viewModel.toggleAutoClickOnScroll(it) },
+                onToggleAutoNextOnFinishedPage = { viewModel.toggleAutoNextOnFinishedPage(it) },
                 onUpdateLoopCount = { viewModel.updateLoopCount(it) },
                 onUpdateDelay = { viewModel.updateCountdownDelayMs(it) },
                 onNavigateToContentSelector = onNavigateToContentSelector,
@@ -580,6 +563,7 @@ fun BrowserScreen(
                 onToggleEnabled = { id, enabled -> viewModel.toggleUserscript(id, enabled) },
                 onEditScript = { script -> viewModel.openCodeMirrorEditor(script) },
                 onDeleteScript = { id -> viewModel.deleteUserscript(id) },
+                onRenameScript = { id, newName -> viewModel.renameUserscript(id, newName) },
                 onCreateNewScript = { viewModel.openCodeMirrorEditor(null) },
                 onSyncDisk = { viewModel.syncUserscriptsFromDisk() },
                 onDismiss = { viewModel.dismissUserscriptManager() }
@@ -1542,145 +1526,7 @@ private fun TabsSwitcherDialog(
     )
 }
 
-/**
- * Batch Download Setup Dialog
- */
-@Composable
-private fun DownloadSetupDialog(
-    detectedTitle: String,
-    detectedChapter: Int,
-    novelTitle: String,
-    startingChapter: Int,
-    loopCount: Int,
-    delayMs: Long,
-    onTitleChange: (String) -> Unit,
-    onChapterChange: (Int) -> Unit,
-    onLoopCountChange: (Int) -> Unit,
-    onDelayMsChange: (Long) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier
-            .fillMaxWidth(0.94f)
-            .padding(vertical = 16.dp),
-        icon = {
-            Icon(Icons.Default.Repeat, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        },
-        title = {
-            Text(
-                "Batch Download Novel",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "Autodetected from webpage. Saved cleanly into Downloads/NovelReader/$novelTitle/ in chronological order.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
 
-                // Editable Novel Name
-                OutlinedTextField(
-                    value = novelTitle,
-                    onValueChange = onTitleChange,
-                    label = { Text("Novel Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                // Editable Starting Chapter Number
-                OutlinedTextField(
-                    value = startingChapter.toString(),
-                    onValueChange = { str ->
-                        str.toIntOrNull()?.let { onChapterChange(it) }
-                    },
-                    label = { Text("Starting Chapter #") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                // Chapters to Download (Quantity / Iterations)
-                OutlinedTextField(
-                    value = loopCount.toString(),
-                    onValueChange = { str ->
-                        str.toIntOrNull()?.let { onLoopCountChange(it) }
-                    },
-                    label = { Text("Chapters to Download (Quantity)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                // Preset quantity chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(10, 25, 50, 100, 200).forEach { preset ->
-                        FilterChip(
-                            selected = loopCount == preset,
-                            onClick = { onLoopCountChange(preset) },
-                            label = { Text("$preset") }
-                        )
-                    }
-                }
-
-                // Delay between chapters in ms
-                OutlinedTextField(
-                    value = delayMs.toString(),
-                    onValueChange = { str ->
-                        str.toLongOrNull()?.let { onDelayMsChange(it) }
-                    },
-                    label = { Text("Delay Between Chapters (ms)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                // Delay preset chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(500L, 1000L, 1500L, 2000L, 3000L).forEach { ms ->
-                        FilterChip(
-                            selected = delayMs == ms,
-                            onClick = { onDelayMsChange(ms) },
-                            label = { Text("${ms}ms") }
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Start Batch Download")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
-}
 
 /**
  * Complete Userscript Settings Dialog:
@@ -1697,6 +1543,7 @@ private fun BrowserSettingsDialog(
     onToggleTtsAutoScroll: (Boolean) -> Unit,
     onToggleTtsAutoStart: (Boolean) -> Unit,
     onToggleAutoClickOnScroll: (Boolean) -> Unit,
+    onToggleAutoNextOnFinishedPage: (Boolean) -> Unit = {},
     onUpdateLoopCount: (Int) -> Unit,
     onUpdateDelay: (Long) -> Unit,
     onNavigateToContentSelector: (() -> Unit)? = null,
@@ -1893,6 +1740,29 @@ private fun BrowserSettingsDialog(
                     )
                 }
 
+                // Auto-next on finishing last paragraph switch (default On)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto-next on finished reading",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = "Auto-advance to next page when reading the last paragraph",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = settings.autoNextOnFinishedPage,
+                        onCheckedChange = onToggleAutoNextOnFinishedPage
+                    )
+                }
+
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                 Text(
@@ -2038,8 +1908,8 @@ private fun createConfiguredWebView(
             onRegisterCustomButtonCallback = { payload ->
                 viewModel.registerCustomToolbarButton(payload)
             },
-            onOpenDownloadDialogCallback = {
-                viewModel.openDownloadDialog()
+            onSaveDownloadedChapterCallback = { novelTitle, chTitle, chNum, html ->
+                viewModel.saveDownloadedChapterFromScript(novelTitle, chTitle, chNum, html)
             }
         )
         addJavascriptInterface(bridge, com.novelarrow.reader.browser.engine.BrowserBridge.INTERFACE_NAME)

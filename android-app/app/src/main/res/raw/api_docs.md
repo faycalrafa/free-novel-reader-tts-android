@@ -81,12 +81,12 @@ Registers a custom button in BookReader's browser navigation toolbar and binds i
   // ==/UserScript==
 
   GM_registerToolbarButton({
-      id: 'multi_download',
-      title: 'Batch Download Loop',
+      id: 'custom_action',
+      title: 'Action Button',
       icon: 'CloudDownload',
       onClick: function() {
-          if (window.BrowserBridge && window.BrowserBridge.openDownloadDialog) {
-              window.BrowserBridge.openDownloadDialog();
+          if (typeof GM_notification === 'function') {
+              GM_notification('Custom button tapped!');
           }
       }
   });
@@ -105,6 +105,9 @@ BookReader exposes native JavaScript interfaces for deep reader integration:
 
 - `window.BrowserBridge.onScrolledToBottom()`
   Signals that the user or page has reached the end of the chapter, triggering auto-read or next chapter transition.
+
+- `window.BrowserBridge.saveDownloadedChapter(novelTitle: string, chapterTitle: string, chapterNumber: number, htmlContent: string)`
+  Saves clean chapter HTML into `Downloads/NovelReader/<novelTitle>/` and indexes it directly into your Library.
 
 ---
 

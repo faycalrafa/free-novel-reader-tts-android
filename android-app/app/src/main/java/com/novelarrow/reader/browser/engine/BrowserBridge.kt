@@ -16,7 +16,8 @@ class BrowserBridge(
     private val onScrolledToBottomCallback: () -> Unit = {},
     private val onLongPressClickableCallback: (selector: String, text: String, hostname: String) -> Unit = { _, _, _ -> },
     private val onRegisterCustomButtonCallback: (String) -> Unit = {},
-    private val onOpenDownloadDialogCallback: () -> Unit = {}
+    private val onOpenDownloadDialogCallback: () -> Unit = {},
+    private val onSaveDownloadedChapterCallback: (novelTitle: String, chapterTitle: String, chapterNumber: Int, htmlContent: String) -> Unit = { _, _, _, _ -> }
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -68,6 +69,13 @@ class BrowserBridge(
     fun openDownloadDialog() {
         mainHandler.post {
             onOpenDownloadDialogCallback.invoke()
+        }
+    }
+
+    @JavascriptInterface
+    fun saveDownloadedChapter(novelTitle: String, chapterTitle: String, chapterNumber: Int, htmlContent: String) {
+        mainHandler.post {
+            onSaveDownloadedChapterCallback.invoke(novelTitle, chapterTitle, chapterNumber, htmlContent)
         }
     }
 

@@ -426,4 +426,18 @@ object WebNovelDownloader {
         val fileName = formatChapterFileName(novelTitle, chapterNumber)
         return writeContentToFileAndMediaStore(context, novelTitle, fileName, frozenHtml)
     }
+
+    /**
+     * Saves clean HTML directly (from userscript or custom extractor).
+     */
+    fun saveCleanHtml(
+        context: Context,
+        novelTitle: String,
+        chapterTitle: String,
+        chapterNumber: Int,
+        cleanHtml: String
+    ): File {
+        val fileName = formatChapterFileName(novelTitle, chapterNumber)
+        return writeContentToFileAndMediaStore(context, novelTitle, fileName, cleanHtml)
+    }
 }

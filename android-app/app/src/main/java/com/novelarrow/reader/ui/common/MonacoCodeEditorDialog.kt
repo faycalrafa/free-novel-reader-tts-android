@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FindReplace
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
@@ -71,6 +72,19 @@ fun MonacoCodeEditorDialog(
     val context = LocalContext.current
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var isWordWrapEnabled by remember { mutableStateOf(true) }
+    var currentTitle by remember(title) { mutableStateOf(title) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameInputText by remember { mutableStateOf("") }
+
+    val activity = context as? android.app.Activity
+    DisposableEffect(Unit) {
+        val window = activity?.window
+        val prevSoftInputMode = window?.attributes?.softInputMode
+        window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        onDispose {
+            prevSoftInputMode?.let { window?.setSoftInputMode(it) }
+        }
+    }
 
     // Beautify HTML initially using Jsoup if language is html
     val preprocessedContent = remember(initialContent, language) {
@@ -130,16 +144,38 @@ fun MonacoCodeEditorDialog(
                                     .weight(1f)
                                     .padding(end = 8.dp)
                             ) {
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.titleMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = Color.White
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = currentTitle,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = Color.White
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (language.equals("javascript", ignoreCase = true)) {
+                                        IconButton(
+                                            onClick = {
+                                                renameInputText = currentTitle
+                                                showRenameDialog = true
+                                            },
+                                            modifier = Modifier.size(24.dp).padding(start = 4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Edit,
+                                                contentDescription = "Rename Script",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Surface(
                                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
@@ -380,6 +416,9 @@ fun MonacoCodeEditorDialog(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                 )
+                                isFocusable = true
+                                isFocusableInTouchMode = true
+                                requestFocus(android.view.View.FOCUS_DOWN)
                                 setBackgroundColor(android.graphics.Color.parseColor("#1E1E1E"))
                                 settings.apply {
                                     javaScriptEnabled = true
@@ -399,6 +438,14 @@ fun MonacoCodeEditorDialog(
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
                                     }
+                                }
+                                setOnTouchListener { v, event ->
+                                    if (event.action == android.view.MotionEvent.ACTION_DOWN || event.action == android.view.MotionEvent.ACTION_UP) {
+                                        if (!v.hasFocus()) {
+                                            v.requestFocus(android.view.View.FOCUS_DOWN)
+                                        }
+                                    }
+                                    false
                                 }
                                 addJavascriptInterface(
                                     MonacoBridge { savedText ->
@@ -422,6 +469,66 @@ fun MonacoCodeEditorDialog(
                     )
                 }
             }
+        }
+
+        if (showRenameDialog) {
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = false },
+                shape = RoundedCornerShape(16.dp),
+                title = { Text("Rename Userscript", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Enter new script name:", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            value = renameInputText,
+                            onValueChange = { renameInputText = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Script Name") }
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val trimmed = renameInputText.trim()
+                            if (trimmed.isNotBlank()) {
+                                currentTitle = trimmed
+                                val safeTitleJson = JSONObject.quote(trimmed)
+                                webViewRef?.evaluateJavascript(
+                                    """
+                                    (function() {
+                                        var newName = $safeTitleJson;
+                                        var code = window.getEditorValue();
+                                        if (code.indexOf('// @name') !== -1) {
+                                            code = code.replace(/\/\/\s*@name\s+.*/, '// @name         ' + newName);
+                                        } else {
+                                            code = '// @name         ' + newName + '\n' + code;
+                                        }
+                                        if (window.editor && monacoLoaded) {
+                                            window.editor.setValue(code);
+                                        } else {
+                                            var ta = document.getElementById('fallback-editor');
+                                            if (ta) ta.value = code;
+                                        }
+                                    })();
+                                    """.trimIndent(),
+                                    null
+                                )
+                            }
+                            showRenameDialog = false
+                        },
+                        enabled = renameInputText.isNotBlank()
+                    ) {
+                        Text("Update Name")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRenameDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }
@@ -450,6 +557,9 @@ private fun buildMonacoHtml(code: String, language: String): String {
                 #editor-container {
                     width: 100%;
                     height: 100%;
+                }
+                #editor-container textarea.inputarea {
+                    pointer-events: auto !important;
                 }
                 #fallback-container {
                     display: none;
@@ -544,13 +654,16 @@ private fun buildMonacoHtml(code: String, language: String): String {
                                 language: docLanguage,
                                 theme: 'vs-dark',
                                 automaticLayout: true,
-                                fontSize: 13,
+                                fontSize: 14,
                                 lineNumbers: 'on',
                                 minimap: { enabled: false },
                                 scrollBeyondLastLine: false,
                                 wordWrap: 'on',
                                 folding: true,
                                 contextmenu: false,
+                                accessibilitySupport: 'on',
+                                readOnly: false,
+                                domReadOnly: false,
                                 quickSuggestions: { other: true, comments: false, strings: true },
                                 acceptSuggestionOnEnter: "on",
                                 tabCompletion: "on",
@@ -561,6 +674,24 @@ private fun buildMonacoHtml(code: String, language: String): String {
                                     seedSearchStringFromSelection: 'always'
                                 }
                             });
+
+                            function focusEditor() {
+                                if (window.editor && monacoLoaded) {
+                                    window.editor.focus();
+                                    var inputArea = document.querySelector('#editor-container textarea.inputarea');
+                                    if (inputArea) {
+                                        inputArea.focus();
+                                    }
+                                } else {
+                                    var ta = document.getElementById('fallback-editor');
+                                    if (ta) ta.focus();
+                                }
+                            }
+
+                            document.getElementById('editor-container').addEventListener('click', focusEditor);
+                            document.getElementById('editor-container').addEventListener('touchend', function() {
+                                focusEditor();
+                            }, { passive: true });
 
                             if (docLanguage === 'html' || docLanguage === 'javascript') {
                                 setTimeout(function() {

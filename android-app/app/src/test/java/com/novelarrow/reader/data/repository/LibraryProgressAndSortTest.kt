@@ -168,7 +168,8 @@ class LibraryProgressAndSortTest {
     fun testWebBrowserSettingsDefaults() {
         val settings = WebBrowserSettings()
         assertTrue("Auto-read when next chapter loads must be On by default", settings.autoReadNextChapter)
-        assertTrue("Auto-click on scroll (auto next) must be On by default", settings.autoClickOnScroll)
+        assertFalse("Auto-click on scroll (auto next) must be Off by default", settings.autoClickOnScroll)
+        assertTrue("Auto-next on finished reading page must be On by default", settings.autoNextOnFinishedPage)
         assertTrue("Skip words ignore symbols must be On by default", settings.skipWordsIgnoreSymbols)
     }
 

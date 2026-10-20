@@ -34,11 +34,14 @@ fun UserscriptManagerDialog(
     onToggleEnabled: (id: String, isEnabled: Boolean) -> Unit,
     onEditScript: (UserscriptEntity) -> Unit,
     onDeleteScript: (id: String) -> Unit,
+    onRenameScript: (id: String, newName: String) -> Unit = { _, _ -> },
     onCreateNewScript: () -> Unit,
     onSyncDisk: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var scriptToDelete by remember { mutableStateOf<UserscriptEntity?>(null) }
+    var scriptToRename by remember { mutableStateOf<UserscriptEntity?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -224,17 +227,21 @@ fun UserscriptManagerDialog(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                            FlowRow(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                                                itemVerticalAlignment = Alignment.CenterVertically
+                                            ) {
                                                 Text(
                                                     text = script.name,
                                                     style = MaterialTheme.typography.titleSmall.copy(
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 15.sp
                                                     ),
-                                                    maxLines = 1,
+                                                    maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
-                                                Spacer(modifier = Modifier.width(6.dp))
                                                 Surface(
                                                     shape = RoundedCornerShape(4.dp),
                                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
@@ -246,6 +253,8 @@ fun UserscriptManagerDialog(
                                                             fontWeight = FontWeight.SemiBold,
                                                             color = MaterialTheme.colorScheme.primary
                                                         ),
+                                                        softWrap = false,
+                                                        maxLines = 1,
                                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                                     )
                                                 }
@@ -320,7 +329,21 @@ fun UserscriptManagerDialog(
                                             Text("Edit Code", fontSize = 12.sp)
                                         }
 
-                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+
+                                        TextButton(
+                                            onClick = {
+                                                scriptToRename = script
+                                                renameText = script.name
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Rename", fontSize = 12.sp)
+                                        }
+
+                                        Spacer(modifier = Modifier.width(4.dp))
 
                                         TextButton(
                                             onClick = { scriptToDelete = script },
@@ -372,6 +395,48 @@ fun UserscriptManagerDialog(
             },
             dismissButton = {
                 TextButton(onClick = { scriptToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Rename dialog
+    scriptToRename?.let { script ->
+        AlertDialog(
+            onDismissRequest = { scriptToRename = null },
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text("Rename Userscript", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter a new name for '${script.name}':", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(
+                        value = renameText,
+                        onValueChange = { renameText = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Script Name") }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val trimmed = renameText.trim()
+                        if (trimmed.isNotBlank()) {
+                            onRenameScript(script.id, trimmed)
+                        }
+                        scriptToRename = null
+                    },
+                    enabled = renameText.isNotBlank()
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { scriptToRename = null }) {
                     Text("Cancel")
                 }
             }

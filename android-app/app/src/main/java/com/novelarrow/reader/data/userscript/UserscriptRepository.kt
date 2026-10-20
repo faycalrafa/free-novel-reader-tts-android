@@ -83,29 +83,380 @@ class UserscriptRepository(private val context: Context) {
         val DEFAULT_MULTI_DOWNLOAD_SCRIPT = """
             // ==UserScript==
             // @name         Multi-Download
-            // @version      1.0.0
-            // @description  Batch download loop for web novel chapters with automatic chapter navigation.
+            // @version      2.0.0
+            // @description  Batch download loop for web novel chapters with in-page configuration dialog, filtered clean text extraction, and auto-navigation.
             // @match        *://*/*
+            // @match        file://*/*
             // @run-at       document-end
             // @grant        GM_registerToolbarButton
             // @grant        GM_notification
+            // @grant        GM_setValue
+            // @grant        GM_getValue
             // ==/UserScript==
 
             (function() {
                 'use strict';
+
+                var ACTIVE_KEY = 'novel_batch_dl_active';
+                var NOVEL_KEY = 'novel_batch_dl_novel';
+                var CHAPTER_KEY = 'novel_batch_dl_chapter';
+                var REMAINING_KEY = 'novel_batch_dl_remaining';
+                var DELAY_KEY = 'novel_batch_dl_delay';
+                var LAST_URL_KEY = 'novel_batch_dl_last_url';
+
+                var DEFAULT_IGNORE = [
+                    'nav', 'footer', 'header', 'aside', 'button', 'a',
+                    '[role="navigation"]', '.ads', '.ad', '.advertisement',
+                    'script', 'style', 'noscript', 'iframe',
+                    'form', 'input', 'textarea', 'select',
+                    '#custom-floating-bar', '#na-root', '#na-floating-next',
+                    '#na-player-bar', '#na-modal-backdrop-el',
+                    '.na-tts-highlight', '#nd-modal-overlay', '#nd-countdown-pill'
+                ];
+
+                function isIgnored(el) {
+                    if (!el) return true;
+                    try {
+                        for (var i = 0; i < DEFAULT_IGNORE.length; i++) {
+                            var sel = DEFAULT_IGNORE[i];
+                            if (el.matches && (el.matches(sel) || el.closest(sel))) return true;
+                        }
+                    } catch(e) {}
+                    return false;
+                }
+
+                function detectNovel() {
+                    var title = '';
+                    var chNum = 1;
+                    var pathname = window.location.pathname || '';
+                    var pageTitle = document.title || '';
+
+                    var chMatch = pathname.match(/(?:chapter|chap|ch|c)[-_]?(\d+)/i) || pathname.match(/(\d+)(?:\.html?)?${'$'}/i);
+                    if (chMatch) {
+                        chNum = parseInt(chMatch[1], 10) || 1;
+                    }
+
+                    var pathSegments = pathname.split('/').filter(function(s) {
+                        return s && !/^(?:chapter|chap|ch|c|\d+)/i.test(s) && ['novel', 'novels', 'read', 'book', 'books', 'chapter', 'chapters', 'html', 'index'].indexOf(s.toLowerCase()) === -1;
+                    });
+                    if (pathSegments.length > 0) {
+                        var rawSlug = pathSegments[pathSegments.length - 1];
+                        title = rawSlug.replace(/\.html?${'$'}/i, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }).trim();
+                    }
+
+                    if (!title && pageTitle) {
+                        var titleMatch = pageTitle.match(/^(.*?)\s*[-–—|:]\s*Chapter\s+(\d+)/i) || pageTitle.match(/Chapter\s+(\d+).*?[-–—|]\s*(.*?)${'$'}/i);
+                        if (titleMatch) {
+                            title = (titleMatch[1] && !/^\d+${'$'}/.test(titleMatch[1])) ? titleMatch[1].trim() : (titleMatch[2] ? titleMatch[2].trim() : '');
+                            if (chNum === 1 && titleMatch[2] && /^\d+${'$'}/.test(titleMatch[2])) {
+                                chNum = parseInt(titleMatch[2], 10) || 1;
+                            }
+                        }
+                    }
+                    if (!title) {
+                        title = pageTitle.replace(/[-–—|].*${'$'}/, '').replace(/Chapter.*${'$'}/i, '').trim() || 'Web Novel';
+                    }
+                    return {
+                        title: title.replace(/[/\\?%*:|"<>]/g, '_').trim(),
+                        chapter: chNum
+                    };
+                }
+
+                function extractFilteredText() {
+                    var candidates = ['#chapter-content', '.chapter-content', '#readcontent', '.read-content', '.entry-content', '.text-content', 'article', '.content'];
+                    var container = null;
+                    for (var i = 0; i < candidates.length; i++) {
+                        var el = document.querySelector(candidates[i]);
+                        if (el && el.querySelectorAll('p, div').length >= 2) {
+                            container = el;
+                            break;
+                        }
+                    }
+                    if (!container) container = document.body;
+
+                    var allNodes = Array.from(container.querySelectorAll('p, div, h1, h2, h3, h4, h5, h6, blockquote'));
+                    var paras = [];
+                    for (var j = 0; j < allNodes.length; j++) {
+                        var node = allNodes[j];
+                        if (isIgnored(node)) continue;
+                        var tag = node.tagName.toLowerCase();
+                        if (['div', 'blockquote'].indexOf(tag) !== -1 && node.querySelector('p, div, blockquote')) {
+                            continue;
+                        }
+                        var cs = window.getComputedStyle(node);
+                        if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue;
+                        var rect = node.getBoundingClientRect();
+                        if (rect.width === 0 && rect.height === 0 && node.offsetHeight === 0) continue;
+
+                        var text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+                        if (text.length > 0 && paras.indexOf(text) === -1) {
+                            paras.push(text);
+                        }
+                    }
+                    return paras;
+                }
+
+                function buildCleanChapterHtml(novelTitle, chapterTitle, chNum, paragraphs) {
+                    function esc(s) {
+                        return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                    }
+                    var parasHtml = paragraphs.map(function(p) {
+                        return '    <p>' + esc(p) + '</p>';
+                    }).join('\n');
+
+                    return '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
+                        '  <meta charset="utf-8">\n' +
+                        '  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+                        '  <title>' + esc(novelTitle) + ' - Chapter ' + chNum + '</title>\n' +
+                        '  <style>\n' +
+                        '    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.7; padding: 20px; max-width: 800px; margin: 0 auto; color: #1e293b; background: #ffffff; }\n' +
+                        '    h1 { font-size: 1.5rem; margin-bottom: 1.2rem; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }\n' +
+                        '    p { margin-bottom: 1.2rem; text-indent: 1.5rem; font-size: 1.05rem; }\n' +
+                        '    @media (prefers-color-scheme: dark) {\n' +
+                        '      body { background: #0f172a; color: #cbd5e1; }\n' +
+                        '      h1 { color: #f8fafc; border-bottom-color: #334155; }\n' +
+                        '    }\n' +
+                        '  </style>\n' +
+                        '</head>\n<body>\n' +
+                        '  <h1>' + esc(chapterTitle) + '</h1>\n' +
+                        '  <div id="chapter-content">\n' + parasHtml + '\n  </div>\n' +
+                        '</body>\n</html>';
+                }
+
+                function saveChapter(novelTitle, chapterTitle, chNum, cleanHtml) {
+                    if (window.BrowserBridge && typeof window.BrowserBridge.saveDownloadedChapter === 'function') {
+                        window.BrowserBridge.saveDownloadedChapter(novelTitle, chapterTitle, chNum, cleanHtml);
+                        return;
+                    }
+                    if (window.AndroidBridge && typeof window.AndroidBridge.saveDownloadedChapter === 'function') {
+                        window.AndroidBridge.saveDownloadedChapter(novelTitle, chapterTitle, chNum, cleanHtml);
+                        return;
+                    }
+                    try {
+                        var blob = new Blob([cleanHtml], { type: 'text/html;charset=utf-8' });
+                        var url = URL.createObjectURL(blob);
+                        var a = document.createElement('a');
+                        a.href = url;
+                        a.download = novelTitle + ' Chapter ' + ('000' + chNum).slice(-4) + '.html';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    } catch(e) {
+                        console.error('Download fallback error:', e);
+                    }
+                }
+
+                function getNextChapterElement() {
+                    var selectors = [
+                        'button[title*="Next Chapter" i]',
+                        'a[title*="Next Chapter" i]',
+                        'button[title="Next chapter"]',
+                        'a[title="Next chapter"]',
+                        '#next_chap',
+                        '.next-chap',
+                        '.next-chapter',
+                        '.btn-next',
+                        'a.next',
+                        'a[rel="next"]',
+                        '.nav-next a',
+                        '.next a'
+                    ];
+                    for (var i = 0; i < selectors.length; i++) {
+                        try {
+                            var el = document.querySelector(selectors[i]);
+                            if (el && el.offsetParent !== null) return el;
+                        } catch(e) {}
+                    }
+                    var clickables = Array.from(document.querySelectorAll('a, button'));
+                    for (var j = 0; j < clickables.length; j++) {
+                        var item = clickables[j];
+                        var txt = (item.textContent || '').trim().toLowerCase();
+                        if (/^(?:next\s*(?:chapter|page)?|next\s*›|›|»)$/i.test(txt) || (txt.indexOf('next chapter') !== -1 && txt.length < 25)) {
+                            if (item.offsetParent !== null) return item;
+                        }
+                    }
+                    return null;
+                }
+
+                function showCountdownPill(novelTitle, chNum, remaining, secondsLeft) {
+                    var pill = document.getElementById('nd-countdown-pill');
+                    if (!pill) {
+                        pill = document.createElement('div');
+                        pill.id = 'nd-countdown-pill';
+                        pill.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483640;background:#1e293b;color:#f8fafc;padding:10px 18px;border-radius:28px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-family:system-ui,sans-serif;font-size:13px;font-weight:600;display:flex;align-items:center;gap:12px;border:1px solid #334155;';
+                        document.body.appendChild(pill);
+                    }
+                    pill.innerHTML = '<span>📥 <b>' + novelTitle + '</b> Ch. ' + chNum + ' (Left: ' + remaining + ') · Next in <b id="nd-timer-val">' + secondsLeft.toFixed(1) + 's</b></span>' +
+                        '<button id="nd-stop-btn" style="background:#ef4444;color:#fff;border:none;padding:5px 12px;border-radius:14px;font-size:12px;font-weight:bold;cursor:pointer;">Stop</button>';
+                    var stopBtn = document.getElementById('nd-stop-btn');
+                    if (stopBtn) {
+                        stopBtn.onclick = function() {
+                            stopBatchLoop();
+                        };
+                    }
+                }
+
+                function removeCountdownPill() {
+                    var pill = document.getElementById('nd-countdown-pill');
+                    if (pill) pill.remove();
+                }
+
+                var countdownInterval = null;
+
+                function stopBatchLoop() {
+                    sessionStorage.setItem(ACTIVE_KEY, 'false');
+                    if (countdownInterval) clearInterval(countdownInterval);
+                    countdownInterval = null;
+                    removeCountdownPill();
+                    if (typeof GM_notification === 'function') {
+                        GM_notification('Batch download stopped');
+                    }
+                }
+
+                function runBatchStep() {
+                    if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') return;
+
+                    var novelTitle = sessionStorage.getItem(NOVEL_KEY) || 'Web Novel';
+                    var currentCh = parseInt(sessionStorage.getItem(CHAPTER_KEY), 10) || 1;
+                    var remaining = parseInt(sessionStorage.getItem(REMAINING_KEY), 10) || 1;
+                    var delayMs = Math.max(300, parseInt(sessionStorage.getItem(DELAY_KEY), 10) || 1000);
+
+                    var paras = extractFilteredText();
+                    var chapterTitle = novelTitle + ' Chapter ' + currentCh;
+                    var cleanHtml = buildCleanChapterHtml(novelTitle, chapterTitle, currentCh, paras);
+
+                    saveChapter(novelTitle, chapterTitle, currentCh, cleanHtml);
+
+                    remaining--;
+                    currentCh++;
+                    sessionStorage.setItem(REMAINING_KEY, remaining.toString());
+                    sessionStorage.setItem(CHAPTER_KEY, currentCh.toString());
+                    sessionStorage.setItem(LAST_URL_KEY, window.location.href);
+
+                    if (remaining <= 0) {
+                        stopBatchLoop();
+                        if (typeof GM_notification === 'function') {
+                            GM_notification('Batch download complete for ' + novelTitle + '!');
+                        }
+                        return;
+                    }
+
+                    var timeLeftMs = delayMs;
+                    var tickMs = 100;
+                    showCountdownPill(novelTitle, currentCh, remaining, timeLeftMs / 1000);
+
+                    countdownInterval = setInterval(function() {
+                        if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') {
+                            clearInterval(countdownInterval);
+                            return;
+                        }
+                        timeLeftMs -= tickMs;
+                        var timerVal = document.getElementById('nd-timer-val');
+                        if (timerVal) timerVal.textContent = Math.max(0, timeLeftMs / 1000).toFixed(1) + 's';
+
+                        if (timeLeftMs <= 0) {
+                            clearInterval(countdownInterval);
+                            var nextEl = getNextChapterElement();
+                            if (nextEl) {
+                                var oldUrl = window.location.href;
+                                try { nextEl.click(); } catch(e) {}
+                                setTimeout(function() {
+                                    if (window.location.href === oldUrl && nextEl.href) {
+                                        window.location.href = nextEl.href;
+                                    }
+                                }, 1000);
+                            } else {
+                                stopBatchLoop();
+                                alert('Next chapter button not found. Stopped batch download.');
+                            }
+                        }
+                    }, tickMs);
+                }
+
+                function showDialog() {
+                    if (sessionStorage.getItem(ACTIVE_KEY) === 'true') {
+                        if (confirm('Batch download is currently running. Do you want to stop it?')) {
+                            stopBatchLoop();
+                        }
+                        return;
+                    }
+
+                    var existing = document.getElementById('nd-modal-overlay');
+                    if (existing) existing.remove();
+
+                    var detected = detectNovel();
+                    var overlay = document.createElement('div');
+                    overlay.id = 'nd-modal-overlay';
+                    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;z-index:2147483647;backdrop-filter:blur(3px);font-family:system-ui,sans-serif;box-sizing:border-box;';
+
+                    overlay.innerHTML = 
+                        '<div style="background:#1e293b;color:#f8fafc;width:92%;max-width:420px;border-radius:18px;padding:24px;box-shadow:0 16px 40px rgba(0,0,0,0.45);border:1px solid #334155;box-sizing:border-box;">' +
+                        '  <h2 style="margin:0 0 6px 0;font-size:1.25rem;color:#f8fafc;display:flex;align-items:center;gap:8px;">📥 Batch Download Novel</h2>' +
+                        '  <p style="margin:0 0 16px 0;font-size:0.82rem;color:#94a3b8;line-height:1.4;">Extracts clean filtered text into readable HTML and auto-navigates.</p>' +
+                        '  <div style="margin-bottom:12px;">' +
+                        '    <label style="display:block;font-size:0.75rem;font-weight:700;color:#cbd5e1;margin-bottom:4px;text-transform:uppercase;">Novel Name</label>' +
+                        '    <input id="nd-input-title" type="text" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:0.95rem;box-sizing:border-box;" value="' + detected.title.replace(/"/g, '&quot;') + '" />' +
+                        '  </div>' +
+                        '  <div style="margin-bottom:12px;">' +
+                        '    <label style="display:block;font-size:0.75rem;font-weight:700;color:#cbd5e1;margin-bottom:4px;text-transform:uppercase;">Starting Chapter #</label>' +
+                        '    <input id="nd-input-ch" type="number" min="1" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:0.95rem;box-sizing:border-box;" value="' + detected.chapter + '" />' +
+                        '  </div>' +
+                        '  <div style="margin-bottom:12px;">' +
+                        '    <label style="display:block;font-size:0.75rem;font-weight:700;color:#cbd5e1;margin-bottom:4px;text-transform:uppercase;">Chapters Quantity</label>' +
+                        '    <input id="nd-input-qty" type="number" min="1" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:0.95rem;box-sizing:border-box;" value="20" />' +
+                        '  </div>' +
+                        '  <div style="margin-bottom:16px;">' +
+                        '    <label style="display:block;font-size:0.75rem;font-weight:700;color:#cbd5e1;margin-bottom:4px;text-transform:uppercase;">Delay Between Chapters (seconds)</label>' +
+                        '    <input id="nd-input-delay" type="number" step="0.5" min="0.5" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:#f8fafc;font-size:0.95rem;box-sizing:border-box;" value="1.0" />' +
+                        '  </div>' +
+                        '  <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;">' +
+                        '    <button id="nd-btn-cancel" style="background:transparent;color:#94a3b8;border:none;padding:10px 16px;border-radius:10px;font-size:0.9rem;font-weight:600;cursor:pointer;">Cancel</button>' +
+                        '    <button id="nd-btn-start" style="background:#2563eb;color:#fff;border:none;padding:10px 18px;border-radius:10px;font-size:0.9rem;font-weight:600;cursor:pointer;">Start Batch Download</button>' +
+                        '  </div>' +
+                        '</div>';
+
+                    document.body.appendChild(overlay);
+
+                    document.getElementById('nd-btn-cancel').onclick = function() {
+                        overlay.remove();
+                    };
+
+                    document.getElementById('nd-btn-start').onclick = function() {
+                        var titleInput = document.getElementById('nd-input-title').value.trim() || 'Web Novel';
+                        var chInput = parseInt(document.getElementById('nd-input-ch').value, 10) || 1;
+                        var qtyInput = parseInt(document.getElementById('nd-input-qty').value, 10) || 20;
+                        var delayInput = parseFloat(document.getElementById('nd-input-delay').value) || 1.0;
+
+                        overlay.remove();
+
+                        sessionStorage.setItem(ACTIVE_KEY, 'true');
+                        sessionStorage.setItem(NOVEL_KEY, titleInput);
+                        sessionStorage.setItem(CHAPTER_KEY, chInput.toString());
+                        sessionStorage.setItem(REMAINING_KEY, qtyInput.toString());
+                        sessionStorage.setItem(DELAY_KEY, Math.round(delayInput * 1000).toString());
+                        sessionStorage.setItem(LAST_URL_KEY, window.location.href);
+
+                        runBatchStep();
+                    };
+                }
+
                 if (typeof GM_registerToolbarButton === 'function') {
                     GM_registerToolbarButton({
                         id: 'multi_download',
                         title: 'Batch Download Loop',
                         icon: 'CloudDownload',
                         onClick: function() {
-                            if (window.BrowserBridge && window.BrowserBridge.openDownloadDialog) {
-                                window.BrowserBridge.openDownloadDialog();
-                            } else if (window.AndroidBridge && window.AndroidBridge.openDownloadDialog) {
-                                window.AndroidBridge.openDownloadDialog();
-                            }
+                            showDialog();
                         }
                     });
+                }
+
+                // Auto-resume across page navigations if loop active
+                if (sessionStorage.getItem(ACTIVE_KEY) === 'true') {
+                    setTimeout(function() {
+                        runBatchStep();
+                    }, 800);
                 }
             })();
         """.trimIndent()
@@ -143,13 +494,14 @@ class UserscriptRepository(private val context: Context) {
         try {
             val scriptsDir = ensureScriptsDirectory()
             val targetFile = File(scriptsDir, fileName)
-            if (!targetFile.exists()) {
+            val parsed = UserscriptMetadataParser.parse(scriptCode.trimIndent(), fallbackName = fallbackName)
+            if (!targetFile.exists() || (fileName == "Multi-Download.user.js" && targetFile.readText().contains("@version      1.0.0"))) {
                 targetFile.writeText(scriptCode.trimIndent(), Charsets.UTF_8)
             }
 
-            val parsed = UserscriptMetadataParser.parse(scriptCode.trimIndent(), fallbackName = fallbackName)
             val current = _scriptsFlow.value.toMutableList()
-            if (current.none { it.name == parsed.name || it.name == fallbackName }) {
+            val existingIndex = current.indexOfFirst { it.name == parsed.name || it.name == fallbackName }
+            if (existingIndex == -1) {
                 val entity = UserscriptEntity(
                     id = UUID.randomUUID().toString(),
                     name = parsed.name,
@@ -167,6 +519,17 @@ class UserscriptRepository(private val context: Context) {
                 saveDatabase(current)
                 _scriptsFlow.value = current
                 Log.i(TAG, "Successfully seeded default userscript: ${entity.name}")
+            } else if (fileName == "Multi-Download.user.js" && current[existingIndex].version != parsed.version) {
+                current[existingIndex] = current[existingIndex].copy(
+                    version = parsed.version,
+                    description = parsed.description,
+                    grantList = parsed.grantList,
+                    matchPatterns = parsed.matchPatterns,
+                    lastModified = targetFile.lastModified()
+                )
+                saveDatabase(current)
+                _scriptsFlow.value = current
+                Log.i(TAG, "Successfully upgraded default userscript: ${parsed.name} to v${parsed.version}")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to seed default userscript $fileName: ${e.message}")
@@ -258,7 +621,11 @@ class UserscriptRepository(private val context: Context) {
     ): UserscriptEntity = withContext(Dispatchers.IO) {
         repoMutex.withLock {
             val parsed = UserscriptMetadataParser.parse(code, fallbackName = preferredName ?: "Untitled Script")
-            val scriptName = preferredName?.ifBlank { null } ?: parsed.name
+            val scriptName = if (parsed.name.isNotBlank() && parsed.name != "Untitled Script" && parsed.name != "Userscript") {
+                parsed.name
+            } else {
+                preferredName?.ifBlank { null } ?: parsed.name
+            }
             val scriptsDir = ensureScriptsDirectory()
 
             val existing = if (existingId != null) {
@@ -266,7 +633,20 @@ class UserscriptRepository(private val context: Context) {
             } else null
 
             val targetFile = if (existing != null && File(existing.filePath).exists()) {
-                File(existing.filePath)
+                val currentFile = File(existing.filePath)
+                val safeName = sanitizeFileName(scriptName)
+                val expectedFileName = "$safeName.user.js"
+                if (!currentFile.name.equals(expectedFileName, ignoreCase = true)) {
+                    val renamedFile = File(scriptsDir, expectedFileName)
+                    if (!renamedFile.exists()) {
+                        currentFile.renameTo(renamedFile)
+                        renamedFile
+                    } else {
+                        currentFile
+                    }
+                } else {
+                    currentFile
+                }
             } else {
                 val safeName = sanitizeFileName(scriptName)
                 var candidate = File(scriptsDir, "$safeName.user.js")
@@ -335,6 +715,46 @@ class UserscriptRepository(private val context: Context) {
             saveDatabase(updated)
             _scriptsFlow.value = updated
             true
+        }
+    }
+
+    suspend fun renameScript(id: String, newName: String): Boolean = withContext(Dispatchers.IO) {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank()) return@withContext false
+        repoMutex.withLock {
+            val list = _scriptsFlow.value.toMutableList()
+            val index = list.indexOfFirst { it.id == id }
+            if (index == -1) return@withContext false
+            val oldEntity = list[index]
+            try {
+                val file = File(oldEntity.filePath)
+                var newFilePath = oldEntity.filePath
+                val scriptsDir = ensureScriptsDirectory()
+                val newFileName = "${sanitizeFileName(trimmed)}.user.js"
+                val newFile = File(scriptsDir, newFileName)
+                if (file.exists() && file.isFile) {
+                    val code = file.readText(Charsets.UTF_8)
+                    val updatedCode = if (code.contains("// @name")) {
+                        code.replace(Regex("""//\s*@name\s+.*"""), "// @name         $trimmed")
+                    } else {
+                        "// @name         $trimmed\n$code"
+                    }
+                    if (file.absolutePath != newFile.absolutePath) {
+                        file.delete()
+                    }
+                    newFile.writeText(updatedCode, Charsets.UTF_8)
+                    newFilePath = newFile.absolutePath
+                }
+                val updatedEntity = oldEntity.copy(name = trimmed, filePath = newFilePath, lastModified = System.currentTimeMillis())
+                list[index] = updatedEntity
+                saveDatabase(list)
+                _scriptsFlow.value = list
+                Log.i(TAG, "Renamed script ${oldEntity.name} to $trimmed (file: $newFilePath)")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to rename script ${oldEntity.name} to $trimmed: ${e.message}", e)
+                false
+            }
         }
     }
 

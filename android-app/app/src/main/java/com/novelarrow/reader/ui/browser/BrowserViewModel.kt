@@ -5,6 +5,7 @@ import android.speech.tts.Voice
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.withContext
 import com.novelarrow.reader.browser.engine.ExtractedContent
 import com.novelarrow.reader.browser.engine.RunAt
 import com.novelarrow.reader.browser.engine.WebContentExtractor
@@ -241,6 +242,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         viewModelScope.launch {
             settingsRepository.browserSettingsFlow.collect { newSettings ->
+                AudioPlaybackCoordinator.autoNextOnFinishedPage = newSettings.autoNextOnFinishedPage
                 _uiState.update {
                     it.copy(
                         settings = newSettings,
@@ -671,14 +673,57 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // =========================================================================
-    // Batch Download Loop
+    // Batch Download Loop & Userscript Chapter Bridge
     // =========================================================================
+
+    fun saveDownloadedChapterFromScript(
+        novelTitle: String,
+        chapterTitle: String,
+        chapterNumber: Int,
+        htmlContent: String
+    ) {
+        AppLogger.i(TAG, "Received downloaded chapter from script: $novelTitle Ch. $chapterNumber ($chapterTitle), length: ${htmlContent.length}")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val savedFile = WebNovelDownloader.saveCleanHtml(
+                    context = getApplication(),
+                    novelTitle = novelTitle,
+                    chapterTitle = chapterTitle,
+                    chapterNumber = chapterNumber,
+                    cleanHtml = htmlContent
+                )
+                val updatedNovel = libraryRepository.addDownloadedChapter(
+                    novelTitle = novelTitle,
+                    chapterFile = savedFile,
+                    chapterTitle = chapterTitle,
+                    chapterNumber = chapterNumber,
+                    sourceUrl = _uiState.value.currentUrl,
+                    commitNow = true
+                )
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            lastDownloadedNovel = updatedNovel,
+                            toastMessage = "Saved $novelTitle Ch. $chapterNumber to Downloads/NovelReader!"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error saving downloaded chapter from script: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(toastMessage = "Failed to save Chapter $chapterNumber: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
 
     fun onLoopButtonClicked() {
         if (_uiState.value.isDownloading) {
             stopDownloadLoop()
         } else {
-            openDownloadDialog()
+            dispatchEvaluateJs("window.__triggerCustomToolbarButton('multi_download');")
         }
     }
 
@@ -1553,6 +1598,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun toggleAutoNextOnFinishedPage(enabled: Boolean) {
+        AudioPlaybackCoordinator.autoNextOnFinishedPage = enabled
+        viewModelScope.launch {
+            settingsRepository.updateBrowserSettings { it.copy(autoNextOnFinishedPage = enabled) }
+        }
+        _uiState.update { it.copy(settings = it.settings.copy(autoNextOnFinishedPage = enabled)) }
+    }
+
     fun toggleAutoReadNextChapter(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setAutoReadNextChapter(enabled)
@@ -1789,6 +1842,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun renameUserscript(id: String, newName: String) {
+        viewModelScope.launch {
+            val success = userscriptRepository.renameScript(id, newName)
+            if (success) {
+                _uiState.update { it.copy(toastMessage = "Renamed script to $newName") }
+            } else {
+                _uiState.update { it.copy(toastMessage = "Failed to rename script") }
+            }
+        }
+    }
+
     fun syncUserscriptsFromDisk() {
         viewModelScope.launch {
             val list = userscriptRepository.syncFromDisk()
@@ -2007,9 +2071,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun onCustomToolbarButtonClicked(buttonId: String) {
         AppLogger.i(TAG, "Custom toolbar button clicked: $buttonId")
-        if (buttonId == "multi_download") {
-            openDownloadDialog()
-        }
         dispatchEvaluateJs("window.__triggerCustomToolbarButton('$buttonId');")
     }
 
