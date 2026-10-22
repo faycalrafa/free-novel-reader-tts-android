@@ -10,7 +10,8 @@ data class ExtractedContent(
     val paragraphs: List<String>,
     val matchedContainerSelector: String? = null,
     val ignoredSelectorStats: Map<String, Int> = emptyMap(),
-    val containerFilteredChars: Int = 0
+    val containerFilteredChars: Int = 0,
+    val nextUrl: String? = null
 )
 
 object WebContentExtractor {
@@ -165,12 +166,49 @@ object WebContentExtractor {
                         elements[idx].setAttribute('data-novel-para-idx', String(idx));
                     }
 
+                    // Pre-extract Next Chapter URL for background navigation
+                    var detectedNextUrl = '';
+                    var nextSelectors = [
+                        'button[title*="Next Chapter" i]', 'a[title*="Next Chapter" i]',
+                        'button[title*="Next chapter" i]', 'a[title*="Next chapter" i]',
+                        'button[title="Next"]', 'a[title="Next"]',
+                        '#next_chap', '.next-chap', '.next-chapter', '.btn-next', 'a.next',
+                        'a[rel="next"]', '.chapter-next a', '#next-chapter', '.nav-next a',
+                        '.next a', '.nav-links .nav-next a'
+                    ];
+                    for (var s = 0; s < nextSelectors.length; s++) {
+                        try {
+                            var nEl = document.querySelector(nextSelectors[s]);
+                            if (nEl) {
+                                var aTag = nEl.tagName && nEl.tagName.toLowerCase() === 'a' ? nEl : (nEl.closest('a') || nEl.querySelector('a'));
+                                if (aTag && aTag.href && aTag.href.indexOf('http') === 0) {
+                                    detectedNextUrl = aTag.href;
+                                    break;
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                    if (!detectedNextUrl) {
+                        var cList = Array.from(document.querySelectorAll('a'));
+                        for (var cIdx = 0; cIdx < cList.length; cIdx++) {
+                            var c = cList[cIdx];
+                            var txt = (c.innerText || c.textContent || c.title || '').trim().toLowerCase();
+                            if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1 || txt === 'next chapter »') {
+                                if (c.href && c.href.indexOf('http') === 0) {
+                                    detectedNextUrl = c.href;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     return JSON.stringify({
                         title: heading,
                         paragraphs: paras,
                         matchedContainerSelector: matchedSelector || '',
                         ignoredSelectorStats: ignoredStats,
-                        containerFilteredChars: containerFilteredChars
+                        containerFilteredChars: containerFilteredChars,
+                        nextUrl: detectedNextUrl
                     });
                 } catch(err) {
                     return JSON.stringify({
@@ -179,6 +217,7 @@ object WebContentExtractor {
                         matchedContainerSelector: '',
                         ignoredSelectorStats: {},
                         containerFilteredChars: 0,
+                        nextUrl: '',
                         error: err.toString()
                     });
                 }
@@ -226,12 +265,14 @@ object WebContentExtractor {
             }
         }
         val containerFilteredChars = json?.optInt("containerFilteredChars", 0) ?: 0
+        val nextUrl = json?.optString("nextUrl")?.takeIf { it.isNotBlank() }
         return ExtractedContent(
             title = title,
             paragraphs = paragraphs,
             matchedContainerSelector = matchedContainer,
             ignoredSelectorStats = ignoredStats,
-            containerFilteredChars = containerFilteredChars
+            containerFilteredChars = containerFilteredChars,
+            nextUrl = nextUrl
         )
     }
 

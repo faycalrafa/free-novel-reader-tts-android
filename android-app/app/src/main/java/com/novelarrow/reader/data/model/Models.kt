@@ -280,6 +280,14 @@ data class CustomToolbarButton(
 )
 
 @Serializable
+data class BrowserHistoryEntry(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val url: String,
+    val title: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+@Serializable
 data class BrowserTab(
     val id: String = java.util.UUID.randomUUID().toString(),
     val url: String = "https://www.google.com",

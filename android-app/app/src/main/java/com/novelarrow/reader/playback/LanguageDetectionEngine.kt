@@ -20,14 +20,21 @@ enum class SupportedLanguage(val code: String, val displayName: String, val loca
 
 object LanguageDetectionEngine {
 
+    private val ENGLISH_STOP_WORDS = setOf(
+        "the", "and", "to", "of", "a", "in", "that", "is", "was", "for", "it",
+        "with", "as", "his", "her", "at", "by", "this", "have", "from", "they",
+        "which", "you", "were", "their", "would", "been", "there", "what",
+        "about", "when", "one", "all", "out", "them", "had", "she",
+        "him", "my", "me", "your", "who", "will", "so", "up", "said"
+    )
+
     private val FRENCH_STOP_WORDS = setOf(
-        "le", "la", "les", "un", "une", "des", "du", "de", "dans", "en", "pour",
-        "avec", "sur", "et", "est", "sont", "était", "etaient", "ont", "qui", "que",
-        "quoi", "ce", "cette", "ces", "mais", "ou", "donc", "or", "ni", "car",
-        "pas", "plus", "nous", "vous", "ils", "elles", "mon", "ma", "mes", "ton",
-        "ta", "tes", "son", "sa", "ses", "faire", "comme", "tout", "tous", "au",
-        "aux", "par", "lui", "leur", "leurs", "y", "ne", "se", "si", "bonjour",
-        "merci", "oui", "non", "alors", "après", "bien", "très", "aussi", "encore"
+        "dans", "pour", "avec", "cette", "étaient", "etaient", "sont", "était",
+        "etait", "nous", "vous", "ils", "elles", "faire", "comme", "leur",
+        "leurs", "après", "apres", "très", "tres", "même", "meme", "qui",
+        "que", "quoi", "celui", "celle", "ceux", "celles", "alors", "encore",
+        "toujours", "jamais", "entre", "sans", "sous", "pendant", "depuis",
+        "chose", "autres", "beaucoup"
     )
 
     private val FRENCH_ACCENT_REGEX = Regex("[éèêëàâçîïôùûüœæ]", RegexOption.IGNORE_CASE)
@@ -57,17 +64,33 @@ object LanguageDetectionEngine {
             return SupportedLanguage.ARABIC
         }
 
-        // 2. Check for French
+        // 2. Tokenize and count language-specific stop words
         val words = text.lowercase().split(Regex("[\\s.,;:!?\"'’()—\\[\\]{}]+")).filter { it.length >= 2 }
+        var englishWordMatches = 0
         var frenchWordMatches = 0
         for (w in words) {
+            if (ENGLISH_STOP_WORDS.contains(w)) {
+                englishWordMatches++
+            }
             if (FRENCH_STOP_WORDS.contains(w)) {
                 frenchWordMatches++
             }
         }
 
+        // If strong English presence, definitively classify as English
+        if (englishWordMatches > 0 && englishWordMatches >= frenchWordMatches) {
+            return SupportedLanguage.ENGLISH
+        }
+
+        // Check for French characteristics
         val accentMatches = FRENCH_ACCENT_REGEX.findAll(text).count()
-        if (accentMatches >= 2 || (accentMatches >= 1 && frenchWordMatches >= 1) || frenchWordMatches >= 2) {
+        if (frenchWordMatches >= 2 && frenchWordMatches > englishWordMatches) {
+            return SupportedLanguage.FRENCH
+        }
+        if (frenchWordMatches >= 1 && accentMatches >= 2 && englishWordMatches == 0) {
+            return SupportedLanguage.FRENCH
+        }
+        if (accentMatches >= 4 && englishWordMatches == 0 && words.size <= 8) {
             return SupportedLanguage.FRENCH
         }
 

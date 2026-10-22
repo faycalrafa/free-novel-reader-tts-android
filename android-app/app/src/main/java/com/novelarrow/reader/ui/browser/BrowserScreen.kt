@@ -72,6 +72,7 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
@@ -280,7 +281,8 @@ fun BrowserScreen(
                 toolbarButtonOrder = uiState.settings.toolbarButtonOrder,
                 customButtons = uiState.customToolbarButtons,
                 onCustomButtonClicked = { viewModel.onCustomToolbarButtonClicked(it) },
-                onReorderButtonsClicked = { onNavigateToReorderButtons?.invoke() }
+                onReorderButtonsClicked = { onNavigateToReorderButtons?.invoke() },
+                onHistoryClicked = { viewModel.openHistoryDialog() }
             )
 
             // Linear Progress Indicator
@@ -313,6 +315,7 @@ fun BrowserScreen(
                     },
                     update = { wv ->
                         webViewInstance = wv
+                        (wv as? BackgroundAwareWebView)?.keepAliveInBackground = uiState.isLiveReading || uiState.isDownloading
                         wv.isEnabled = isActive
                         wv.visibility = if (isActive) android.view.View.VISIBLE else android.view.View.INVISIBLE
                     },
@@ -588,6 +591,25 @@ fun BrowserScreen(
             )
         }
 
+        // Browser History Dialog
+        if (uiState.showHistoryDialog) {
+            BrowserHistoryDialog(
+                history = uiState.historyEntries,
+                onSelectUrl = { url ->
+                    viewModel.navigateTo(url)
+                },
+                onDeleteEntry = { id ->
+                    viewModel.deleteHistoryEntry(id)
+                },
+                onClearHistory = {
+                    viewModel.clearHistory()
+                },
+                onDismiss = {
+                    viewModel.dismissHistoryDialog()
+                }
+            )
+        }
+
         // Long-Pressed Clickable Element Detection Prompt
         if (uiState.showAddNextSelectorDialog && uiState.longPressedClickable != null) {
             val clickable = uiState.longPressedClickable!!
@@ -749,7 +771,8 @@ private fun BrowserTopBar(
     toolbarButtonOrder: List<String> = emptyList(),
     customButtons: List<com.novelarrow.reader.data.model.CustomToolbarButton> = emptyList(),
     onCustomButtonClicked: (String) -> Unit = {},
-    onReorderButtonsClicked: () -> Unit = {}
+    onReorderButtonsClicked: () -> Unit = {},
+    onHistoryClicked: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1112,6 +1135,23 @@ private fun BrowserTopBar(
                                 onClick = {
                                     showMenu = false
                                     onReorderButtonsClicked()
+                                }
+                            )
+
+                            // History option
+                            DropdownMenuItem(
+                                text = { Text("Browsing History") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.History,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onHistoryClicked()
                                 }
                             )
 
@@ -1865,12 +1905,29 @@ private fun BrowserSettingsNavCard(
     }
 }
 
+/**
+ * A custom WebView that preserves timer and script execution when the app is backgrounded
+ * during active live reading or batch downloading.
+ */
+class BackgroundAwareWebView(context: android.content.Context) : WebView(context) {
+    var keepAliveInBackground: Boolean = false
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        if (keepAliveInBackground && (visibility == android.view.View.GONE || visibility == android.view.View.INVISIBLE)) {
+            // Keep Chromium rendering pipeline and JS timers running while backgrounded
+            super.onWindowVisibilityChanged(android.view.View.VISIBLE)
+        } else {
+            super.onWindowVisibilityChanged(visibility)
+        }
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 private fun createConfiguredWebView(
     context: android.content.Context,
     viewModel: BrowserViewModel
-): WebView {
-    return WebView(context).apply {
+): BackgroundAwareWebView {
+    return BackgroundAwareWebView(context).apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT

@@ -456,21 +456,16 @@ object WebScriptInjector {
                     }
 
                     var oldUrl = window.location.href;
-                    if (aTag && aTag.href && aTag.href.indexOf('http') === 0 && !aTag.getAttribute('href').startsWith('javascript:')) {
-                        window.location.href = aTag.href;
+                    var fullHref = (aTag && aTag.href && aTag.href.indexOf('http') === 0 && !aTag.href.startsWith('javascript:')) ? aTag.href : '';
+                    if (fullHref) {
+                        window.location.href = fullHref;
                     } else {
                         try {
-                            target.scrollIntoView({ block: 'center' });
-                            target.focus();
-                            target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-                            target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
                             target.click();
                         } catch(e) {}
-                        setTimeout(function() {
-                            if (window.location.href === oldUrl && aTag && aTag.href && aTag.href.indexOf('http') === 0) {
-                                window.location.href = aTag.href;
-                            }
-                        }, 500);
+                        if (aTag && aTag.href && aTag.href.indexOf('http') === 0 && window.location.href === oldUrl) {
+                            window.location.href = aTag.href;
+                        }
                     }
                 } else {
                     incrementUrl();

@@ -808,4 +808,63 @@ object ChapterParser {
             ruleImpacts = impactsMap.values.toList().sortedByDescending { it.charsFiltered }
         )
     }
+
+    fun countWords(text: String): Int {
+        return text.trim().split(Regex("""\s+""")).count { it.isNotBlank() }
+    }
+
+    /**
+     * Merges short paragraphs (<= [minWordThreshold] words) forward into the next paragraph
+     * to prevent isolated, failure-prone, or stuttering synthesis requests.
+     * Trailing short paragraphs at the end of a chapter merge into the preceding paragraph.
+     */
+    fun mergeShortParagraphs(paragraphs: List<Paragraph>, minWordThreshold: Int = 10): List<Paragraph> {
+        if (paragraphs.size <= 1) return paragraphs
+        val merged = mutableListOf<Paragraph>()
+        var accumulator: Paragraph? = null
+
+        for (p in paragraphs) {
+            if (accumulator == null) {
+                if (countWords(p.spokenText) <= minWordThreshold) {
+                    accumulator = p
+                } else {
+                    merged.add(p)
+                }
+            } else {
+                val combinedRaw = accumulator.rawText + "\n\n" + p.rawText
+                val combinedSpoken = accumulator.spokenText + " " + p.spokenText
+                val combinedHeading = accumulator.isHeading || p.isHeading
+                val newPara = Paragraph(
+                    index = 0,
+                    rawText = combinedRaw,
+                    spokenText = combinedSpoken,
+                    isHeading = combinedHeading
+                )
+                if (countWords(combinedSpoken) <= minWordThreshold) {
+                    accumulator = newPara
+                } else {
+                    merged.add(newPara)
+                    accumulator = null
+                }
+            }
+        }
+
+        if (accumulator != null) {
+            if (merged.isNotEmpty()) {
+                val last = merged.removeAt(merged.size - 1)
+                merged.add(
+                    Paragraph(
+                        index = 0,
+                        rawText = last.rawText + "\n\n" + accumulator.rawText,
+                        spokenText = last.spokenText + " " + accumulator.spokenText,
+                        isHeading = last.isHeading || accumulator.isHeading
+                    )
+                )
+            } else {
+                merged.add(accumulator)
+            }
+        }
+
+        return merged.mapIndexed { idx, p -> p.copy(index = idx) }
+    }
 }

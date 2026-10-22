@@ -9,6 +9,7 @@ import com.novelarrow.reader.data.model.detectEditorLanguage
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.PronunciationScopeType
 import com.novelarrow.reader.data.model.SkipWord
+import com.novelarrow.reader.data.model.Paragraph
 
 class ChapterParserTest {
 
@@ -700,5 +701,37 @@ class ChapterParserTest {
         org.junit.Assert.assertNotNull(skipImpact)
         assertTrue(skipImpact!!.charsFiltered > 0)
     }
+
+    @Test
+    fun testMergeShortParagraphs_mergesParagraphsUnderThreshold() {
+        val paras = listOf(
+            Paragraph(index = 0, rawText = "He sighed.", spokenText = "He sighed."),
+            Paragraph(index = 1, rawText = "Then he walked towards the door and opened it quietly.", spokenText = "Then he walked towards the door and opened it quietly."),
+            Paragraph(index = 2, rawText = "To be continued.", spokenText = "To be continued.")
+        )
+
+        val merged = ChapterParser.mergeShortParagraphs(paras, minWordThreshold = 10)
+        // Paragraph 0 (2 words) merges into Paragraph 1 (10 words) -> 12 words.
+        // Paragraph 2 (3 words) at the end merges into the preceding combined paragraph.
+        assertEquals(1, merged.size)
+        assertTrue(merged[0].spokenText.contains("He sighed."))
+        assertTrue(merged[0].spokenText.contains("opened it quietly."))
+        assertTrue(merged[0].spokenText.contains("To be continued."))
+        assertEquals(0, merged[0].index)
+    }
+
+    @Test
+    fun testMergeShortParagraphs_keepsLongParagraphsSeparate() {
+        val paras = listOf(
+            Paragraph(index = 0, rawText = "This is a sufficiently long first paragraph containing more than ten words for sure.", spokenText = "This is a sufficiently long first paragraph containing more than ten words for sure."),
+            Paragraph(index = 1, rawText = "This is another completely separate long second paragraph that also contains plenty of words.", spokenText = "This is another completely separate long second paragraph that also contains plenty of words.")
+        )
+
+        val merged = ChapterParser.mergeShortParagraphs(paras, minWordThreshold = 10)
+        assertEquals(2, merged.size)
+        assertEquals(0, merged[0].index)
+        assertEquals(1, merged[1].index)
+    }
 }
+
 

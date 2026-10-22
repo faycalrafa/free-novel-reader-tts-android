@@ -156,7 +156,9 @@ data class BrowserUiState(
     val showShortcutsManager: Boolean = false,
     val flashHandleRed: Boolean = false,
     val activeRuleImpacts: List<RuleImpact> = emptyList(),
-    val customToolbarButtons: List<com.novelarrow.reader.data.model.CustomToolbarButton> = emptyList()
+    val customToolbarButtons: List<com.novelarrow.reader.data.model.CustomToolbarButton> = emptyList(),
+    val showHistoryDialog: Boolean = false,
+    val historyEntries: List<com.novelarrow.reader.data.model.BrowserHistoryEntry> = emptyList()
 )
 
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
@@ -164,6 +166,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val libraryRepository = LibraryRepository(application)
     private val settingsRepository = SettingsRepository(application)
     private val userscriptRepository = UserscriptRepository(application)
+    private val browserHistoryRepository = com.novelarrow.reader.data.repository.BrowserHistoryRepository(application)
     private val savedReadingPositions = mutableMapOf<String, Int>()
 
     private val _uiState = MutableStateFlow(BrowserUiState())
@@ -178,6 +181,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private var autoLoopJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var retryExtractionJob: Job? = null
+    private var preExtractedNextChapterUrl: String? = null
 
     private var lastBatchDownloadedUrl: String = ""
     private var lastBatchDownloadedChapterNum: Int = -1
@@ -262,6 +266,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
                 _uiState.update { it.copy(allUserscripts = scripts, activeUserscripts = active) }
+            }
+        }
+
+        viewModelScope.launch {
+            browserHistoryRepository.historyFlow.collect { history ->
+                _uiState.update { it.copy(historyEntries = history) }
             }
         }
 
@@ -407,6 +417,26 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _uiState.update { it.copy(showTabSwitcher = false) }
     }
 
+    fun openHistoryDialog() {
+        _uiState.update { it.copy(showHistoryDialog = true) }
+    }
+
+    fun dismissHistoryDialog() {
+        _uiState.update { it.copy(showHistoryDialog = false) }
+    }
+
+    fun deleteHistoryEntry(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            browserHistoryRepository.deleteEntry(id)
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            browserHistoryRepository.clearHistory()
+        }
+    }
+
     // =========================================================================
     // URL and Navigation
     // =========================================================================
@@ -524,6 +554,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         updateCurrentTabUrl(url, safeTitle)
         saveLastUrl(url)
 
+        if (url.isNotBlank() && url != "about:blank") {
+            viewModelScope.launch(Dispatchers.IO) {
+                browserHistoryRepository.recordVisit(url, safeTitle)
+            }
+        }
+
         // Inject JS helper and document-end userscripts
         injectHelperScript(url)
 
@@ -611,6 +647,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         isNavigatingNextChapter = true
         val settings = _uiState.value.settings
         val currentUrl = _uiState.value.currentUrl
+
+        val directUrl = preExtractedNextChapterUrl
+        if (!directUrl.isNullOrBlank() && directUrl != currentUrl && (directUrl.startsWith("http://") || directUrl.startsWith("https://"))) {
+            AppLogger.i(TAG, "Navigating to next chapter directly via pre-extracted URL: $directUrl")
+            preExtractedNextChapterUrl = null
+            dispatchLoadUrl(directUrl)
+            return
+        }
+
         dispatchEvaluateJs(
             WebScriptInjector.buildNextChapterScript(
                 customSelector = settings.nextSelector,
@@ -1204,6 +1249,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val extracted = WebContentExtractor.extractChapterContent(result, _uiState.value.pageTitle)
             val title = extracted.title
             val rawList = extracted.paragraphs
+            if (!extracted.nextUrl.isNullOrBlank()) {
+                preExtractedNextChapterUrl = extracted.nextUrl
+                AppLogger.d(TAG, "Cached pre-extracted next chapter URL in reading mode: $preExtractedNextChapterUrl")
+            }
 
             val containerImpact = if (extracted.matchedContainerSelector != null && extracted.containerFilteredChars > 0) {
                 RuleImpact(
@@ -1305,6 +1354,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             val extracted = WebContentExtractor.extractChapterContent(result, _uiState.value.pageTitle)
             val title = extracted.title
             val rawList = extracted.paragraphs
+            if (!extracted.nextUrl.isNullOrBlank()) {
+                preExtractedNextChapterUrl = extracted.nextUrl
+                AppLogger.d(TAG, "Cached pre-extracted next chapter URL: $preExtractedNextChapterUrl")
+            }
 
             if (rawList.isEmpty() && result.isNullOrBlank()) {
                 if (retryCount < 2) {
@@ -1357,7 +1410,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 )
 
                 val paragraphs = parseResult.paragraphs
-                val readableParagraphs = paragraphs.filter { it.spokenText.isNotBlank() }
+                val rawReadable = paragraphs.filter { it.spokenText.isNotBlank() }
+                val readableParagraphs = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(rawReadable)
 
                 if (readableParagraphs.isNotEmpty()) {
                     val targetIndex = if (forceStartAtBeginning) {

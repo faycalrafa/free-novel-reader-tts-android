@@ -258,10 +258,10 @@ object AudioPlaybackCoordinator {
         currentChapterId = chapterId
         currentChapterTitle = chapterTitle
         currentChapterIndex = chapterIndex
-        totalChaptersCount = totalChapters
-        currentParagraphs = paragraphs
-        totalParagraphsCount = paragraphs.size
-        currentParagraphIndex = startParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+        val mergedParas = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(paragraphs)
+        currentParagraphs = mergedParas
+        totalParagraphsCount = mergedParas.size
+        currentParagraphIndex = startParagraphIndex.coerceIn(0, (mergedParas.size - 1).coerceAtLeast(0))
         autoNextChapterEnabled = autoNext
         currentSpeechRate = rate
         currentSpeechPitch = pitch
@@ -348,10 +348,11 @@ object AudioPlaybackCoordinator {
         currentChapterId = null
         currentChapterTitle = chapterTitle
         currentChapterIndex = 0
-        totalChaptersCount = 1
-        currentParagraphs = paragraphs
-        totalParagraphsCount = paragraphs.size
-        currentParagraphIndex = startParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+        val mergedParas = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(paragraphs)
+        lastActiveBrowserParagraphs = mergedParas
+        currentParagraphs = mergedParas
+        totalParagraphsCount = mergedParas.size
+        currentParagraphIndex = startParagraphIndex.coerceIn(0, (mergedParas.size - 1).coerceAtLeast(0))
         autoNextChapterEnabled = false
         currentSpeechRate = rate
         currentSpeechPitch = pitch
@@ -371,12 +372,12 @@ object AudioPlaybackCoordinator {
                 chapterIndex = 0,
                 totalChapters = 1,
                 currentParagraphIndex = currentParagraphIndex,
-                totalParagraphs = paragraphs.size,
-                currentParagraphText = paragraphs.getOrNull(currentParagraphIndex)?.spokenText ?: ""
+                totalParagraphs = mergedParas.size,
+                currentParagraphText = mergedParas.getOrNull(currentParagraphIndex)?.spokenText ?: ""
             )
         }
 
-        currentProgressText = "¶ ${currentParagraphIndex + 1}/${paragraphs.size}"
+        currentProgressText = "¶ ${currentParagraphIndex + 1}/${mergedParas.size}"
         updateServiceState()
 
         if (_sleepTimerMinutesState.value > 0) {
@@ -390,12 +391,13 @@ object AudioPlaybackCoordinator {
     }
 
     fun updateActiveParagraphs(newParas: List<Paragraph>) {
-        currentParagraphs = newParas
-        totalParagraphsCount = newParas.size
+        val mergedParas = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(newParas)
+        currentParagraphs = mergedParas
+        totalParagraphsCount = mergedParas.size
         _playbackProgressState.update {
             it.copy(
-                totalParagraphs = newParas.size,
-                currentParagraphText = newParas.getOrNull(currentParagraphIndex)?.spokenText ?: ""
+                totalParagraphs = mergedParas.size,
+                currentParagraphText = mergedParas.getOrNull(currentParagraphIndex)?.spokenText ?: ""
             )
         }
         if (_isPlayingState.value && currentParagraphs.isNotEmpty()) {

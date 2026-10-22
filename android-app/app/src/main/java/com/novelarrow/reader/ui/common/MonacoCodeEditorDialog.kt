@@ -19,6 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentCut
@@ -48,7 +50,8 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 
 private class MonacoBridge(
-    private val onSaveRequested: (String) -> Unit
+    private val onSaveRequested: (String) -> Unit,
+    private val onSearchResultsReported: (Int, Int) -> Unit
 ) {
     private val handler = Handler(Looper.getMainLooper())
 
@@ -56,6 +59,13 @@ private class MonacoBridge(
     fun saveContent(content: String) {
         handler.post {
             onSaveRequested.invoke(content)
+        }
+    }
+
+    @JavascriptInterface
+    fun reportSearchResults(current: Int, total: Int) {
+        handler.post {
+            onSearchResultsReported.invoke(current, total)
         }
     }
 }
@@ -75,6 +85,15 @@ fun MonacoCodeEditorDialog(
     var currentTitle by remember(title) { mutableStateOf(title) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameInputText by remember { mutableStateOf("") }
+
+    // Native Search & Replace Toolbar State
+    var isSearchOpen by remember { mutableStateOf(false) }
+    var isReplaceOpen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var replaceQuery by remember { mutableStateOf("") }
+    var matchCase by remember { mutableStateOf(false) }
+    var searchCurrentIndex by remember { mutableStateOf(0) }
+    var searchTotalCount by remember { mutableStateOf(0) }
 
     val activity = context as? android.app.Activity
     DisposableEffect(Unit) {
@@ -348,28 +367,38 @@ fun MonacoCodeEditorDialog(
 
                             IconButton(
                                 onClick = {
-                                    webViewRef?.evaluateJavascript("window.triggerSearch();", null)
+                                    isSearchOpen = !isSearchOpen
+                                    if (!isSearchOpen) {
+                                        isReplaceOpen = false
+                                        searchQuery = ""
+                                        searchCurrentIndex = 0
+                                        searchTotalCount = 0
+                                        webViewRef?.evaluateJavascript("window.performFind('', true, false);", null)
+                                    }
                                 },
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Icon(
                                     Icons.Default.Search,
                                     contentDescription = "Search",
-                                    tint = Color(0xFFCCCCCC),
+                                    tint = if (isSearchOpen) MaterialTheme.colorScheme.primary else Color(0xFFCCCCCC),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
 
                             IconButton(
                                 onClick = {
-                                    webViewRef?.evaluateJavascript("window.triggerReplace();", null)
+                                    if (!isSearchOpen) {
+                                        isSearchOpen = true
+                                    }
+                                    isReplaceOpen = !isReplaceOpen
                                 },
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Icon(
                                     Icons.Default.FindReplace,
                                     contentDescription = "Match Replace",
-                                    tint = Color(0xFFCCCCCC),
+                                    tint = if (isReplaceOpen) MaterialTheme.colorScheme.primary else Color(0xFFCCCCCC),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -401,6 +430,194 @@ fun MonacoCodeEditorDialog(
                                     tint = if (isWordWrapEnabled) MaterialTheme.colorScheme.primary else Color(0xFFCCCCCC),
                                     modifier = Modifier.size(18.dp)
                                 )
+                            }
+                        }
+
+                        // Tier 3: Native Compose Search & Replace Bar (Zero IME Input Lag)
+                        if (isSearchOpen) {
+                            HorizontalDivider(color = Color(0xFF333333), thickness = 0.5.dp)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF2A2D2E))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                // Search Row
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    OutlinedTextField(
+                                        value = searchQuery,
+                                        onValueChange = { newQuery ->
+                                            searchQuery = newQuery
+                                            val safeQ = JSONObject.quote(newQuery)
+                                            webViewRef?.evaluateJavascript("window.performFind($safeQ, true, $matchCase);", null)
+                                        },
+                                        placeholder = {
+                                            Text("Find in code...", fontSize = 13.sp, color = Color(0xFF888888))
+                                        },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Color.White),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = Color(0xFF444444),
+                                            focusedContainerColor = Color(0xFF1E1E1E),
+                                            unfocusedContainerColor = Color(0xFF1E1E1E)
+                                        ),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(44.dp)
+                                    )
+
+                                    Spacer(modifier = Modifier.width(6.dp))
+
+                                    // Match Count Badge
+                                    Text(
+                                        text = if (searchQuery.isBlank()) "0/0" else "$searchCurrentIndex/$searchTotalCount",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, color = Color(0xFFCCCCCC)),
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+
+                                    // Match Case Toggle
+                                    FilledIconToggleButton(
+                                        checked = matchCase,
+                                        onCheckedChange = {
+                                            matchCase = it
+                                            val safeQ = JSONObject.quote(searchQuery)
+                                            webViewRef?.evaluateJavascript("window.performFind($safeQ, true, $matchCase);", null)
+                                        },
+                                        colors = IconButtonDefaults.filledIconToggleButtonColors(
+                                            containerColor = Color.Transparent,
+                                            checkedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                            contentColor = Color(0xFFCCCCCC),
+                                            checkedContentColor = MaterialTheme.colorScheme.primary
+                                        ),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Text("Aa", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    // Prev Match Button
+                                    IconButton(
+                                        onClick = {
+                                            val safeQ = JSONObject.quote(searchQuery)
+                                            webViewRef?.evaluateJavascript("window.performFind($safeQ, false, $matchCase);", null)
+                                        },
+                                        enabled = searchQuery.isNotBlank(),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ChevronLeft,
+                                            contentDescription = "Previous Match",
+                                            tint = if (searchQuery.isNotBlank()) Color.White else Color(0xFF666666),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    // Next Match Button
+                                    IconButton(
+                                        onClick = {
+                                            val safeQ = JSONObject.quote(searchQuery)
+                                            webViewRef?.evaluateJavascript("window.performFind($safeQ, true, $matchCase);", null)
+                                        },
+                                        enabled = searchQuery.isNotBlank(),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = "Next Match",
+                                            tint = if (searchQuery.isNotBlank()) Color.White else Color(0xFF666666),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+
+                                    // Close Search Bar
+                                    IconButton(
+                                        onClick = {
+                                            isSearchOpen = false
+                                            isReplaceOpen = false
+                                            searchQuery = ""
+                                            searchCurrentIndex = 0
+                                            searchTotalCount = 0
+                                            webViewRef?.evaluateJavascript("window.performFind('', true, false);", null)
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Close Search",
+                                            tint = Color(0xFF888888),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                // Replace Row (shown when isReplaceOpen is true)
+                                if (isReplaceOpen) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        OutlinedTextField(
+                                            value = replaceQuery,
+                                            onValueChange = { replaceQuery = it },
+                                            placeholder = {
+                                                Text("Replace with...", fontSize = 13.sp, color = Color(0xFF888888))
+                                            },
+                                            singleLine = true,
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Color.White),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = Color(0xFF444444),
+                                                focusedContainerColor = Color(0xFF1E1E1E),
+                                                unfocusedContainerColor = Color(0xFF1E1E1E)
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(44.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        // Replace Single
+                                        Button(
+                                            onClick = {
+                                                val safeR = JSONObject.quote(replaceQuery)
+                                                val safeQ = JSONObject.quote(searchQuery)
+                                                webViewRef?.evaluateJavascript("window.performReplace($safeR); window.performFind($safeQ, true, $matchCase);", null)
+                                            },
+                                            enabled = searchQuery.isNotBlank(),
+                                            shape = RoundedCornerShape(6.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                disabledContainerColor = Color(0xFF3A3D3E)
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Text("Replace", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+
+                                        Spacer(modifier = Modifier.width(4.dp))
+
+                                        // Replace All
+                                        FilledTonalButton(
+                                            onClick = {
+                                                val safeQ = JSONObject.quote(searchQuery)
+                                                val safeR = JSONObject.quote(replaceQuery)
+                                                webViewRef?.evaluateJavascript("window.performReplaceAll($safeQ, $safeR, $matchCase);", null)
+                                            },
+                                            enabled = searchQuery.isNotBlank(),
+                                            shape = RoundedCornerShape(6.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Text("All", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -448,9 +665,13 @@ fun MonacoCodeEditorDialog(
                                     false
                                 }
                                 addJavascriptInterface(
-                                    MonacoBridge { savedText ->
-                                        onSave?.invoke(savedText)
-                                    },
+                                    MonacoBridge(
+                                        onSaveRequested = { savedText -> onSave?.invoke(savedText) },
+                                        onSearchResultsReported = { cur, tot ->
+                                            searchCurrentIndex = cur
+                                            searchTotalCount = tot
+                                        }
+                                    ),
                                     "MonacoBridge"
                                 )
                                 loadDataWithBaseURL(
@@ -671,7 +892,7 @@ private fun buildMonacoHtml(code: String, language: String): String {
                                 find: {
                                     addExtraSpaceOnTop: false,
                                     autoFindInSelection: 'never',
-                                    seedSearchStringFromSelection: 'always'
+                                    seedSearchStringFromSelection: 'never'
                                 }
                             });
 
@@ -815,16 +1036,131 @@ private fun buildMonacoHtml(code: String, language: String): String {
                     }
                 };
 
-                window.triggerSearch = function() {
+                window.performFind = function(query, forward, matchCase) {
+                    if (!query) {
+                        if (window.MonacoBridge && window.MonacoBridge.reportSearchResults) {
+                            window.MonacoBridge.reportSearchResults(0, 0);
+                        }
+                        return;
+                    }
                     if (window.editor && monacoLoaded) {
-                        window.editor.getAction('actions.find').run();
+                        var model = window.editor.getModel();
+                        if (!model) return;
+                        var matches = model.findMatches(query, false, false, matchCase, null, true);
+                        var total = matches ? matches.length : 0;
+                        if (total === 0) {
+                            if (window.MonacoBridge && window.MonacoBridge.reportSearchResults) {
+                                window.MonacoBridge.reportSearchResults(0, 0);
+                            }
+                            return;
+                        }
+
+                        var currentPos = window.editor.getPosition() || new monaco.Position(1, 1);
+                        var targetIndex = -1;
+
+                        if (forward) {
+                            for (var i = 0; i < matches.length; i++) {
+                                var range = matches[i].range;
+                                if (range.startLineNumber > currentPos.lineNumber ||
+                                   (range.startLineNumber === currentPos.lineNumber && range.startColumn > currentPos.column)) {
+                                    targetIndex = i;
+                                    break;
+                                }
+                            }
+                            if (targetIndex === -1) targetIndex = 0;
+                        } else {
+                            for (var j = matches.length - 1; j >= 0; j--) {
+                                var r = matches[j].range;
+                                if (r.endLineNumber < currentPos.lineNumber ||
+                                   (r.endLineNumber === currentPos.lineNumber && r.endColumn < currentPos.column)) {
+                                    targetIndex = j;
+                                    break;
+                                }
+                            }
+                            if (targetIndex === -1) targetIndex = matches.length - 1;
+                        }
+
+                        var targetMatch = matches[targetIndex];
+                        window.editor.setSelection(targetMatch.range);
+                        window.editor.revealRangeInCenter(targetMatch.range);
+                        if (window.MonacoBridge && window.MonacoBridge.reportSearchResults) {
+                            window.MonacoBridge.reportSearchResults(targetIndex + 1, total);
+                        }
+                    } else {
+                        var ta = document.getElementById('fallback-editor');
+                        if (!ta) return;
+                        var content = ta.value;
+                        var searchStr = matchCase ? query : query.toLowerCase();
+                        var src = matchCase ? content : content.toLowerCase();
+                        var idx = forward ? src.indexOf(searchStr, ta.selectionEnd) : src.lastIndexOf(searchStr, Math.max(0, ta.selectionStart - 1));
+                        if (idx === -1) {
+                            idx = forward ? src.indexOf(searchStr, 0) : src.lastIndexOf(searchStr);
+                        }
+                        if (idx !== -1) {
+                            ta.focus();
+                            ta.setSelectionRange(idx, idx + query.length);
+                        }
                     }
                 };
 
-                window.triggerReplace = function() {
+                window.performReplace = function(replaceText) {
                     if (window.editor && monacoLoaded) {
-                        window.editor.getAction('editor.action.startFindReplaceAction').run();
+                        var sel = window.editor.getSelection();
+                        if (sel && !sel.isEmpty()) {
+                            window.editor.executeEdits('replace', [{
+                                range: sel,
+                                text: replaceText || '',
+                                forceMoveMarkers: true
+                            }]);
+                        }
+                    } else {
+                        var ta = document.getElementById('fallback-editor');
+                        if (ta) {
+                            var start = ta.selectionStart;
+                            var end = ta.selectionEnd;
+                            if (start !== end) {
+                                ta.value = ta.value.substring(0, start) + (replaceText || '') + ta.value.substring(end);
+                                ta.selectionStart = start;
+                                ta.selectionEnd = start + (replaceText || '').length;
+                            }
+                        }
                     }
+                };
+
+                window.performReplaceAll = function(query, replaceText, matchCase) {
+                    if (!query) return;
+                    if (window.editor && monacoLoaded) {
+                        var model = window.editor.getModel();
+                        if (!model) return;
+                        var matches = model.findMatches(query, false, false, matchCase, null, true);
+                        if (!matches || matches.length === 0) return;
+                        var edits = matches.map(function(m) {
+                            return {
+                                range: m.range,
+                                text: replaceText || '',
+                                forceMoveMarkers: true
+                            };
+                        });
+                        window.editor.executeEdits('replaceAll', edits);
+                        if (window.MonacoBridge && window.MonacoBridge.reportSearchResults) {
+                            window.MonacoBridge.reportSearchResults(0, 0);
+                        }
+                    } else {
+                        var ta = document.getElementById('fallback-editor');
+                        if (ta) {
+                            var flags = matchCase ? 'g' : 'gi';
+                            var regex = new RegExp(query.replace(/[.*+?^${'$'}{}()|[\\]\\]/g, '\\${'$'}&'), flags);
+                            ta.value = ta.value.replace(regex, replaceText || '');
+                        }
+                    }
+                };
+
+                window.triggerSearch = function() {
+                    // Handled natively by Compose toolbar
+                };
+
+                window.triggerReplace = function() {
+                    // Handled natively by Compose toolbar
                 };
 
                 window.triggerFormat = function() {

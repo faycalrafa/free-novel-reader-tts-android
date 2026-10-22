@@ -83,8 +83,8 @@ class UserscriptRepository(private val context: Context) {
         val DEFAULT_MULTI_DOWNLOAD_SCRIPT = """
             // ==UserScript==
             // @name         Multi-Download
-            // @version      2.0.0
-            // @description  Batch download loop for web novel chapters with in-page configuration dialog, filtered clean text extraction, and auto-navigation.
+            // @version      2.1.0
+            // @description  Batch download loop for web novel chapters with centered progress dialog, clean text extraction, and auto-navigation.
             // @match        *://*/*
             // @match        file://*/*
             // @run-at       document-end
@@ -101,6 +101,7 @@ class UserscriptRepository(private val context: Context) {
                 var NOVEL_KEY = 'novel_batch_dl_novel';
                 var CHAPTER_KEY = 'novel_batch_dl_chapter';
                 var REMAINING_KEY = 'novel_batch_dl_remaining';
+                var TOTAL_KEY = 'novel_batch_dl_total';
                 var DELAY_KEY = 'novel_batch_dl_delay';
                 var LAST_URL_KEY = 'novel_batch_dl_last_url';
 
@@ -280,15 +281,34 @@ class UserscriptRepository(private val context: Context) {
                 }
 
                 function showCountdownPill(novelTitle, chNum, remaining, secondsLeft) {
-                    var pill = document.getElementById('nd-countdown-pill');
-                    if (!pill) {
-                        pill = document.createElement('div');
-                        pill.id = 'nd-countdown-pill';
-                        pill.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483640;background:#1e293b;color:#f8fafc;padding:10px 18px;border-radius:28px;box-shadow:0 8px 24px rgba(0,0,0,0.4);font-family:system-ui,sans-serif;font-size:13px;font-weight:600;display:flex;align-items:center;gap:12px;border:1px solid #334155;';
-                        document.body.appendChild(pill);
+                    var total = parseInt(sessionStorage.getItem(TOTAL_KEY), 10) || (remaining + 1);
+                    var completed = Math.max(0, total - remaining);
+                    var percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+
+                    var container = document.getElementById('nd-countdown-pill');
+                    if (!container) {
+                        container = document.createElement('div');
+                        container.id = 'nd-countdown-pill';
+                        container.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:2147483640;display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;box-sizing:border-box;pointer-events:auto;';
+                        document.body.appendChild(container);
                     }
-                    pill.innerHTML = '<span>📥 <b>' + novelTitle + '</b> Ch. ' + chNum + ' (Left: ' + remaining + ') · Next in <b id="nd-timer-val">' + secondsLeft.toFixed(1) + 's</b></span>' +
-                        '<button id="nd-stop-btn" style="background:#ef4444;color:#fff;border:none;padding:5px 12px;border-radius:14px;font-size:12px;font-weight:bold;cursor:pointer;">Stop</button>';
+                    container.innerHTML =
+                        '<div style="background:#1e293b;color:#f8fafc;width:90%;max-width:380px;border-radius:20px;padding:24px;box-shadow:0 20px 45px rgba(0,0,0,0.5);border:1px solid #334155;text-align:center;box-sizing:border-box;">' +
+                        '  <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:6px;">' +
+                        '    <span style="font-size:1.4rem;">📥</span>' +
+                        '    <h3 style="margin:0;font-size:1.15rem;font-weight:700;color:#f8fafc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;">' + novelTitle + '</h3>' +
+                        '  </div>' +
+                        '  <p style="margin:0 0 16px 0;font-size:0.85rem;color:#94a3b8;">Downloading Chapter <b>' + chNum + '</b> · Next in <b id="nd-timer-val" style="color:#38bdf8;">' + secondsLeft.toFixed(1) + 's</b></p>' +
+                        '  <div style="background:#0f172a;border-radius:8px;height:10px;width:100%;overflow:hidden;margin-bottom:10px;border:1px solid #334155;">' +
+                        '    <div id="nd-progress-bar" style="background:#3b82f6;height:100%;width:' + percent + '%;border-radius:8px;transition:width 0.3s ease;"></div>' +
+                        '  </div>' +
+                        '  <div style="display:flex;justify-content:space-between;font-size:0.8rem;color:#cbd5e1;margin-bottom:20px;font-weight:600;">' +
+                        '    <span>Completed: ' + completed + '/' + total + '</span>' +
+                        '    <span>' + percent + '%</span>' +
+                        '  </div>' +
+                        '  <button id="nd-stop-btn" style="background:#ef4444;color:#fff;border:none;padding:10px 24px;border-radius:12px;font-size:0.9rem;font-weight:700;cursor:pointer;width:100%;box-shadow:0 4px 12px rgba(239,68,68,0.3);">Stop Download</button>' +
+                        '</div>';
+
                     var stopBtn = document.getElementById('nd-stop-btn');
                     if (stopBtn) {
                         stopBtn.onclick = function() {
@@ -298,8 +318,8 @@ class UserscriptRepository(private val context: Context) {
                 }
 
                 function removeCountdownPill() {
-                    var pill = document.getElementById('nd-countdown-pill');
-                    if (pill) pill.remove();
+                    var container = document.getElementById('nd-countdown-pill');
+                    if (container) container.remove();
                 }
 
                 var countdownInterval = null;
@@ -434,6 +454,7 @@ class UserscriptRepository(private val context: Context) {
                         sessionStorage.setItem(NOVEL_KEY, titleInput);
                         sessionStorage.setItem(CHAPTER_KEY, chInput.toString());
                         sessionStorage.setItem(REMAINING_KEY, qtyInput.toString());
+                        sessionStorage.setItem(TOTAL_KEY, qtyInput.toString());
                         sessionStorage.setItem(DELAY_KEY, Math.round(delayInput * 1000).toString());
                         sessionStorage.setItem(LAST_URL_KEY, window.location.href);
 
@@ -495,7 +516,7 @@ class UserscriptRepository(private val context: Context) {
             val scriptsDir = ensureScriptsDirectory()
             val targetFile = File(scriptsDir, fileName)
             val parsed = UserscriptMetadataParser.parse(scriptCode.trimIndent(), fallbackName = fallbackName)
-            if (!targetFile.exists() || (fileName == "Multi-Download.user.js" && targetFile.readText().contains("@version      1.0.0"))) {
+            if (!targetFile.exists() || (fileName == "Multi-Download.user.js" && (targetFile.readText().contains("@version      1.0.0") || targetFile.readText().contains("@version      2.0.0")))) {
                 targetFile.writeText(scriptCode.trimIndent(), Charsets.UTF_8)
             }
 

@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.13.0"
+          DATE_TAG="v3.14.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.13.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.13.0 --no-daemon
+          APP_VERSION_NAME: "3.14.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.14.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,12 +53,33 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.13.0 (Stable)
+          name: BookReader v3.14.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.13.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.14.0 (Stable) 📚🎙️⚡
 
-            **BookReader v3.13.0** introduces userscript usability fixes, direct Monaco editor mobile typing, enhanced reading automation, and a standalone JavaScript multi-download engine:
+            **BookReader v3.14.0** brings essential background playback continuity, a responsive native Monaco search experience, full browsing history, centered multi-chapter download progress, language detection accuracy improvements, and short paragraph synthesis merging:
+
+            #### Key Updates:
+            - **Background Next Chapter Auto-Advance in Browser**:
+              - Introduced `BackgroundAwareWebView` preventing Chromium from pausing JavaScript execution and timers when the app is placed in the background during active live reading.
+              - Pre-extracts next chapter navigation URL during content extraction and falls back to direct URL navigation if background DOM click dispatching is deferred by the WebView engine.
+            - **Monaco Code Editor Native Search & Replace Toolbar**:
+              - Replaced Monaco's desktop HTML find widget with a native Jetpack Compose Search & Replace toolbar.
+              - Completely eliminates IME software keyboard fighting and touch latency when searching or replacing code in "View Raw HTML" and Userscript editors.
+              - Includes match count (`cur/total`), case sensitivity toggle (`Aa`), Next/Previous navigation, single Replace, and Replace All.
+            - **Browser Browsing History**:
+              - Added comprehensive browsing history tracking powered by `BrowserHistoryRepository` with atomic writes (`AtomicFile`) and mutex synchronization.
+              - Accessible via "Browsing History" in the browser's 3-dot overflow menu.
+              - Features real-time search, timestamps, single-entry deletion, and complete history clearing.
+            - **Centered Multi-Chapter Download Progress Card**:
+              - Updated batch chapter downloader progress indicator to be prominently displayed in the middle of the screen with a darkened backdrop scrim, linear progress bar, chapter counter, and responsive stop button.
+            - **Language Detection & False-Positive French Fix**:
+              - Resolved false-positive French language detection on English text caused by homographic words (`son`, `car`, `ton`, `or`, `de`, `par`, `mon`, etc.).
+              - Strengthened English stop-word weighting and minimum token thresholds in `LanguageDetectionEngine`.
+            - **Short Paragraph TTS Merging (<= 10 words)**:
+              - Short paragraphs with 10 words or fewer are automatically merged forward into the succeeding paragraph.
+              - Prevents stutter, unnatural pauses, and Android TTS synthesizer failures on tiny isolated text fragments.
 
             #### Key Updates:
             - **Userscript Item Squishing Fixed**: Resolved version badge horizontal squishing in Userscript Bottom Sheet and Manager Dialog using `FlowRow` and `softWrap = false`.

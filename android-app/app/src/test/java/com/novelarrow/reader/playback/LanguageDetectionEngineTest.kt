@@ -30,6 +30,15 @@ class LanguageDetectionEngineTest {
 
         val englishText2 = "He walked slowly through the dark hallway without making any sound."
         assertEquals(SupportedLanguage.ENGLISH, LanguageDetectionEngine.detectLanguage(englishText2))
+
+        val englishText3 = "His son got into the car with a ton of books."
+        assertEquals(SupportedLanguage.ENGLISH, LanguageDetectionEngine.detectLanguage(englishText3))
+
+        val englishText4 = "Would you like this or that? Either way is fine."
+        assertEquals(SupportedLanguage.ENGLISH, LanguageDetectionEngine.detectLanguage(englishText4))
+
+        val englishText5 = "She sat in the café chatting with her fiancé and drinking tea."
+        assertEquals(SupportedLanguage.ENGLISH, LanguageDetectionEngine.detectLanguage(englishText5))
     }
 
     @Test
