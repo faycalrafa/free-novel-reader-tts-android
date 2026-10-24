@@ -6,6 +6,7 @@
 > - **When done**: ALWAYS run `git push origin main` AFTER completing implementation, verifying test passes, and updating versions so that changes are never left unpushed on local branches.
 > **Primary Rule 2 (Near Logging & Robust Error Capture - No Silent Bugs)**: ALWAYS write immediate ("near") logging and robust error capture at every failure-prone site, boundary, repository method, and coroutine. NEVER swallow exceptions silently (`catch (e: Exception) {}` is strictly forbidden). Always log rich contextual metadata and stack traces using `AppLogger` (`com.novelarrow.reader.util.AppLogger`) or `android.util.Log` so that every failure is immediately detectable, traceable, and visible in Dev Logs.
 > **Primary Rule 3 (Architectural Contracts)**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
+> **Primary Rule 4 (File Size Limit & Decoupling - Max 500 Lines)**: NEVER write, create, or expand files beyond 500 lines. Always decouple massive files into smaller, focused modules, components, or helper classes. Ignore existing massive files that already exceed 500 lines unless explicitly requested to refactor them.
 
 ---
 
@@ -64,6 +65,7 @@ flowchart TD
 3. **Zero Context Leaks**: Never retain Android `Context`, `Activity`, `View`, or `WebView` references inside ViewModels, singletons, or coroutines outliving the UI lifecycle.
 4. **Thread Isolation**: All file I/O, heavy JSON parsing, DOM extraction, and database access MUST run on `Dispatchers.IO`. The main thread is reserved for UI rendering and UI event dispatching.
 5. **Near Logging & Error Capture (Zero Silent Bugs)**: Every error boundary, I/O operation, background coroutine, parsing logic, and external interaction MUST have immediate, near-site error capture and logging using `AppLogger` (`com.novelarrow.reader.util.AppLogger`) or `android.util.Log`. Never swallow exceptions or leave catch blocks empty. Always log rich contextual details (parameters, novel titles, chapter numbers, URLs, IDs, tags) along with the full exception stack trace so that unexpected behaviors and edge cases are immediately discoverable and diagnosable in debug logs.
+6. **Decoupled Architecture & File Size Cap (500 Lines Max)**: Never write, create, or expand files beyond 500 lines. Maintain high modularity by decomposing logic into dedicated, single-responsibility components, delegates, or helper files. Existing legacy files that already exceed 500 lines must be left as-is and ignored unless the user specifically requests their refactoring.
 
 ---
 
@@ -155,6 +157,7 @@ BookReader includes an integrated diagnostic logging engine ([`AppLogger.kt`](fi
 | **Direct disk I/O on Main thread** | Freezes the UI and causes Android Application Not Responding (ANR) | Always wrap I/O in `withContext(Dispatchers.IO)` |
 | **Skipping in-memory cache on async DB save** | Causes data loss / library wipe when reading immediately after an async write | Update `@Volatile cachedDb` immediately on every change |
 | **Silent error swallowing & unlogged exceptions** | Empty `catch` blocks (`catch (e: Exception) {}`) or missing error logs create invisible bugs, silent state corruptions, and untraceable regressions | Always catch specific exceptions, write immediate near-site logging with `AppLogger.e(TAG, ..., e)` including parameters and stack traces, and handle fallbacks |
+| **Writing or expanding files beyond 500 lines** | Monolithic files harm maintainability, cause merge conflicts, bloat context windows, and lead to tightly coupled spaghetti code | Decouple new logic into modular files under 500 lines. Ignore existing massive files unless refactoring is explicitly requested |
 | **Leaving completed work unpushed (`git push origin main`)** | Code left only on local branches leads to drift, broken CI/CD pipelines, diverged work, and lost changes across sessions | Always run `git push origin main` immediately after finishing implementation, tests, and version increments |
 
 ---
