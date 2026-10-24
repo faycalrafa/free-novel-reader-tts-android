@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.17.2"
+          DATE_TAG="v3.17.3"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.17.2"
-        run: ./gradlew assembleRelease -PappVersionName=3.17.2 --no-daemon
+          APP_VERSION_NAME: "3.17.3"
+        run: ./gradlew assembleRelease -PappVersionName=3.17.3 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,17 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.17.2 (Stable)
+          name: BookReader v3.17.3 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.17.2 (Stable) 📚🎙️⚡
+            ### BookReader v3.17.3 (Stable) 📚🎙️⚡
+
+            #### 📁 Folder Removal & Chapter Deletion / Mutation Architecture
+            - **Target Novel ID Resolution in Drawer**: Fixed chapter deletion, reordering (`moveChapter`), sorting (`sortChapters`), and read-status toggling (`toggleChapterReadStatus`) targeting `currentNovel` rather than the active/inspected novel (`chapter.novelId` / `inspectedNovel.id`).
+            - **Complete Drawer & Reading State Synchronization**: Deleting a folder or chapter now immediately updates both `inspectedNovel` / `inspectedChapters` and `currentNovel` / `chapters`. Removing the active folder cleanly halts playback, switches to the next available library novel, or resets empty state.
+            - **Eliminated Immediate Zombie Resurrection**: Removing folders from the library no longer runs `scanDownloadedWebNovels()` automatically, preventing deleted directories from resurrecting immediately back into the database.
+            - **Atomic Room SQLite Deletions & Cascade**: Replaced monolithic database rewrites in `deleteNovel` and `deleteChapter` with atomic DAO queries (`novelDao.deleteNovelById` with cascading chapter removal, `chapterDao.deleteChapterById`) and debounced `.progress.json` cleanup.
+            - **Clean Storage & Metadata Deletion**: Deleting from disk cleanly deletes SAF documents and local folders, including `.progress.json` metadata files.
 
             #### 🎙️ Eliminate Next-Chapter Triple-Read TTS Stutter
             - **Debounced Auto-Read Pipeline**: Replaced uncoordinated coroutine launches with a tracked, single-flight `pageAutoReadJob` in `BrowserViewModel`, cancelling any pending auto-read extraction whenever a new page starts or user triggers next/prev navigation.

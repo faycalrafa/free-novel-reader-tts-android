@@ -81,6 +81,8 @@ class LibraryRepository(private val context: Context) {
         private val dbMutex = Mutex()
         private var lastSaveTimeMs = 0L
         @Volatile
+        private var lastFolderProgressTimeMs = 0L
+        @Volatile
         private var cachedDb: LibraryDatabase? = null
 
         private val _libraryUpdateEvents = MutableSharedFlow<LibraryUpdateEvent>(extraBufferCapacity = 64)
@@ -92,6 +94,8 @@ class LibraryRepository(private val context: Context) {
 
         fun clearCacheForTesting() {
             cachedDb = null
+            lastFolderProgressTimeMs = 0L
+            lastSaveTimeMs = 0L
         }
 
         fun normalizeForMatching(s: String): String {
@@ -185,7 +189,6 @@ class LibraryRepository(private val context: Context) {
     private val novelDao get() = database.novelDao()
     private val chapterDao get() = database.chapterDao()
     private val appMetaDao get() = database.appMetaDao()
-    private var lastFolderProgressTimeMs = 0L
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -1617,11 +1620,21 @@ class LibraryRepository(private val context: Context) {
                         if (f.exists()) f.delete()
                     } else if (targetChap.fileUri.startsWith("content://")) {
                         val uri = Uri.parse(targetChap.fileUri)
-                        val doc = DocumentFile.fromSingleUri(context, uri)
-                        if (doc != null && doc.exists()) {
-                            doc.delete()
-                        } else {
-                            DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        var deleted = false
+                        try {
+                            deleted = DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        } catch (e: Exception) {
+                            AppLogger.w("LibraryRepository", "Direct DocumentsContract.deleteDocument failed for ${targetChap.fileUri}: ${e.message}", e)
+                        }
+                        if (!deleted) {
+                            try {
+                                val doc = DocumentFile.fromSingleUri(context, uri)
+                                if (doc != null && doc.exists()) {
+                                    doc.delete()
+                                }
+                            } catch (e: Exception) {
+                                AppLogger.w("LibraryRepository", "DocumentFile.delete fallback failed for ${targetChap.fileUri}: ${e.message}", e)
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -1652,7 +1665,23 @@ class LibraryRepository(private val context: Context) {
             }
 
             val updatedDb = currentDb.copy(novels = updatedNovels, chapters = updatedChaptersMap)
-            saveDatabaseLocked(updatedDb)
+            cachedDb = updatedDb
+
+            try {
+                database.withTransaction {
+                    chapterDao.deleteChapterById(chapterId)
+                    if (reindexedChapters.isNotEmpty()) {
+                        chapterDao.insertChapters(reindexedChapters.map { it.toEntity() })
+                    }
+                    val upNovel = updatedNovels.firstOrNull { it.id == novelId }
+                    if (upNovel != null) {
+                        novelDao.insertNovel(upNovel.toEntity())
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e("LibraryRepository", "Error updating Room for chapter deletion, falling back to full save: ${e.message}", e)
+                saveDatabaseLocked(updatedDb)
+            }
 
             val updatedNovel = updatedNovels.firstOrNull { it.id == novelId }
             if (updatedNovel != null) {
@@ -2014,8 +2043,9 @@ class LibraryRepository(private val context: Context) {
             )
 
             // 3. Debounce external .progress.json write: only on chapter change, completion change, or throttled intervals
+            val oldNovel = db.novels.firstOrNull { it.id == novelId }
             val isStatusChanged = (newIsCompleted != target.isCompleted)
-            val isChapterChanged = (targetNovel?.currentChapterIndex != chapterIndex)
+            val isChapterChanged = (oldNovel?.currentChapterIndex != chapterIndex)
             val isThrottled = (now - lastFolderProgressTimeMs > 15000L)
 
             if (targetNovel != null && (isStatusChanged || isChapterChanged || isThrottled)) {
@@ -2056,9 +2086,14 @@ class LibraryRepository(private val context: Context) {
         dbMutex.withLock {
             val db = loadDatabaseLocked()
             val targetNovel = db.novels.find { it.id == novelId } ?: return@withContext
+            val chapters = db.chapters[novelId] ?: try {
+                chapterDao.getChaptersForNovel(novelId).map { it.toDomain() }
+            } catch (e: Exception) {
+                emptyList()
+            }
 
             if (deleteFilesFromDisk) {
-                deleteNovelFilesFromDisk(targetNovel, db.chapters[novelId])
+                deleteNovelFilesFromDisk(targetNovel, chapters)
             }
 
             val updatedNovels = db.novels.filterNot { it.id == novelId }
@@ -2066,7 +2101,34 @@ class LibraryRepository(private val context: Context) {
                 remove(novelId)
             }
             val lastActive = if (db.lastActiveNovelId == novelId) updatedNovels.firstOrNull()?.id else db.lastActiveNovelId
-            saveDatabaseLocked(db.copy(novels = updatedNovels, chapters = updatedChapters, lastActiveNovelId = lastActive))
+
+            cachedDb = db.copy(novels = updatedNovels, chapters = updatedChapters, lastActiveNovelId = lastActive)
+
+            try {
+                database.withTransaction {
+                    chapterDao.deleteChaptersForNovel(novelId)
+                    novelDao.deleteNovelById(novelId)
+                    if (lastActive != null) {
+                        appMetaDao.setMeta(AppMetaEntity("lastActiveNovelId", lastActive))
+                    } else {
+                        appMetaDao.deleteMeta("lastActiveNovelId")
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e("LibraryRepository", "Error deleting novel from Room database, falling back to full save: ${e.message}", e)
+                saveDatabaseLocked(cachedDb!!)
+            }
+
+            try {
+                com.novelarrow.reader.data.backup.BackupRestoreManager.saveLibraryBackup(
+                    context,
+                    updatedNovels,
+                    lastActive
+                )
+            } catch (e: Exception) {
+                AppLogger.w("LibraryRepository", "Error saving library backup after delete: ${e.message}", e)
+            }
+
             _libraryUpdateEvents.tryEmit(LibraryUpdateEvent.LibraryChanged)
         }
     }
@@ -2075,7 +2137,31 @@ class LibraryRepository(private val context: Context) {
         try {
             AppLogger.i("LibraryRepository", "Deleting files from disk for novel: ${novel.title} (id=${novel.id}, loose=${novel.isLooseRootFiles}, subfolder=${novel.subfolderPath}, docId=${novel.folderDocId})")
 
-            // 1. If novel is loose root files, DO NOT delete the root folder! Only delete its chapters.
+            // 1. Delete folder progress file (.progress.json) if it exists
+            try {
+                if (novel.subfolderPath != null) {
+                    val pFile = File(novel.subfolderPath, ".progress.json")
+                    if (pFile.exists()) pFile.delete()
+                } else if (novel.rootTreeUri.startsWith("/") || novel.rootTreeUri.startsWith("file://")) {
+                    val pFile = File(novel.rootTreeUri.removePrefix("file://"), ".progress.json")
+                    if (pFile.exists()) pFile.delete()
+                } else if (novel.rootTreeUri.startsWith("content://")) {
+                    val treeUri = Uri.parse(novel.rootTreeUri)
+                    if (novel.folderDocId != null) {
+                        val (_, files) = querySafChildrenFast(treeUri, novel.folderDocId)
+                        files.firstOrNull { it.displayName == ".progress.json" }?.let { pFile ->
+                            DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(pFile.uriStr))
+                        }
+                    } else {
+                        val rootDoc = try { DocumentFile.fromTreeUri(context, treeUri) } catch (e: Exception) { null }
+                        rootDoc?.findFile(".progress.json")?.delete()
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.w("LibraryRepository", "Failed deleting .progress.json for ${novel.title}: ${e.message}", e)
+            }
+
+            // 2. If novel is loose root files, DO NOT delete the root folder! Only delete its chapters.
             if (novel.isLooseRootFiles) {
                 AppLogger.i("LibraryRepository", "Novel is loose root files: preserving parent folder ${novel.rootTreeUri}")
             } else if (novel.subfolderPath != null) {
@@ -2117,7 +2203,7 @@ class LibraryRepository(private val context: Context) {
                 }
             }
 
-            // 2. Delete web novel downloaded directory if this is a web novel
+            // 3. Delete web novel downloaded directory if this is a web novel
             if (novel.isWebNovel) {
                 val safeTitle = WebNovelDownloader.sanitizeFileName(novel.title)
                 val dirCandidates = mutableListOf<File>()
@@ -2147,7 +2233,7 @@ class LibraryRepository(private val context: Context) {
                 }
             }
 
-            // 3. Delete any individual chapter files (especially important for loose files)
+            // 4. Delete any individual chapter files (especially important for loose files)
             if (chapters != null) {
                 for (ch in chapters) {
                     try {
@@ -2156,11 +2242,21 @@ class LibraryRepository(private val context: Context) {
                             if (f.exists()) f.delete()
                         } else if (ch.fileUri.startsWith("content://")) {
                             val uri = Uri.parse(ch.fileUri)
-                            val doc = DocumentFile.fromSingleUri(context, uri)
-                            if (doc != null && doc.exists()) {
-                                doc.delete()
-                            } else {
-                                DocumentsContract.deleteDocument(context.contentResolver, uri)
+                            var deleted = false
+                            try {
+                                deleted = DocumentsContract.deleteDocument(context.contentResolver, uri)
+                            } catch (e: Exception) {
+                                AppLogger.w("LibraryRepository", "Direct deleteDocument failed for chapter at ${ch.fileUri}: ${e.message}", e)
+                            }
+                            if (!deleted) {
+                                try {
+                                    val doc = DocumentFile.fromSingleUri(context, uri)
+                                    if (doc != null && doc.exists()) {
+                                        doc.delete()
+                                    }
+                                } catch (e: Exception) {
+                                    AppLogger.w("LibraryRepository", "DocumentFile.delete fallback failed for chapter at ${ch.fileUri}: ${e.message}", e)
+                                }
                             }
                         }
                     } catch (e: Exception) {

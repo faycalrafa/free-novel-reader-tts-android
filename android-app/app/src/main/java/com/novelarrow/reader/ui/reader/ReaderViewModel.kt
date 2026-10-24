@@ -1146,14 +1146,62 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteNovel(novelId: String, deleteFilesFromDisk: Boolean = false) {
-        val wasPlaying = _uiState.value.isPlaying
         val isCurrent = _uiState.value.currentNovel?.id == novelId
-        if (isCurrent && wasPlaying) {
-            AudioPlaybackCoordinator.pause()
+        if (isCurrent) {
+            AudioPlaybackCoordinator.stop()
         }
         viewModelScope.launch {
+            val targetNovelTitle = _uiState.value.novels.firstOrNull { it.id == novelId }?.title
+                ?: _uiState.value.archivedNovels.firstOrNull { it.id == novelId }?.title
+                ?: "Folder"
+
             libraryRepository.deleteNovel(novelId, deleteFilesFromDisk)
-            loadInitialLibrary()
+
+            val remainingNovels = libraryRepository.getNovels()
+            val remainingArchived = libraryRepository.getArchivedNovels()
+            val isInspected = _uiState.value.inspectedNovel?.id == novelId
+
+            if (isCurrent) {
+                if (remainingNovels.isNotEmpty()) {
+                    val nextNovel = remainingNovels.first()
+                    _uiState.update {
+                        it.copy(
+                            novels = remainingNovels,
+                            archivedNovels = remainingArchived,
+                            inspectedNovel = if (isInspected) null else it.inspectedNovel,
+                            inspectedChapters = if (isInspected) emptyList() else it.inspectedChapters,
+                            toastMessage = "Removed folder: $targetNovelTitle"
+                        )
+                    }
+                    selectNovel(nextNovel)
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            novels = emptyList(),
+                            archivedNovels = remainingArchived,
+                            currentNovel = null,
+                            chapters = emptyList(),
+                            currentChapter = null,
+                            paragraphs = emptyList(),
+                            currentParagraphIndex = 0,
+                            isPlaying = false,
+                            inspectedNovel = null,
+                            inspectedChapters = emptyList(),
+                            toastMessage = "Library is now empty."
+                        )
+                    }
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        novels = remainingNovels,
+                        archivedNovels = remainingArchived,
+                        inspectedNovel = if (isInspected) null else it.inspectedNovel,
+                        inspectedChapters = if (isInspected) emptyList() else it.inspectedChapters,
+                        toastMessage = "Removed folder: $targetNovelTitle"
+                    )
+                }
+            }
         }
     }
 
@@ -1162,6 +1210,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val isCurrent = _uiState.value.currentNovel?.id == novel.id
         if (isCurrent && wasPlaying) {
             AudioPlaybackCoordinator.pause()
+        }
+        val isInspected = _uiState.value.inspectedNovel?.id == novel.id
+        if (isInspected) {
+            _uiState.update { it.copy(inspectedNovel = null, inspectedChapters = emptyList()) }
         }
         viewModelScope.launch {
             libraryRepository.archiveNovel(novel.id)
@@ -1181,7 +1233,17 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun updateNovelTitle(novelId: String, newTitle: String) {
         viewModelScope.launch {
             libraryRepository.updateNovelTitle(novelId, newTitle)
-            refreshLibrary()
+            val isInspected = _uiState.value.inspectedNovel?.id == novelId
+            val isCurrent = _uiState.value.currentNovel?.id == novelId
+            val updatedNovels = libraryRepository.getNovels()
+            val target = updatedNovels.firstOrNull { it.id == novelId }
+            _uiState.update {
+                it.copy(
+                    novels = updatedNovels,
+                    currentNovel = if (isCurrent && target != null) target else it.currentNovel,
+                    inspectedNovel = if (isInspected && target != null) target else it.inspectedNovel
+                )
+            }
         }
     }
 
@@ -1200,9 +1262,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteChapter(chapter: Chapter, deleteFromDisk: Boolean = false) {
-        val currentNovel = _uiState.value.currentNovel ?: return
+        val targetNovelId = chapter.novelId
         val wasPlaying = _uiState.value.isPlaying
-        val isDeletingCurrent = _uiState.value.currentChapter?.id == chapter.id
+        val isDeletingCurrent = _uiState.value.currentChapter?.id == chapter.id && _uiState.value.currentNovel?.id == targetNovelId
 
         if (isDeletingCurrent && wasPlaying) {
             AudioPlaybackCoordinator.pause()
@@ -1210,25 +1272,30 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch {
             val (updatedNovel, updatedChapters) = libraryRepository.deleteChapter(
-                novelId = currentNovel.id,
+                novelId = targetNovelId,
                 chapterId = chapter.id,
                 deleteFromDisk = deleteFromDisk
             )
 
             val updatedNovels = _uiState.value.novels.map { nov ->
-                if (nov.id == currentNovel.id && updatedNovel != null) updatedNovel else nov
+                if (nov.id == targetNovelId && updatedNovel != null) updatedNovel else nov
             }
 
-            if (isDeletingCurrent) {
+            val isTargetCurrentNovel = _uiState.value.currentNovel?.id == targetNovelId
+            val isTargetInspectedNovel = _uiState.value.inspectedNovel?.id == targetNovelId
+
+            if (isDeletingCurrent && isTargetCurrentNovel) {
                 if (updatedChapters.isNotEmpty()) {
                     val nextIdx = chapter.orderIndex.coerceIn(0, updatedChapters.size - 1)
                     val nextChapter = updatedChapters[nextIdx]
                     _uiState.update {
                         it.copy(
                             novels = updatedNovels,
-                            currentNovel = updatedNovel ?: currentNovel,
+                            currentNovel = updatedNovel ?: it.currentNovel,
                             chapters = updatedChapters,
                             currentChapter = nextChapter,
+                            inspectedNovel = if (isTargetInspectedNovel) updatedNovel ?: it.inspectedNovel else it.inspectedNovel,
+                            inspectedChapters = if (isTargetInspectedNovel) updatedChapters else it.inspectedChapters,
                             toastMessage = "Deleted chapter: ${chapter.title}"
                         )
                     }
@@ -1240,11 +1307,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     _uiState.update {
                         it.copy(
                             novels = updatedNovels,
-                            currentNovel = updatedNovel ?: currentNovel,
+                            currentNovel = updatedNovel ?: it.currentNovel,
                             chapters = emptyList(),
                             currentChapter = null,
                             paragraphs = emptyList(),
                             isPlaying = false,
+                            inspectedNovel = if (isTargetInspectedNovel) updatedNovel ?: it.inspectedNovel else it.inspectedNovel,
+                            inspectedChapters = if (isTargetInspectedNovel) emptyList() else it.inspectedChapters,
                             toastMessage = "Deleted last chapter of novel."
                         )
                     }
@@ -1252,95 +1321,123 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 }
             } else {
                 val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                val refreshedCurrentChap = if (isTargetCurrentNovel) {
+                    updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                } else currentChap
                 _uiState.update {
                     it.copy(
                         novels = updatedNovels,
-                        currentNovel = updatedNovel ?: currentNovel,
-                        chapters = updatedChapters,
+                        currentNovel = if (isTargetCurrentNovel) updatedNovel ?: it.currentNovel else it.currentNovel,
+                        chapters = if (isTargetCurrentNovel) updatedChapters else it.chapters,
                         currentChapter = refreshedCurrentChap,
+                        inspectedNovel = if (isTargetInspectedNovel) updatedNovel ?: it.inspectedNovel else it.inspectedNovel,
+                        inspectedChapters = if (isTargetInspectedNovel) updatedChapters else it.inspectedChapters,
                         toastMessage = "Deleted chapter: ${chapter.title}"
                     )
                 }
-                updatePlaybackServiceNotification()
+                if (isTargetCurrentNovel) {
+                    updatePlaybackServiceNotification()
+                }
             }
         }
     }
 
     fun moveChapter(fromIndex: Int, toIndex: Int) {
-        val currentNovel = _uiState.value.currentNovel ?: return
+        val targetNovel = _uiState.value.inspectedNovel ?: _uiState.value.currentNovel ?: return
         viewModelScope.launch {
             val (updatedNovel, updatedChapters) = libraryRepository.reorderChapters(
-                novelId = currentNovel.id,
+                novelId = targetNovel.id,
                 fromIndex = fromIndex,
                 toIndex = toIndex
             )
             if (updatedNovel != null) {
                 val updatedNovels = _uiState.value.novels.map { nov ->
-                    if (nov.id == currentNovel.id) updatedNovel else nov
+                    if (nov.id == targetNovel.id) updatedNovel else nov
                 }
+                val isCurrent = _uiState.value.currentNovel?.id == targetNovel.id
+                val isInspected = _uiState.value.inspectedNovel?.id == targetNovel.id
                 val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                val refreshedCurrentChap = if (isCurrent) {
+                    updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                } else currentChap
                 _uiState.update {
                     it.copy(
                         novels = updatedNovels,
-                        currentNovel = updatedNovel,
-                        chapters = updatedChapters,
-                        currentChapter = refreshedCurrentChap
+                        currentNovel = if (isCurrent) updatedNovel else it.currentNovel,
+                        chapters = if (isCurrent) updatedChapters else it.chapters,
+                        currentChapter = refreshedCurrentChap,
+                        inspectedNovel = if (isInspected) updatedNovel else it.inspectedNovel,
+                        inspectedChapters = if (isInspected) updatedChapters else it.inspectedChapters
                     )
                 }
-                updatePlaybackServiceNotification()
+                if (isCurrent) {
+                    updatePlaybackServiceNotification()
+                }
             }
         }
     }
 
     fun sortChapters(preset: ChapterSortPreset) {
-        val currentNovel = _uiState.value.currentNovel ?: return
+        val targetNovel = _uiState.value.inspectedNovel ?: _uiState.value.currentNovel ?: return
         viewModelScope.launch {
             val (updatedNovel, updatedChapters) = libraryRepository.sortChapters(
-                novelId = currentNovel.id,
+                novelId = targetNovel.id,
                 preset = preset
             )
             if (updatedNovel != null) {
                 val updatedNovels = _uiState.value.novels.map { nov ->
-                    if (nov.id == currentNovel.id) updatedNovel else nov
+                    if (nov.id == targetNovel.id) updatedNovel else nov
                 }
+                val isCurrent = _uiState.value.currentNovel?.id == targetNovel.id
+                val isInspected = _uiState.value.inspectedNovel?.id == targetNovel.id
                 val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id }
-                    ?: updatedChapters.getOrNull(updatedNovel.currentChapterIndex)
-                    ?: updatedChapters.firstOrNull()
+                val refreshedCurrentChap = if (isCurrent) {
+                    updatedChapters.firstOrNull { it.id == currentChap?.id }
+                        ?: updatedChapters.getOrNull(updatedNovel.currentChapterIndex)
+                        ?: updatedChapters.firstOrNull()
+                } else currentChap
                 _uiState.update {
                     it.copy(
                         novels = updatedNovels,
-                        currentNovel = updatedNovel,
-                        chapters = updatedChapters,
-                        currentChapter = refreshedCurrentChap
+                        currentNovel = if (isCurrent) updatedNovel else it.currentNovel,
+                        chapters = if (isCurrent) updatedChapters else it.chapters,
+                        currentChapter = refreshedCurrentChap,
+                        inspectedNovel = if (isInspected) updatedNovel else it.inspectedNovel,
+                        inspectedChapters = if (isInspected) updatedChapters else it.inspectedChapters
                     )
                 }
-                updatePlaybackServiceNotification()
+                if (isCurrent) {
+                    updatePlaybackServiceNotification()
+                }
             }
         }
     }
 
     fun toggleChapterReadStatus(chapter: Chapter) {
-        val currentNovel = _uiState.value.currentNovel ?: return
+        val targetNovelId = chapter.novelId
         viewModelScope.launch {
             val (updatedNovel, updatedChapters) = libraryRepository.toggleChapterReadStatus(
-                novelId = currentNovel.id,
+                novelId = targetNovelId,
                 chapterId = chapter.id
             )
             if (updatedNovel != null) {
                 val updatedNovels = _uiState.value.novels.map { nov ->
-                    if (nov.id == currentNovel.id) updatedNovel else nov
+                    if (nov.id == targetNovelId) updatedNovel else nov
                 }
+                val isCurrent = _uiState.value.currentNovel?.id == targetNovelId
+                val isInspected = _uiState.value.inspectedNovel?.id == targetNovelId
                 val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                val refreshedCurrentChap = if (isCurrent) {
+                    updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
+                } else currentChap
                 _uiState.update {
                     it.copy(
                         novels = updatedNovels,
-                        currentNovel = updatedNovel,
-                        chapters = updatedChapters,
-                        currentChapter = refreshedCurrentChap
+                        currentNovel = if (isCurrent) updatedNovel else it.currentNovel,
+                        chapters = if (isCurrent) updatedChapters else it.chapters,
+                        currentChapter = refreshedCurrentChap,
+                        inspectedNovel = if (isInspected) updatedNovel else it.inspectedNovel,
+                        inspectedChapters = if (isInspected) updatedChapters else it.inspectedChapters
                     )
                 }
             }
