@@ -4,9 +4,9 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
-import com.novelarrow.reader.data.model.Chapter
 import com.novelarrow.reader.data.model.Novel
-import com.novelarrow.reader.data.util.NaturalOrderComparator
+import com.novelarrow.reader.data.util.FileSchemeUtils
+import com.novelarrow.reader.data.util.ProgressDebouncer
 import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
@@ -45,6 +45,8 @@ internal class LibraryRefreshScanner(
                 } else {
                     rootScanner.scanRootDirectoryInternal(rootUriStr, null, onProgress)
                 }
+            } catch (e: SecurityException) {
+                AppLogger.w(TAG, "Permission denied re-scanning root directory $rootUriStr during refresh: ${e.message}", e)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Error re-scanning root directory $rootUriStr during refresh: ${e.message}", e)
             }
@@ -64,15 +66,7 @@ internal class LibraryRefreshScanner(
             return@withContext refreshedActiveNovels
         }
 
-        var lastProgressTime = 0L
-        fun reportProgress(cur: Int, total: Int, name: String) {
-            val now = System.currentTimeMillis()
-            if (now - lastProgressTime >= 80 || cur == total || cur <= 1) {
-                lastProgressTime = now
-                onProgress(cur, total, name)
-            }
-        }
-
+        val debouncer = ProgressDebouncer(intervalMs = 80L, onProgress = onProgress)
         var totalFilesToScan = 0
         val filesPerNovel = mutableMapOf<String, List<ScannedFileItem>>()
 
@@ -116,10 +110,12 @@ internal class LibraryRefreshScanner(
                     }
                     filesPerNovel[novel.id] = files
                     totalFilesToScan += files.size
+                } catch (e: SecurityException) {
+                    AppLogger.w(TAG, "SAF permission denied scanning novel ${novel.title} (${novel.id}): ${e.message}", e)
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Failed scanning SAF novel ${novel.title} (${novel.id}): ${e.message}", e)
                 }
-            } else if (treeUriStr.startsWith("/") || treeUriStr.startsWith("file://")) {
+            } else if (FileSchemeUtils.isLocalFilePath(treeUriStr)) {
                 try {
                     val targetPath = novel.subfolderPath ?: treeUriStr.removePrefix("file://")
                     val dir = File(targetPath)
@@ -159,42 +155,25 @@ internal class LibraryRefreshScanner(
         for (novel in novelsToRefresh) {
             val files = filesPerNovel[novel.id]
             if (files != null && files.isNotEmpty()) {
-                val sortedFiles = files.sortedWith { a, b ->
-                    NaturalOrderComparator.compare(a.displayName, b.displayName)
-                }
                 val existingChaps = reloadedDb.chapters[novel.id] ?: emptyList()
-                val existingByUri = existingChaps.associateBy { it.fileUri }
-                val existingByTitle = existingChaps.associateBy { it.title }
+                val folderProgress = FolderProgressSync.readFolderProgress(
+                    context = context,
+                    folderUriOrPath = novel.subfolderPath ?: novel.rootTreeUri,
+                    novelTitle = novel.title,
+                    folderDocId = novel.folderDocId,
+                    json = json
+                )
 
-                val folderProgress = FolderProgressSync.readFolderProgress(context, novel.subfolderPath ?: novel.rootTreeUri, novel.title, novel.folderDocId, json)
-                val progressByTitle = folderProgress?.chapters?.associateBy { it.title } ?: emptyMap()
-                val progressByFile = folderProgress?.chapters?.associateBy { it.fileName } ?: emptyMap()
-
-                val rawChaps = sortedFiles.mapIndexed { index, file ->
+                val newChaps = NovelDeduplicator.reconcileAndSortChapters(
+                    novelId = novel.id,
+                    novelTitle = novel.title,
+                    scannedFiles = files,
+                    existingChapters = existingChaps,
+                    folderProgress = folderProgress
+                ) { _, _, name ->
                     processedFilesCount++
-                    reportProgress(processedFilesCount, totalFilesToScan, "${novel.title} / ${file.displayName}")
-                    val fTitle = file.displayName.substringBeforeLast('.')
-                    val existing = existingByUri[file.uriStr] ?: existingByTitle[fTitle]
-                    val prog = progressByTitle[fTitle] ?: progressByFile[file.displayName]
-                    val lastPara = maxOf(existing?.lastReadParagraphIndex ?: 0, prog?.lastReadParagraphIndex ?: 0)
-                    val lastOffset = maxOf(existing?.lastScrollOffset ?: 0, prog?.lastScrollOffset ?: 0)
-                    val isComp = (existing?.isCompleted == true) || (prog?.isCompleted == true)
-                    val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
-                    Chapter(
-                        id = existing?.id ?: NovelDeduplicator.generateCanonicalChapterId(novel.id, file.displayName),
-                        novelId = novel.id,
-                        title = fTitle,
-                        fileUri = file.uriStr,
-                        orderIndex = orderIdx,
-                        sizeBytes = file.sizeBytes,
-                        lastReadParagraphIndex = lastPara,
-                        lastScrollOffset = lastOffset,
-                        isCompleted = isComp
-                    )
+                    debouncer.report(processedFilesCount, totalFilesToScan, name)
                 }
-                val newChaps = NovelDeduplicator.deduplicateChapters(rawChaps)
-                    .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
-                    .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
 
                 val useFolderProgress = folderProgress != null && folderProgress.lastUpdated > novel.lastUpdated
                 val targetChapterId = if (useFolderProgress) {
@@ -202,11 +181,7 @@ internal class LibraryRefreshScanner(
                 } else {
                     novel.currentChapterId ?: folderProgress?.currentChapterId
                 }
-                val targetChapterTitle = if (useFolderProgress) {
-                    folderProgress.currentChapterTitle.ifBlank { null }
-                } else {
-                    null
-                }
+                val targetChapterTitle = if (useFolderProgress) folderProgress.currentChapterTitle.ifBlank { null } else null
                 val resolvedIndex = if (targetChapterId != null) {
                     val idx = newChaps.indexOfFirst { it.id == targetChapterId }
                     if (idx >= 0) idx else (if (useFolderProgress) folderProgress.currentChapterIndex else novel.currentChapterIndex)
@@ -242,7 +217,7 @@ internal class LibraryRefreshScanner(
             LibraryStateManager.notifyUpdate(LibraryUpdateEvent.LibraryRefreshed)
             deduplicated.filter { !it.isArchived }
         }
-        reportProgress(totalFilesToScan, totalFilesToScan, "Refresh complete!")
+        debouncer.report(totalFilesToScan, totalFilesToScan, "Refresh complete!")
         deduplicatedNovels
     }
 

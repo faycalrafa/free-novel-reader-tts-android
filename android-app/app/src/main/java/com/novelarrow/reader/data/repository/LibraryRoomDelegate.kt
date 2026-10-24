@@ -51,13 +51,40 @@ internal class LibraryRoomDelegate(private val context: Context) {
         try {
             kotlinx.coroutines.runBlocking {
                 database.withTransaction {
-                    novelDao.clearAllNovels()
-                    chapterDao.clearAllChapters()
-                    novelDao.insertNovels(db.novels.map { it.toEntity() })
-                    val allChapters = db.chapters.values.flatten().map { it.toEntity() }
-                    if (allChapters.isNotEmpty()) {
-                        chapterDao.insertChapters(allChapters)
+                    val existingNovels = novelDao.getAllNovels()
+                    val newNovelIds = db.novels.map { it.id }.toSet()
+                    
+                    // 1. Delete removed novels and their chapters
+                    val removedNovels = existingNovels.filter { it.id !in newNovelIds }
+                    for (removed in removedNovels) {
+                        chapterDao.deleteChaptersForNovel(removed.id)
+                        novelDao.deleteNovelById(removed.id)
                     }
+
+                    // 2. Upsert active/new novels
+                    if (db.novels.isNotEmpty()) {
+                        novelDao.insertNovels(db.novels.map { it.toEntity() })
+                    }
+
+                    // 3. Upsert chapters per novel with targeted diffing
+                    for (novel in db.novels) {
+                        val currentChapters = db.chapters[novel.id] ?: emptyList()
+                        val existingChapterEntities = chapterDao.getChaptersForNovel(novel.id)
+                        val currentChapIds = currentChapters.map { it.id }.toSet()
+
+                        // Delete removed chapters within this novel
+                        val removedChaps = existingChapterEntities.filter { it.id !in currentChapIds }
+                        for (rem in removedChaps) {
+                            chapterDao.deleteChapterById(rem.id)
+                        }
+
+                        // Upsert new or modified chapters
+                        if (currentChapters.isNotEmpty()) {
+                            chapterDao.insertChapters(currentChapters.map { it.toEntity() })
+                        }
+                    }
+
+                    // 4. Update metadata
                     if (db.lastActiveNovelId != null) {
                         appMetaDao.setMeta(AppMetaEntity("lastActiveNovelId", db.lastActiveNovelId))
                     } else {

@@ -93,4 +93,48 @@ internal object NovelDeduplicator {
         val cleanName = rawName.substringBeforeLast('.').lowercase(Locale.ROOT).replace("[^a-zA-Z0-9._-]".toRegex(), "_")
         return "${novelId}_$cleanName"
     }
+
+    fun reconcileAndSortChapters(
+        novelId: String,
+        novelTitle: String,
+        scannedFiles: List<ScannedFileItem>,
+        existingChapters: List<Chapter>,
+        folderProgress: NovelFolderProgress?,
+        onProgressItem: ((index: Int, total: Int, name: String) -> Unit)? = null
+    ): List<Chapter> {
+        val existingByUri = existingChapters.associateBy { it.fileUri }
+        val existingByTitle = existingChapters.associateBy { it.title }
+        val progressByTitle = folderProgress?.chapters?.associateBy { it.title } ?: emptyMap()
+        val progressByFile = folderProgress?.chapters?.associateBy { it.fileName } ?: emptyMap()
+
+        val sortedFiles = scannedFiles.sortedWith { a, b ->
+            com.novelarrow.reader.data.util.NaturalOrderComparator.compare(a.displayName, b.displayName)
+        }
+
+        val rawChapters = sortedFiles.mapIndexed { index, file ->
+            onProgressItem?.invoke(index + 1, sortedFiles.size, "$novelTitle / ${file.displayName}")
+            val fTitle = file.displayName.substringBeforeLast('.')
+            val existing = existingByUri[file.uriStr] ?: existingByTitle[fTitle]
+            val prog = progressByTitle[fTitle] ?: progressByFile[file.displayName]
+            val lastPara = maxOf(existing?.lastReadParagraphIndex ?: 0, prog?.lastReadParagraphIndex ?: 0)
+            val lastOffset = maxOf(existing?.lastScrollOffset ?: 0, prog?.lastScrollOffset ?: 0)
+            val isComp = (existing?.isCompleted == true) || (prog?.isCompleted == true)
+            val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
+            Chapter(
+                id = existing?.id ?: generateCanonicalChapterId(novelId, file.displayName),
+                novelId = novelId,
+                title = fTitle,
+                fileUri = file.uriStr,
+                orderIndex = orderIdx,
+                sizeBytes = file.sizeBytes,
+                lastReadParagraphIndex = lastPara,
+                lastScrollOffset = lastOffset,
+                isCompleted = isComp
+            )
+        }
+
+        return deduplicateChapters(rawChapters)
+            .sortedWith { a, b -> com.novelarrow.reader.data.util.NaturalOrderComparator.compare(a.title, b.title) }
+            .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
+    }
 }

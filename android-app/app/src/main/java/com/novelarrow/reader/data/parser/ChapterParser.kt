@@ -3,6 +3,7 @@ package com.novelarrow.reader.data.parser
 import com.novelarrow.reader.data.model.ContentSelectorRule
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.model.PronunciationRule
+import com.novelarrow.reader.data.model.ReaderSettings
 import com.novelarrow.reader.data.model.RuleImpact
 import com.novelarrow.reader.data.model.RuleType
 import com.novelarrow.reader.data.model.SkipRule
@@ -14,6 +15,36 @@ data class ParseResult(
 )
 
 object ChapterParser {
+
+    fun parseWithSettings(
+        content: String,
+        fileName: String,
+        settings: ReaderSettings,
+        folderPath: String? = null,
+        novelUrl: String? = null
+    ): List<Paragraph> {
+        return parse(
+            content = content,
+            fileName = fileName,
+            contentSelector = settings.contentSelector,
+            contentSelectorEnabled = settings.contentSelectorEnabled,
+            pronunciationRules = settings.pronunciationRules,
+            pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
+            skipWords = settings.skipWords,
+            skipWordsEnabled = settings.skipWordsEnabled,
+            skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
+            headerSkipString = settings.headerSkipString,
+            headerSkipEnabled = settings.headerSkipEnabled,
+            footerSkipString = settings.footerSkipString,
+            footerSkipEnabled = settings.footerSkipEnabled,
+            headerSkipRules = settings.headerSkipRules,
+            footerSkipRules = settings.footerSkipRules,
+            folderPath = folderPath,
+            novelUrl = novelUrl,
+            contentSelectors = settings.contentSelectors,
+            ignoredSelectors = settings.ignoredSelectors
+        )
+    }
 
     fun parse(
         content: String,

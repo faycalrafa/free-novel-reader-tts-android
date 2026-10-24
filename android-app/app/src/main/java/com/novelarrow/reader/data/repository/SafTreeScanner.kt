@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import com.novelarrow.reader.data.util.FileSchemeUtils
 import com.novelarrow.reader.util.AppLogger
 import java.io.File
 import java.util.Locale
@@ -18,14 +19,9 @@ internal object SafTreeScanner {
 
     private const val TAG = "SafTreeScanner"
 
-    val supportedExtensions = setOf(
-        "txt", "md", "markdown", "html", "htm", "xhtml", "xml", "json", "csv", "log", "rtf", "epub", "text", "mhtml"
-    )
+    val supportedExtensions get() = FileSchemeUtils.SUPPORTED_EXTENSIONS
 
-    fun isSupported(fileName: String?): Boolean {
-        val ext = fileName?.substringAfterLast('.', "")?.lowercase(Locale.ROOT) ?: ""
-        return ext in supportedExtensions
-    }
+    fun isSupported(fileName: String?): Boolean = FileSchemeUtils.isSupportedFile(fileName)
 
     fun querySafChildrenFast(
         context: Context,
@@ -62,6 +58,8 @@ internal object SafTreeScanner {
                     }
                 }
             }
+        } catch (e: SecurityException) {
+            AppLogger.w(TAG, "SAF permission denied querying children for parentDocId $parentDocId: ${e.message}", e)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to query SAF children for parentDocId $parentDocId: ${e.message}", e)
         }

@@ -108,7 +108,6 @@ fun LibraryDrawerContent(
     onDeleteNovel: (Novel, deleteFromDisk: Boolean) -> Unit,
     onDeleteChapter: (Chapter, deleteFromDisk: Boolean) -> Unit = { _, _ -> },
     onMoveChapter: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
-    onSortChapters: (ChapterSortPreset) -> Unit = {},
     onToggleChapterReadStatus: (Chapter) -> Unit = {},
     onAddFolder: () -> Unit,
     onRefreshFolders: () -> Unit,

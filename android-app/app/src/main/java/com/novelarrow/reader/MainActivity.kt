@@ -290,7 +290,6 @@ class MainActivity : ComponentActivity() {
                                         viewModel.deleteChapter(chapter, deleteFromDisk)
                                     },
                                     onMoveChapter = { from, to -> viewModel.moveChapter(from, to) },
-                                    onSortChapters = { preset -> viewModel.sortChapters(preset) },
                                     onToggleChapterReadStatus = { chapter -> viewModel.toggleChapterReadStatus(chapter) },
                                     onAddFolder = { folderPickerLauncher.launch(null) },
                                     onRefreshFolders = { viewModel.refreshLinkedFolders() },

@@ -1,6 +1,11 @@
 package com.novelarrow.reader.playback
 
 import com.novelarrow.reader.ui.studio.AudioStudioMode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,12 +16,15 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class Milestone3Challenger2Test {
 
+    private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var tempDir: File
 
     @Before
     fun setUp() {
+        Dispatchers.setMain(testDispatcher)
         tempDir = Files.createTempDirectory("challenger2_m3_test").toFile()
         AudioPlaybackCoordinator.stop()
     }
@@ -25,6 +33,7 @@ class Milestone3Challenger2Test {
     fun tearDown() {
         AudioPlaybackCoordinator.stop()
         tempDir.deleteRecursively()
+        Dispatchers.resetMain()
     }
 
     // =========================================================================

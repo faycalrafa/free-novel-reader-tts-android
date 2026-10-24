@@ -207,7 +207,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun observeLibraryUpdates() {
         viewModelScope.launch {
+            var lastEventTime = 0L
             libraryRepository.libraryUpdateEvents.collect { event ->
+                val now = System.currentTimeMillis()
+                val isHighFreq = event is LibraryUpdateEvent.LibraryChanged
+                if (isHighFreq && now - lastEventTime < 200L) {
+                    return@collect
+                }
+                lastEventTime = now
+
                 AppLogger.d("ReaderViewModel", "Received library update event: $event")
                 val novels = libraryRepository.getNovels()
                 val archived = libraryRepository.getArchivedNovels()

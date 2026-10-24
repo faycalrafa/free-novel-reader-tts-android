@@ -25,9 +25,14 @@ internal object ChapterFileOperations {
             if (uri.scheme == "file") {
                 return File(uri.path ?: "").readText(Charsets.UTF_8)
             } else {
-                return context.contentResolver.openInputStream(uri)?.use { stream ->
-                    stream.bufferedReader(Charsets.UTF_8).readText()
-                } ?: throw IllegalStateException("Could not read chapter file at ${chapter.fileUri}")
+                try {
+                    return context.contentResolver.openInputStream(uri)?.use { stream ->
+                        stream.bufferedReader(Charsets.UTF_8).readText()
+                    } ?: throw IllegalStateException("Could not read chapter file at ${chapter.fileUri}")
+                } catch (e: SecurityException) {
+                    AppLogger.e(TAG, "Storage permission revoked for chapter ${chapter.title} (${chapter.fileUri}): ${e.message}", e)
+                    throw IllegalStateException("Storage permission was revoked by Android for this chapter file. Please re-import the novel folder into the app.")
+                }
             }
         }
     }

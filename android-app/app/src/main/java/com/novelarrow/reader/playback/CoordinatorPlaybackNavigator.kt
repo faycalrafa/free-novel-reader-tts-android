@@ -1,6 +1,7 @@
 package com.novelarrow.reader.playback
 
 import android.content.Context
+import com.novelarrow.reader.data.model.Chapter
 import com.novelarrow.reader.data.model.Paragraph
 import com.novelarrow.reader.data.parser.ChapterParser
 import com.novelarrow.reader.data.repository.LibraryRepository
@@ -228,6 +229,31 @@ internal class CoordinatorPlaybackNavigator(
         )
     }
 
+    @Volatile
+    private var preParsedChapterCache: Pair<String, List<Paragraph>>? = null
+
+    private fun preFetchChapter(chap: Chapter) {
+        val repo = libraryRepositoryProvider() ?: return
+        val settingsRepo = settingsRepositoryProvider() ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val content = repo.readChapterContent(chap)
+                val settings = settingsRepo.getSettings()
+                val parsed = ChapterParser.parseWithSettings(
+                    content = content,
+                    fileName = chap.title,
+                    settings = settings,
+                    folderPath = chap.fileUri,
+                    novelUrl = chap.webSourceUrl
+                )
+                val merged = ChapterParser.mergeShortParagraphs(parsed, minWordThreshold = 10)
+                preParsedChapterCache = Pair(chap.id, merged)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Pre-fetching chapter ${chap.title} failed: ${e.message}", e)
+            }
+        }
+    }
+
     fun advanceToNextChapter() {
         val novelId = currentNovelId ?: return
         val repo = libraryRepositoryProvider() ?: return
@@ -238,30 +264,28 @@ internal class CoordinatorPlaybackNavigator(
             if (nextIdx in chapters.indices) {
                 AudioCueManager.playChapterChange()
                 val nextChap = chapters[nextIdx]
-                val content = repo.readChapterContent(nextChap)
-                val settings = settingsRepo.getSettings()
-                val parsedParas = ChapterParser.parse(
-                    content = content,
-                    fileName = nextChap.title,
-                    contentSelector = settings.contentSelector,
-                    contentSelectorEnabled = settings.contentSelectorEnabled,
-                    pronunciationRules = settings.pronunciationRules,
-                    pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
-                    skipWords = settings.skipWords,
-                    skipWordsEnabled = settings.skipWordsEnabled,
-                    skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
-                    headerSkipString = settings.headerSkipString,
-                    headerSkipEnabled = settings.headerSkipEnabled,
-                    footerSkipString = settings.footerSkipString,
-                    footerSkipEnabled = settings.footerSkipEnabled,
-                    headerSkipRules = settings.headerSkipRules,
-                    footerSkipRules = settings.footerSkipRules,
-                    folderPath = nextChap.fileUri,
-                    novelUrl = nextChap.webSourceUrl,
-                    contentSelectors = settings.contentSelectors,
-                    ignoredSelectors = settings.ignoredSelectors
-                )
-                val mergedParas = ChapterParser.mergeShortParagraphs(parsedParas, minWordThreshold = 10)
+                val cached = preParsedChapterCache
+                val mergedParas = if (cached != null && cached.first == nextChap.id) {
+                    cached.second
+                } else {
+                    val content = repo.readChapterContent(nextChap)
+                    val settings = settingsRepo.getSettings()
+                    val parsedParas = ChapterParser.parseWithSettings(
+                        content = content,
+                        fileName = nextChap.title,
+                        settings = settings,
+                        folderPath = nextChap.fileUri,
+                        novelUrl = nextChap.webSourceUrl
+                    )
+                    ChapterParser.mergeShortParagraphs(parsedParas, minWordThreshold = 10)
+                }
+                preParsedChapterCache = null
+
+                // Pre-fetch following chapter in background
+                if (nextIdx + 1 in chapters.indices) {
+                    preFetchChapter(chapters[nextIdx + 1])
+                }
+
                 withContext(Dispatchers.Main) {
                     contextProvider()?.let { ctx ->
                         playReaderChapter(
@@ -301,28 +325,15 @@ internal class CoordinatorPlaybackNavigator(
                 val prevChap = chapters[prevIdx]
                 val content = repo.readChapterContent(prevChap)
                 val settings = settingsRepo.getSettings()
-                val parsedParas = ChapterParser.parse(
+                val parsedParas = ChapterParser.parseWithSettings(
                     content = content,
                     fileName = prevChap.title,
-                    contentSelector = settings.contentSelector,
-                    contentSelectorEnabled = settings.contentSelectorEnabled,
-                    pronunciationRules = settings.pronunciationRules,
-                    pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
-                    skipWords = settings.skipWords,
-                    skipWordsEnabled = settings.skipWordsEnabled,
-                    skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
-                    headerSkipString = settings.headerSkipString,
-                    headerSkipEnabled = settings.headerSkipEnabled,
-                    footerSkipString = settings.footerSkipString,
-                    footerSkipEnabled = settings.footerSkipEnabled,
-                    headerSkipRules = settings.headerSkipRules,
-                    footerSkipRules = settings.footerSkipRules,
+                    settings = settings,
                     folderPath = prevChap.fileUri,
-                    novelUrl = prevChap.webSourceUrl,
-                    contentSelectors = settings.contentSelectors,
-                    ignoredSelectors = settings.ignoredSelectors
+                    novelUrl = prevChap.webSourceUrl
                 )
                 val mergedParas = ChapterParser.mergeShortParagraphs(parsedParas, minWordThreshold = 10)
+                preParsedChapterCache = null
                 withContext(Dispatchers.Main) {
                     contextProvider()?.let { ctx ->
                         playReaderChapter(

@@ -6,7 +6,9 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.novelarrow.reader.data.model.Chapter
 import com.novelarrow.reader.data.model.Novel
+import com.novelarrow.reader.data.util.FileSchemeUtils
 import com.novelarrow.reader.data.util.NaturalOrderComparator
+import com.novelarrow.reader.data.util.ProgressDebouncer
 import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
@@ -29,27 +31,19 @@ internal class RootDirectoryScanner(
         onProgress: (current: Int, total: Int, currentItemName: String) -> Unit
     ): List<Novel> = withContext(Dispatchers.IO) {
         var rootName = "Imported Folder"
+        val debouncer = ProgressDebouncer(intervalMs = 80L, onProgress = onProgress)
 
-        var lastProgressTime = 0L
-        fun reportProgress(cur: Int, total: Int, name: String) {
-            val now = System.currentTimeMillis()
-            if (now - lastProgressTime >= 80 || cur == total || cur <= 1) {
-                lastProgressTime = now
-                onProgress(cur, total, name)
-            }
-        }
-
-        reportProgress(0, 0, "Inspecting folder...")
+        debouncer.report(0, 0, "Inspecting folder...")
 
         val subdirFilesMap = mutableMapOf<String, List<ScannedFileItem>>()
         val looseFiles = mutableListOf<ScannedFileItem>()
-
         val safSubdirDocIds = mutableMapOf<String, String>()
         var rootDocId: String? = null
 
-        if (treeUriStr.startsWith("/") || treeUriStr.startsWith("file://")) {
-            val dir = File(treeUriStr.removePrefix("file://"))
-            if (dir.exists() && dir.isDirectory) {
+        val isDirectLocal = FileSchemeUtils.isLocalFilePath(treeUriStr)
+        if (isDirectLocal) {
+            val dir = FileSchemeUtils.toLocalFile(treeUriStr)
+            if (dir != null && dir.exists() && dir.isDirectory) {
                 rootName = dir.name
                 val (subdirs, loose) = SafTreeScanner.scanLocalDirectory(dir)
                 subdirFilesMap.putAll(subdirs)
@@ -120,23 +114,40 @@ internal class RootDirectoryScanner(
         val newNovels = mutableListOf<Novel>()
         val chaptersMap = mutableMapOf<String, List<Chapter>>()
 
-        val rootDir = if (treeUriStr.startsWith("/") || treeUriStr.startsWith("file://")) {
-            File(treeUriStr.removePrefix("file://"))
-        } else null
+        val rootDir = if (isDirectLocal) FileSchemeUtils.toLocalFile(treeUriStr) else null
 
         // 1. Process subdirectories as individual novel playlists
         for ((dirName, novelFiles) in subdirFilesMap) {
-            val sortedFiles = novelFiles.sortedWith { a, b ->
-                NaturalOrderComparator.compare(a.displayName, b.displayName)
+            val localNovelDir = if (!isDirectLocal) {
+                ChapterImportStorageHelper.getNovelStorageDir(context, dirName)
+            } else null
+
+            // Copy to app route if source is external SAF
+            val effectiveFiles: List<ScannedFileItem> = if (localNovelDir != null) {
+                novelFiles.mapNotNull { item ->
+                    val copied = ChapterImportStorageHelper.copyFileToNovelDir(
+                        context = context,
+                        sourceUriOrPath = item.uriStr,
+                        targetDir = localNovelDir,
+                        displayName = item.displayName,
+                        sourceSizeBytes = item.sizeBytes
+                    )
+                    if (copied != null) {
+                        ScannedFileItem(copied.absolutePath, item.displayName, copied.length())
+                    } else null
+                }
+            } else {
+                novelFiles
             }
 
-            val subfolderPath = rootDir?.let { File(it, dirName).absolutePath }
-            val folderDocId = safSubdirDocIds[dirName]
+            val subfolderPath = localNovelDir?.absolutePath ?: rootDir?.let { File(it, dirName).absolutePath }
+            val effectiveRootUri = localNovelDir?.parentFile?.absolutePath ?: treeUriStr
+            val folderDocId = if (localNovelDir != null) null else safSubdirDocIds[dirName]
 
             val existingDbNovel = currentDb.novels.firstOrNull {
                 (folderDocId != null && it.folderDocId == folderDocId) ||
                 (subfolderPath != null && it.subfolderPath == subfolderPath) ||
-                (it.rootTreeUri == treeUriStr && it.title == dirName)
+                (it.rootTreeUri == effectiveRootUri && it.title == dirName)
             }
             val novelId = existingDbNovel?.id ?: if (subfolderPath != null) {
                 "folder_${Math.abs(subfolderPath.hashCode())}"
@@ -146,38 +157,25 @@ internal class RootDirectoryScanner(
                 UUID.randomUUID().toString()
             }
             val existingDbChapters = currentDb.chapters[novelId] ?: emptyList()
-            val existingByUri = existingDbChapters.associateBy { it.fileUri }
-            val existingByTitle = existingDbChapters.associateBy { it.title }
 
-            val folderProgress = FolderProgressSync.readFolderProgress(context, subfolderPath ?: treeUriStr, dirName, folderDocId, json)
-            val progressByTitle = folderProgress?.chapters?.associateBy { it.title } ?: emptyMap()
-            val progressByFile = folderProgress?.chapters?.associateBy { it.fileName } ?: emptyMap()
+            val folderProgress = FolderProgressSync.readFolderProgress(
+                context = context,
+                folderUriOrPath = subfolderPath ?: treeUriStr,
+                novelTitle = dirName,
+                folderDocId = folderDocId,
+                json = json
+            )
 
-            val rawChapters = sortedFiles.mapIndexed { index, file ->
+            val chapters = NovelDeduplicator.reconcileAndSortChapters(
+                novelId = novelId,
+                novelTitle = dirName,
+                scannedFiles = effectiveFiles,
+                existingChapters = existingDbChapters,
+                folderProgress = folderProgress
+            ) { _, _, name ->
                 currentProgressIndex++
-                reportProgress(currentProgressIndex, totalFilesCount, "$dirName / ${file.displayName}")
-                val fTitle = file.displayName.substringBeforeLast('.')
-                val existing = existingByUri[file.uriStr] ?: existingByTitle[fTitle]
-                val prog = progressByTitle[fTitle] ?: progressByFile[file.displayName]
-                val lastPara = maxOf(existing?.lastReadParagraphIndex ?: 0, prog?.lastReadParagraphIndex ?: 0)
-                val lastOffset = maxOf(existing?.lastScrollOffset ?: 0, prog?.lastScrollOffset ?: 0)
-                val isComp = (existing?.isCompleted == true) || (prog?.isCompleted == true)
-                val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
-                Chapter(
-                    id = existing?.id ?: NovelDeduplicator.generateCanonicalChapterId(novelId, file.displayName),
-                    novelId = novelId,
-                    title = fTitle,
-                    fileUri = file.uriStr,
-                    orderIndex = orderIdx,
-                    sizeBytes = file.sizeBytes,
-                    lastReadParagraphIndex = lastPara,
-                    lastScrollOffset = lastOffset,
-                    isCompleted = isComp
-                )
+                debouncer.report(currentProgressIndex, totalFilesCount, name)
             }
-            val chapters = NovelDeduplicator.deduplicateChapters(rawChapters)
-                .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
-                .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
 
             val useFolderProgress = folderProgress != null && (existingDbNovel == null || folderProgress.lastUpdated > existingDbNovel.lastUpdated)
             val targetChapterId = if (useFolderProgress) {
@@ -185,11 +183,7 @@ internal class RootDirectoryScanner(
             } else {
                 existingDbNovel?.currentChapterId ?: folderProgress?.currentChapterId
             }
-            val targetChapterTitle = if (useFolderProgress) {
-                folderProgress.currentChapterTitle.ifBlank { null }
-            } else {
-                null
-            }
+            val targetChapterTitle = if (useFolderProgress) folderProgress.currentChapterTitle.ifBlank { null } else null
             val resolvedIndex = if (targetChapterId != null) {
                 val idx = chapters.indexOfFirst { it.id == targetChapterId }
                 if (idx >= 0) idx else (if (useFolderProgress) folderProgress.currentChapterIndex else existingDbNovel?.currentChapterIndex ?: folderProgress?.currentChapterIndex ?: 0)
@@ -203,7 +197,7 @@ internal class RootDirectoryScanner(
             val novel = Novel(
                 id = novelId,
                 title = existingDbNovel?.title ?: dirName,
-                rootTreeUri = treeUriStr,
+                rootTreeUri = effectiveRootUri,
                 chapterCount = chapters.size,
                 completedCount = chapters.count { it.isCompleted },
                 currentChapterIndex = resolvedIndex,
@@ -219,16 +213,35 @@ internal class RootDirectoryScanner(
 
         // 2. Loose files in root folder
         if (looseFiles.isNotEmpty()) {
-            val sortedFiles = looseFiles.sortedWith { a, b ->
-                NaturalOrderComparator.compare(a.displayName, b.displayName)
-            }
             val novelTitle = if (subdirFilesMap.isEmpty()) rootName else "$rootName (Chapters)"
-            val subfolderPath = rootDir?.absolutePath
-            val folderDocId = rootDocId
+            val localNovelDir = if (!isDirectLocal) {
+                ChapterImportStorageHelper.getNovelStorageDir(context, novelTitle)
+            } else null
+
+            val effectiveFiles: List<ScannedFileItem> = if (localNovelDir != null) {
+                looseFiles.mapNotNull { item ->
+                    val copied = ChapterImportStorageHelper.copyFileToNovelDir(
+                        context = context,
+                        sourceUriOrPath = item.uriStr,
+                        targetDir = localNovelDir,
+                        displayName = item.displayName,
+                        sourceSizeBytes = item.sizeBytes
+                    )
+                    if (copied != null) {
+                        ScannedFileItem(copied.absolutePath, item.displayName, copied.length())
+                    } else null
+                }
+            } else {
+                looseFiles
+            }
+
+            val subfolderPath = localNovelDir?.absolutePath ?: rootDir?.absolutePath
+            val effectiveRootUri = localNovelDir?.absolutePath ?: treeUriStr
+            val folderDocId = if (localNovelDir != null) null else rootDocId
 
             val existingDbNovel = currentDb.novels.firstOrNull {
-                (it.isLooseRootFiles && it.rootTreeUri == treeUriStr) ||
-                (it.rootTreeUri == treeUriStr && it.title == novelTitle)
+                (it.isLooseRootFiles && it.rootTreeUri == effectiveRootUri) ||
+                (it.rootTreeUri == effectiveRootUri && it.title == novelTitle)
             }
             val novelId = existingDbNovel?.id ?: if (subfolderPath != null) {
                 "loose_${Math.abs(subfolderPath.hashCode())}"
@@ -238,38 +251,25 @@ internal class RootDirectoryScanner(
                 UUID.randomUUID().toString()
             }
             val existingDbChapters = currentDb.chapters[novelId] ?: emptyList()
-            val existingByUri = existingDbChapters.associateBy { it.fileUri }
-            val existingByTitle = existingDbChapters.associateBy { it.title }
 
-            val folderProgress = FolderProgressSync.readFolderProgress(context, subfolderPath ?: treeUriStr, novelTitle, folderDocId, json)
-            val progressByTitle = folderProgress?.chapters?.associateBy { it.title } ?: emptyMap()
-            val progressByFile = folderProgress?.chapters?.associateBy { it.fileName } ?: emptyMap()
+            val folderProgress = FolderProgressSync.readFolderProgress(
+                context = context,
+                folderUriOrPath = subfolderPath ?: treeUriStr,
+                novelTitle = novelTitle,
+                folderDocId = folderDocId,
+                json = json
+            )
 
-            val rawChapters = sortedFiles.mapIndexed { index, file ->
+            val chapters = NovelDeduplicator.reconcileAndSortChapters(
+                novelId = novelId,
+                novelTitle = novelTitle,
+                scannedFiles = effectiveFiles,
+                existingChapters = existingDbChapters,
+                folderProgress = folderProgress
+            ) { _, _, name ->
                 currentProgressIndex++
-                reportProgress(currentProgressIndex, totalFilesCount, "$novelTitle / ${file.displayName}")
-                val fTitle = file.displayName.substringBeforeLast('.')
-                val existing = existingByUri[file.uriStr] ?: existingByTitle[fTitle]
-                val prog = progressByTitle[fTitle] ?: progressByFile[file.displayName]
-                val lastPara = maxOf(existing?.lastReadParagraphIndex ?: 0, prog?.lastReadParagraphIndex ?: 0)
-                val lastOffset = maxOf(existing?.lastScrollOffset ?: 0, prog?.lastScrollOffset ?: 0)
-                val isComp = (existing?.isCompleted == true) || (prog?.isCompleted == true)
-                val orderIdx = prog?.orderIndex ?: existing?.orderIndex ?: index
-                Chapter(
-                    id = existing?.id ?: NovelDeduplicator.generateCanonicalChapterId(novelId, file.displayName),
-                    novelId = novelId,
-                    title = fTitle,
-                    fileUri = file.uriStr,
-                    orderIndex = orderIdx,
-                    sizeBytes = file.sizeBytes,
-                    lastReadParagraphIndex = lastPara,
-                    lastScrollOffset = lastOffset,
-                    isCompleted = isComp
-                )
+                debouncer.report(currentProgressIndex, totalFilesCount, name)
             }
-            val chapters = NovelDeduplicator.deduplicateChapters(rawChapters)
-                .sortedWith { a, b -> NaturalOrderComparator.compare(a.title, b.title) }
-                .mapIndexed { idx, ch -> ch.copy(orderIndex = idx) }
 
             val useFolderProgress = folderProgress != null && (existingDbNovel == null || folderProgress.lastUpdated > existingDbNovel.lastUpdated)
             val targetChapterId = if (useFolderProgress) {
@@ -277,11 +277,7 @@ internal class RootDirectoryScanner(
             } else {
                 existingDbNovel?.currentChapterId ?: folderProgress?.currentChapterId
             }
-            val targetChapterTitle = if (useFolderProgress) {
-                folderProgress.currentChapterTitle.ifBlank { null }
-            } else {
-                null
-            }
+            val targetChapterTitle = if (useFolderProgress) folderProgress.currentChapterTitle.ifBlank { null } else null
             val resolvedIndex = if (targetChapterId != null) {
                 val idx = chapters.indexOfFirst { it.id == targetChapterId }
                 if (idx >= 0) idx else (if (useFolderProgress) folderProgress.currentChapterIndex else existingDbNovel?.currentChapterIndex ?: folderProgress?.currentChapterIndex ?: 0)
@@ -295,7 +291,7 @@ internal class RootDirectoryScanner(
             val novel = Novel(
                 id = novelId,
                 title = existingDbNovel?.title ?: novelTitle,
-                rootTreeUri = treeUriStr,
+                rootTreeUri = effectiveRootUri,
                 chapterCount = chapters.size,
                 completedCount = chapters.count { it.isCompleted },
                 currentChapterIndex = resolvedIndex,
@@ -309,26 +305,26 @@ internal class RootDirectoryScanner(
             chaptersMap[novelId] = chapters
         }
 
-        reportProgress(totalFilesCount, totalFilesCount, "Saving library database...")
+        debouncer.report(totalFilesCount, totalFilesCount, "Saving library database...")
 
         val mergedNovels = LibraryStateManager.dbMutex.withLock {
-            val currentDb = LibraryStateManager.loadDatabaseLocked(roomDelegate)
+            val dbBefore = LibraryStateManager.loadDatabaseLocked(roomDelegate)
             val mergedN = if (newNovels.isNotEmpty()) {
                 val newIds = newNovels.map { it.id }.toSet()
-                currentDb.novels.filterNot { it.rootTreeUri == treeUriStr || newIds.contains(it.id) } + newNovels
+                dbBefore.novels.filterNot { it.rootTreeUri == treeUriStr || newIds.contains(it.id) } + newNovels
             } else {
-                currentDb.novels
+                dbBefore.novels
             }
 
-            val mergedChapters = currentDb.chapters.toMutableMap()
+            val mergedChapters = dbBefore.chapters.toMutableMap()
             for ((k, v) in chaptersMap) {
                 mergedChapters[k] = v
             }
 
-            val updatedDb = currentDb.copy(
+            val updatedDb = dbBefore.copy(
                 novels = mergedN,
                 chapters = mergedChapters,
-                lastActiveNovelId = newNovels.firstOrNull()?.id ?: currentDb.lastActiveNovelId
+                lastActiveNovelId = newNovels.firstOrNull()?.id ?: dbBefore.lastActiveNovelId
             )
             LibraryStateManager.saveDatabaseLocked(roomDelegate, updatedDb)
             LibraryStateManager.notifyUpdate(LibraryUpdateEvent.LibraryChanged)
