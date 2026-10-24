@@ -881,7 +881,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 val settings = _uiState.value.settings
-                val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+                val script = WebContentExtractor.buildContentExtractionScript(
+                    contentSelector = settings.contentSelector,
+                    ignoredSelectors = settings.ignoredSelectors,
+                    contentSelectorRules = settings.contentSelectors,
+                    currentUrl = currentUrl
+                )
                 val rawResult = evaluateJsWithTimeout(script, 2000L)
 
                 if (rawResult != null && rawResult != "null") {
@@ -1030,7 +1035,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update { it.copy(toastMessage = "Extracting chapter content...") }
         }
         val settings = _uiState.value.settings
-        val script = WebContentExtractor.buildContentExtractionScript(settings.contentSelector, settings.ignoredSelectors)
+        val currentUrl = _uiState.value.currentUrl
+        val script = WebContentExtractor.buildContentExtractionScript(
+            contentSelector = settings.contentSelector,
+            ignoredSelectors = settings.ignoredSelectors,
+            contentSelectorRules = settings.contentSelectors,
+            currentUrl = currentUrl
+        )
         dispatchEvaluateJs(script) { result ->
             handleExtractedChapter(result, isBatch)
         }

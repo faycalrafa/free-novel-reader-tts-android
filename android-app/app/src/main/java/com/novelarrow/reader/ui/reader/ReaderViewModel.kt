@@ -871,11 +871,20 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             val rawParagraphs = parseResult.paragraphs
             val paragraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
 
-            val targetIndex = if (restoreProgress) {
-                chapter.lastReadParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
-            } else 0
-
             val novel = _uiState.value.currentNovel
+            val activeProgress = AudioPlaybackCoordinator.playbackProgressState.value
+            val isPlayingThisChapter = activeProgress.source == PlaybackSource.READER &&
+                activeProgress.novelId == novel?.id &&
+                (activeProgress.chapterId == chapter.id || activeProgress.chapterIndex == chapter.orderIndex)
+
+            val targetIndex = if (isPlayingThisChapter) {
+                activeProgress.currentParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+            } else if (restoreProgress) {
+                chapter.lastReadParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+            } else {
+                0
+            }
+
             if (novel != null) {
                 syncActiveProgress(
                     novelId = novel.id,
@@ -895,7 +904,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 )
             }
 
-            if (novel != null) {
+            if (novel != null && !isPlayingThisChapter) {
                 libraryRepository.updateChapterProgress(
                     novelId = novel.id,
                     chapterIndex = chapter.orderIndex,
@@ -947,7 +956,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             autoNext = state.settings.autoNextChapter || state.isAutoLoopActive,
             rate = state.settings.speechRate,
             pitch = state.settings.speechPitch,
-            voiceName = state.settings.selectedVoiceName
+            voiceName = state.settings.selectedVoiceName,
+            isPreMerged = true
         )
     }
 
@@ -1040,7 +1050,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 autoNext = state.settings.autoNextChapter || state.isAutoLoopActive,
                 rate = state.settings.speechRate,
                 pitch = state.settings.speechPitch,
-                voiceName = state.settings.selectedVoiceName
+                voiceName = state.settings.selectedVoiceName,
+                isPreMerged = true
             )
         }
     }

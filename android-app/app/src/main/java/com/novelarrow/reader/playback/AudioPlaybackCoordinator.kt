@@ -244,7 +244,8 @@ object AudioPlaybackCoordinator {
         autoNext: Boolean = true,
         rate: Float = currentSpeechRate,
         pitch: Float = currentSpeechPitch,
-        voiceName: String? = currentVoiceName
+        voiceName: String? = currentVoiceName,
+        isPreMerged: Boolean = false
     ) {
         initialize(context)
         ensureServiceRunning(context)
@@ -265,7 +266,11 @@ object AudioPlaybackCoordinator {
         currentChapterId = chapterId
         currentChapterTitle = chapterTitle
         currentChapterIndex = chapterIndex
-        val mergedParas = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(paragraphs)
+        val mergedParas = if (isPreMerged) {
+            paragraphs
+        } else {
+            com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(paragraphs, minWordThreshold = 10)
+        }
         currentParagraphs = mergedParas
         totalParagraphsCount = mergedParas.size
         currentParagraphIndex = startParagraphIndex.coerceIn(0, (mergedParas.size - 1).coerceAtLeast(0))
@@ -300,7 +305,7 @@ object AudioPlaybackCoordinator {
         }
 
         updateServiceState()
-        if (novelId != null) {
+        if (novelId.isNotBlank()) {
             coordinatorScope.launch(Dispatchers.IO) {
                 try {
                     libraryRepository?.updateChapterProgress(
@@ -1377,6 +1382,7 @@ object AudioPlaybackCoordinator {
                     pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
                     skipWords = settings.skipWords,
                     skipWordsEnabled = settings.skipWordsEnabled,
+                    skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
                     headerSkipString = settings.headerSkipString,
                     headerSkipEnabled = settings.headerSkipEnabled,
                     footerSkipString = settings.footerSkipString,
@@ -1385,8 +1391,10 @@ object AudioPlaybackCoordinator {
                     footerSkipRules = settings.footerSkipRules,
                     folderPath = nextChap.fileUri,
                     novelUrl = nextChap.webSourceUrl,
-                    contentSelectors = settings.contentSelectors
+                    contentSelectors = settings.contentSelectors,
+                    ignoredSelectors = settings.ignoredSelectors
                 )
+                val mergedParas = ChapterParser.mergeShortParagraphs(parsedParas, minWordThreshold = 10)
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->
                         playReaderChapter(
@@ -1397,9 +1405,10 @@ object AudioPlaybackCoordinator {
                             chapterTitle = nextChap.title,
                             chapterIndex = nextIdx,
                             totalChapters = chapters.size,
-                            paragraphs = parsedParas,
+                            paragraphs = mergedParas,
                             startParagraphIndex = 0,
-                            autoNext = autoNextChapterEnabled
+                            autoNext = autoNextChapterEnabled,
+                            isPreMerged = true
                         )
                     }
                 }
@@ -1434,6 +1443,7 @@ object AudioPlaybackCoordinator {
                     pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
                     skipWords = settings.skipWords,
                     skipWordsEnabled = settings.skipWordsEnabled,
+                    skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
                     headerSkipString = settings.headerSkipString,
                     headerSkipEnabled = settings.headerSkipEnabled,
                     footerSkipString = settings.footerSkipString,
@@ -1442,8 +1452,10 @@ object AudioPlaybackCoordinator {
                     footerSkipRules = settings.footerSkipRules,
                     folderPath = prevChap.fileUri,
                     novelUrl = prevChap.webSourceUrl,
-                    contentSelectors = settings.contentSelectors
+                    contentSelectors = settings.contentSelectors,
+                    ignoredSelectors = settings.ignoredSelectors
                 )
+                val mergedParas = ChapterParser.mergeShortParagraphs(parsedParas, minWordThreshold = 10)
                 withContext(Dispatchers.Main) {
                     appContext?.let { ctx ->
                         playReaderChapter(
@@ -1454,9 +1466,10 @@ object AudioPlaybackCoordinator {
                             chapterTitle = prevChap.title,
                             chapterIndex = prevIdx,
                             totalChapters = chapters.size,
-                            paragraphs = parsedParas,
+                            paragraphs = mergedParas,
                             startParagraphIndex = 0,
-                            autoNext = autoNextChapterEnabled
+                            autoNext = autoNextChapterEnabled,
+                            isPreMerged = true
                         )
                     }
                 }

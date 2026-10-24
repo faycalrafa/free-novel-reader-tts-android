@@ -52,8 +52,7 @@ object WebContentExtractor {
                         'script', 'style', 'noscript', 'iframe',
                         '.sidebar', '#sidebar', '.header', '#header', '.footer', '#footer',
                         '.ad', '.ads', '.advertisement', '#comments', '.comments',
-                        '#custom-floating-bar', '#na-root', '#na-player-bar', '#na-floating-next',
-                        '.na-tts-highlight'
+                        '#custom-floating-bar', '#na-root', '#na-player-bar', '#na-floating-next'
                     ];
                     var ignored = defaultIgnore.slice();
                     for (var d = 0; d < userIgnored.length; d++) {
@@ -62,52 +61,7 @@ object WebContentExtractor {
                         }
                     }
 
-                    var ignoredStats = {};
-                    function isIgnored(el) {
-                        if (!el) return true;
-                        try {
-                            for (var i = 0; i < ignored.length; i++) {
-                                var sel = ignored[i];
-                                if (sel && (el.matches(sel) || el.closest(sel))) {
-                                    var len = (el.textContent || '').length;
-                                    ignoredStats[sel] = (ignoredStats[sel] || 0) + len;
-                                    return true;
-                                }
-                            }
-                        } catch(e) {}
-                        return false;
-                    }
-
-                    function extractFrom(container, useFilters) {
-                        var allNodes = Array.from(container.querySelectorAll('p, div, li, blockquote, h1, h2, h3, h4, h5, h6'));
-                        var paras = [];
-                        var elements = [];
-
-                        for (var i = 0; i < allNodes.length; i++) {
-                            var el = allNodes[i];
-                            if (useFilters && isIgnored(el)) continue;
-                            if (!useFilters && (el.matches('script, style, noscript, iframe') || el.closest('script, style, noscript, iframe'))) continue;
-
-                            var tag = el.tagName.toLowerCase();
-                            if (['div', 'li', 'blockquote'].indexOf(tag) !== -1) {
-                                if (el.querySelector('p, section, article, li, blockquote')) continue;
-                            }
-
-                            var cs = window.getComputedStyle(el);
-                            if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue;
-                            var rect = el.getBoundingClientRect();
-                            if (rect.width === 0 && rect.height === 0 && el.offsetHeight === 0) continue;
-
-                            var text = (el.textContent || '').replace(/\s+/g, ' ').trim();
-                            if (text.length >= 2) {
-                                paras.push(text);
-                                elements.push(el);
-                            }
-                        }
-                        return { paras: paras, elements: elements };
-                    }
-
-                    // 1. Container selection from multiple prioritized selectors
+                    // 1. Container selection from multiple prioritized selectors first
                     var container = null;
                     var matchedSelector = null;
                     for (var s = 0; s < candidateSelectors.length; s++) {
@@ -140,6 +94,68 @@ object WebContentExtractor {
                         }
                     }
                     if (!container) container = document.body;
+
+                    var ignoredStats = {};
+                    function isIgnored(el) {
+                        if (!el || el === container) return false;
+                        try {
+                            for (var i = 0; i < ignored.length; i++) {
+                                var sel = ignored[i];
+                                if (!sel) continue;
+                                if (el.matches(sel)) {
+                                    var len = (el.textContent || '').length;
+                                    ignoredStats[sel] = (ignoredStats[sel] || 0) + len;
+                                    return true;
+                                }
+                                var anc = el.closest(sel);
+                                if (anc && anc !== container && container.contains(anc)) {
+                                    var len = (el.textContent || '').length;
+                                    ignoredStats[sel] = (ignoredStats[sel] || 0) + len;
+                                    return true;
+                                }
+                            }
+                        } catch(e) {}
+                        return false;
+                    }
+
+                    var navRegex = /^(<|«|<<)?\s*(prev|previous|back|next|forward)\s*(chapter|chap|page|part)?\s*(>|»|>>)?$|^(next|prev|previous)\s*[|•/»>]\s*(next|prev|previous|index|home)$|^(table of contents|index|contents|all chapters|chapter list)$/i;
+
+                    function extractFrom(container, useFilters) {
+                        var allNodes = Array.from(container.querySelectorAll('p, div, li, blockquote, h1, h2, h3, h4, h5, h6'));
+                        var paras = [];
+                        var elements = [];
+
+                        for (var i = 0; i < allNodes.length; i++) {
+                            var el = allNodes[i];
+                            if (useFilters && isIgnored(el)) continue;
+                            if (!useFilters && (el.matches('script, style, noscript, iframe') || el.closest('script, style, noscript, iframe'))) continue;
+
+                            var tag = el.tagName.toLowerCase();
+                            if (['div', 'li', 'blockquote'].indexOf(tag) !== -1) {
+                                if (el.querySelector('p, section, article, li, blockquote')) continue;
+                            }
+
+                            var cs = window.getComputedStyle(el);
+                            if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue;
+                            var rect = el.getBoundingClientRect();
+                            if (rect.width === 0 && rect.height === 0 && el.offsetHeight === 0) continue;
+
+                            // Clone element and strip child buttons/links/scripts before extracting text
+                            // so inline buttons/links don't taint story content or cause the paragraph to be discarded
+                            var clone = el.cloneNode(true);
+                            var inlineIgnored = clone.querySelectorAll('a, button, input, select, textarea, script, style, noscript, iframe, .btn, .button, [role=button]');
+                            for (var k = 0; k < inlineIgnored.length; k++) {
+                                inlineIgnored[k].remove();
+                            }
+
+                            var text = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+                            if (text.length >= 2 && !navRegex.test(text)) {
+                                paras.push(text);
+                                elements.push(el);
+                            }
+                        }
+                        return { paras: paras, elements: elements };
+                    }
 
                     var containerFilteredChars = 0;
                     if (container !== document.body) {

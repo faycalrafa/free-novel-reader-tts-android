@@ -112,7 +112,7 @@ class UserscriptRepository(private val context: Context) {
                     'form', 'input', 'textarea', 'select',
                     '#custom-floating-bar', '#na-root', '#na-floating-next',
                     '#na-player-bar', '#na-modal-backdrop-el',
-                    '.na-tts-highlight', '#nd-modal-overlay', '#nd-countdown-pill'
+                    '#nd-modal-overlay', '#nd-countdown-pill'
                 ];
 
                 function isIgnored(el) {

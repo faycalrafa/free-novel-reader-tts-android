@@ -200,4 +200,16 @@ class WebScriptInjectorTest {
         assertTrue(helperScript.contains("window.GM_openDownloadDialog"))
         assertTrue(helperScript.contains("registerCustomButton"))
     }
+
+    @Test
+    fun testContentExtractionScript_doesNotFilterNaTtsHighlight() {
+        val script = WebContentExtractor.buildContentExtractionScript(
+            contentSelector = ".entry-content",
+            ignoredSelectors = emptyList<String>()
+        )
+        // Ensure na-tts-highlight is not among the default ignore selectors
+        assertFalse(script.contains("'.na-tts-highlight'"))
+        assertFalse(script.contains("\".na-tts-highlight\""))
+        assertTrue(script.contains(".entry-content"))
+    }
 }

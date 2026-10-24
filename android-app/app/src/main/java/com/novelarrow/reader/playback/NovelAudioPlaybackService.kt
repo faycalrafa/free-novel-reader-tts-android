@@ -189,7 +189,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
             autoNext: Boolean = true,
             rate: Float = 1.0f,
             pitch: Float = 1.0f,
-            voiceName: String? = null
+            voiceName: String? = null,
+            isPreMerged: Boolean = false
         ) {
             AudioPlaybackCoordinator.playReaderChapter(
                 context = context,
@@ -204,7 +205,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 autoNext = autoNext,
                 rate = rate,
                 pitch = pitch,
-                voiceName = voiceName
+                voiceName = voiceName,
+                isPreMerged = isPreMerged
             )
         }
 

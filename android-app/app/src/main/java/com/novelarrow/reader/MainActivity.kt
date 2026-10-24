@@ -82,11 +82,11 @@ import com.novelarrow.reader.ui.archive.ArchiveScreen
 import com.novelarrow.reader.ui.browser.BrowserScreen
 import com.novelarrow.reader.ui.browser.BrowserViewModel
 import com.novelarrow.reader.ui.common.UnifiedAudioSettingsDialog
-import com.novelarrow.reader.ui.reader.LibraryDrawerContent
+import com.novelarrow.reader.ui.reader.components.LibraryDrawerContent
 import com.novelarrow.reader.ui.reader.ReaderScreen
 import com.novelarrow.reader.ui.reader.ReaderViewModel
-import com.novelarrow.reader.ui.reader.UpdateAvailableDialog
-import com.novelarrow.reader.ui.reader.UpdateDownloadingDialog
+import com.novelarrow.reader.ui.reader.components.UpdateAvailableDialog
+import com.novelarrow.reader.ui.reader.components.UpdateDownloadingDialog
 import com.novelarrow.reader.playback.AudioExportService
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.data.export.FileFusionManager

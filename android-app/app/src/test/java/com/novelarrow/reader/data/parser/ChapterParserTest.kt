@@ -10,6 +10,7 @@ import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.PronunciationScopeType
 import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.Paragraph
+import com.novelarrow.reader.data.model.WebBrowserSettings
 
 class ChapterParserTest {
 
@@ -745,6 +746,76 @@ class ChapterParserTest {
         assertEquals(2, merged.size)
         assertEquals(0, merged[0].index)
         assertEquals(1, merged[1].index)
+    }
+
+    @Test
+    fun testCssContentSelectorFirst_preservesFirstParagraphWithInlineNavButtons() {
+        // Simulates web novel chapters where the first <p> contains inline prev/next buttons
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <body>
+                <header class="site-header"><p>Site Header Ad</p></header>
+                <div class="outer-nav"><a href="/prev">Prev Chapter</a></div>
+                <div class="chapter-content">
+                    <p><a href="/ch0">Prev Chapter</a> Once upon a time in a secluded mountain village. <a href="/ch2">Next Chapter</a></p>
+                    <p>The morning sun rose slowly over the mist-covered peaks.</p>
+                    <p>A solitary traveler walked down the winding stone path.</p>
+                </div>
+                <div class="site-footer"><p>Copyright 2026</p></div>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val paragraphs = ChapterParser.parse(
+            content = html,
+            fileName = "chapter1.html",
+            contentSelector = ".chapter-content"
+        )
+
+        // Must not skip the first paragraph!
+        assertTrue(paragraphs.isNotEmpty())
+        val firstParagraph = paragraphs[0].rawText
+        assertTrue(firstParagraph.contains("Once upon a time in a secluded mountain village."))
+        assertFalse(firstParagraph.contains("Prev Chapter"))
+        assertFalse(firstParagraph.contains("Next Chapter"))
+
+        val secondParagraph = paragraphs[1].rawText
+        assertTrue(secondParagraph.contains("The morning sun rose slowly over the mist-covered peaks."))
+
+        // Ensure header/footer outside content container are not included
+        assertFalse(paragraphs.any { it.rawText.contains("Site Header Ad") })
+        assertFalse(paragraphs.any { it.rawText.contains("Copyright 2026") })
+    }
+
+    @Test
+    fun testPureNavParagraph_isExcluded() {
+        val html = """
+            <div class="content">
+                <p><a href="/prev">Prev Chapter</a> | <a href="/next">Next Chapter</a></p>
+                <p>Chapter 1 begins here with real story content.</p>
+                <p>Second paragraph of the chapter.</p>
+            </div>
+        """.trimIndent()
+
+        val paragraphs = ChapterParser.parse(
+            content = html,
+            fileName = "test.html",
+            contentSelector = ".content"
+        )
+
+        assertEquals(2, paragraphs.size)
+        assertTrue(paragraphs[0].rawText.contains("Chapter 1 begins here with real story content."))
+        assertTrue(paragraphs[1].rawText.contains("Second paragraph of the chapter."))
+    }
+
+    @Test
+    fun testDefaultSettings_neverFiltersNaTtsHighlight() {
+        val defaultSettings = WebBrowserSettings()
+        assertFalse(
+            "na-tts-highlight must not be present in default ignored selectors",
+            defaultSettings.ignoredSelectors.any { it.contains("na-tts-highlight") }
+        )
     }
 }
 

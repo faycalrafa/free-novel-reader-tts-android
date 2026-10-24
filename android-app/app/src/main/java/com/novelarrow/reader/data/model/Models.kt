@@ -328,7 +328,7 @@ data class WebBrowserSettings(
         "script", "style", "noscript", "iframe",
         "form", "input", "textarea", "select",
         "#custom-floating-bar", "#na-root", "#na-floating-next",
-        "#na-player-bar", "#na-modal-backdrop-el", ".na-tts-highlight",
+        "#na-player-bar", "#na-modal-backdrop-el",
         ".comments", "#comments", ".sidebar", "#sidebar"
     ),
     val skipWords: List<SkipWord> = emptyList(),

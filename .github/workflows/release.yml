@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.15.0"
+          DATE_TAG="v3.16.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.15.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.15.0 --no-daemon
+          APP_VERSION_NAME: "3.16.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.16.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,27 +53,36 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.15.0 (Stable)
+          name: BookReader v3.16.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.15.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.16.0 (Stable) 📚🎙️⚡
 
-            #### 🔔 Audio Playback Sound Cues & Notifications
-            - **Chapter Change Bip**: Plays a crisp, subtle bip sound whenever navigating or auto-advancing to a new chapter.
-            - **Sleep Timer Chime**: Plays a soothing descending two-tone chime when the sleep timer reaches zero before pausing.
-            - **Folder / Novel Completion Chime**: Plays an ascending 3-note major chord chime when all chapters in a folder/novel or all tracks in an audio folder have finished.
-            - **Sound Cues Toggle**: Configurable in Unified Audio Settings dialog with zero AudioTrack native leakage using low-latency `SoundPool`.
+            #### 🏗️ Architecture Deconstruction & Screen Modularization
+            - **Decomposed Massive Screens**: Split giant `ReaderScreen.kt` (~2,950 lines down to ~1,257 lines) and `BrowserScreen.kt` (~2,200 lines down to ~1,570 lines) into focused, self-contained, and reusable UI components.
+            - **Extracted Reader Components**:
+              - `ReaderTopBar`: Clean top bar with library drawer toggle, search, audio engine controls, and navigation shortcuts.
+              - `ReaderDrawerContent`: Drawer containing novel catalog, chapter index, search, and audio settings.
+              - `ReaderActiveFiltersDialog`: Active filters and skip rules viewer.
+              - `ReaderDialogs`: Extracted modal dialogs (`SettingsDialog`, `SleepTimerDialog`, `LibraryScanningOverlay`, `UpdateAvailableDialog`, `UpdateDownloadingDialog`).
+            - **Extracted Browser Components**:
+              - `BrowserOverlays`: `PageLoadingOverlay`, `CenteredDownloadProgressCard`, and `TabsSwitcherDialog`.
+              - `BrowserSettingsDialog`: Extracted full userscript & reading automation settings dialog and navigation cards.
 
-            #### ⚡ Text-Audio Sync & Reading Mode Paragraph Bundling
-            - **Mathematical Highlighting Sync**: Fixed desynchronization where text highlighting drifted behind audio during playback due to unmerged UI paragraphs vs merged TTS chunks.
-            - **Reading Mode Bundled Paragraphs**: Short paragraphs with fewer than 10 words (dialogue lines, short phrases) are now bundled together in reading mode (separated by `\n\n`) exactly matching what is synthesized and read.
-            - **Aligned Click-to-Seek**: Tapping any paragraph seeks to the exact audio segment with 1-to-1 index fidelity.
-            - **Browser Multi-Element Highlighting**: Highlighting in the web browser now supports highlighting all DOM elements in a bundled paragraph.
+            #### 🔄 Chapter & TTS Audio Sync Fixes (Book Reader)
+            - **Eliminated Double Paragraph Pre-Merging**: Fixed an audio-text drifting bug where both `ReaderViewModel` and `AudioPlaybackCoordinator` applied paragraph bundling independently, causing paragraph count mismatch and visual highlighting desync.
+            - **Progress Preservation on Chapter Transitions**: Resolved chapter auto-advance race condition where `ReaderViewModel.loadChapterContent()` reset progress to paragraph 0 when auto-advancing, even though TTS playback was actively speaking.
+            - **Filter & Symbol Parameter Propagation**: Ensured `ignoredSelectors` and `skipWordsIgnoreSymbols` settings are consistently passed into coordinator chapter advance logic.
 
-            #### 🌐 Full-Screen Browsing History Route & New Tab Support
-            - **Dedicated History Route**: Migrated Browsing History from a modal dialog to a full-featured screen route (`AppScreen.BROWSER_HISTORY`).
-            - **Open in New Tab**: Users can now choose to open history items in the current tab or in a brand new tab directly from the history list.
-            - **Integrated Navigation Drawer**: Easily access Browsing History from the Library Drawer under Browser Tabs.
+            #### 🛡️ `na-tts-highlight` Filter Bug Resolution
+            - **Root Cause Fix**: `.na-tts-highlight` is the CSS class injected by `WebScriptInjector` to highlight currently speaking paragraphs in the browser. It was mistakenly added to default ignored selectors, causing TTS active paragraphs to be treated as unwanted ads/filters.
+            - **Purged Filter**: Completely removed `.na-tts-highlight` from default ignored selectors across `Models.kt`, `WebContentExtractor.kt`, and `UserscriptRepository.kt`.
+
+            #### 📖 Browser & Downloader First-Paragraph Bug Fix
+            - **CSS Content Container Evaluated First**: Updated content extraction logic in both the live browser script (`WebContentExtractor.kt`) and batch downloader parser (`ChapterParser.kt`) to always resolve the CSS content container selector first before filtering.
+            - **Container-Bounded Filtering**: Bound `isIgnored(el)` strictly within the content container element, preventing outer page structures (headers, navbars, sidebars) from inadvertently filtering story text.
+            - **Inline Navigation Button Stripping**: First story paragraphs containing inline prev/next buttons are now safely cleaned by stripping button/link tags while fully preserving the story text, eliminating the bug where extraction always skipped to the second paragraph.
+            - **URL-Scoped Downloader Rules**: Web novel batch chapter downloader now honors domain/URL-pattern-scoped content selectors.
 
             **BookReader v3.14.0** brings essential background playback continuity, a responsive native Monaco search experience, full browsing history, centered multi-chapter download progress, language detection accuracy improvements, and short paragraph synthesis merging:
 

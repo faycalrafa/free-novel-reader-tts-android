@@ -434,43 +434,13 @@ object ChapterParser {
         impactsMap: MutableMap<String, RuleImpact>? = null
     ): List<Pair<String, Boolean>> {
         val doc = Jsoup.parse(html)
-        val initialBodyChars = doc.body()?.text()?.length ?: 0
 
-        for (selector in IGNORE_SELECTORS) {
-            try {
-                doc.select(selector).remove()
-            } catch (_: Exception) {}
-        }
-
-        // Custom user-configured ignored selectors
-        for (selector in ignoredSelectors) {
-            val trimmed = selector.trim()
-            if (trimmed.isNotBlank()) {
-                try {
-                    val matched = doc.select(trimmed)
-                    val strippedChars = matched.sumOf { it.text().length }
-                    if (strippedChars > 0 && impactsMap != null) {
-                        impactsMap["ignored_$trimmed"] = RuleImpact(
-                            id = "ignored_$trimmed",
-                            name = trimmed,
-                            ruleType = RuleType.IGNORED_SELECTOR,
-                            charsFiltered = strippedChars,
-                            enabled = true,
-                            details = "$strippedChars characters removed by selector"
-                        )
-                    }
-                    matched.remove()
-                } catch (_: Exception) {}
-            }
-        }
-
-        doc.select("[style*='display: none'], [style*='display:none'], [hidden]").remove()
-
+        // 1. Always start by CSS content selector: identify content container first
         var selectedElement: Element? = null
         var matchedRuleId: String? = null
         var matchedSelectorName: String? = null
 
-        // 1. Evaluate multiple content selectors in priority order
+        // 1a. Evaluate multiple content selectors in priority order
         val activeRules = contentSelectors.filter { it.enabled }
         for (rule in activeRules) {
             val inScope = when (rule.scopeType) {
@@ -491,7 +461,7 @@ object ChapterParser {
             }
         }
 
-        // 2. Fallback to legacy single contentSelector if specified
+        // 1b. Fallback to legacy single contentSelector if specified
         if (selectedElement == null && contentSelector.isNotBlank()) {
             try {
                 selectedElement = doc.selectFirst(contentSelector)
@@ -500,6 +470,27 @@ object ChapterParser {
                     matchedSelectorName = contentSelector
                 }
             } catch (_: Exception) {}
+        }
+
+        // 1c. Fallback to well-known novel container candidates if no explicit rule matched
+        if (selectedElement == null) {
+            val defaultCandidates = listOf(
+                "#chapter-content", "#content", ".chapter-content", ".entry-content",
+                ".post-content", ".read-content", ".reading-content", ".chapter-c",
+                ".text-left", "article", ".content", "#chapter_content", ".novel-content",
+                "main", ".chapter-container", "#read-area"
+            )
+            for (candidate in defaultCandidates) {
+                try {
+                    val cand = doc.selectFirst(candidate)
+                    if (cand != null && cand.select("p").size >= 2) {
+                        selectedElement = cand
+                        matchedRuleId = "candidate_$candidate"
+                        matchedSelectorName = candidate
+                        break
+                    }
+                } catch (_: Exception) {}
+            }
         }
 
         if (selectedElement != null && impactsMap != null && matchedSelectorName != null) {
@@ -515,6 +506,40 @@ object ChapterParser {
         }
 
         val rootElement: Element = selectedElement ?: doc.body()
+
+        // 2. Apply filtering and ignored rules strictly WITHIN the selected content container
+        rootElement.select("script, style, noscript, iframe").remove()
+        rootElement.select("[style*='display: none'], [style*='display:none'], [hidden]").remove()
+
+        // 2a. Custom user-configured ignored selectors
+        for (selector in ignoredSelectors) {
+            val trimmed = selector.trim()
+            if (trimmed.isNotBlank()) {
+                try {
+                    val matched = rootElement.select(trimmed).filter { it != rootElement }
+                    val strippedChars = matched.sumOf { it.text().length }
+                    if (strippedChars > 0 && impactsMap != null) {
+                        impactsMap["ignored_$trimmed"] = RuleImpact(
+                            id = "ignored_$trimmed",
+                            name = trimmed,
+                            ruleType = RuleType.IGNORED_SELECTOR,
+                            charsFiltered = strippedChars,
+                            enabled = true,
+                            details = "$strippedChars characters removed by selector"
+                        )
+                    }
+                    matched.forEach { it.remove() }
+                } catch (_: Exception) {}
+            }
+        }
+
+        // 2b. Default ignored selectors applied only to descendants inside container
+        for (selector in IGNORE_SELECTORS) {
+            try {
+                val matched = rootElement.select(selector).filter { it != rootElement }
+                matched.forEach { it.remove() }
+            } catch (_: Exception) {}
+        }
 
         val elements = rootElement.select("p, h1, h2, h3, h4, h5, h6, li, blockquote, div")
         val pairs = mutableListOf<Pair<String, Boolean>>()
