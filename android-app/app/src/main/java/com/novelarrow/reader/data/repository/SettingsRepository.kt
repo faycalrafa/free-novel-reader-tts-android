@@ -7,14 +7,10 @@ import com.novelarrow.reader.data.model.ContentSelectorRule
 import com.novelarrow.reader.data.model.NextChapterSelectorRule
 import com.novelarrow.reader.data.model.PronunciationRule
 import com.novelarrow.reader.data.model.ReaderSettings
-import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.SkipRule
+import com.novelarrow.reader.data.model.SkipWord
 import com.novelarrow.reader.data.model.ThemeMode
 import com.novelarrow.reader.data.model.WebBrowserSettings
-import android.os.Environment
-import android.util.Log
-import androidx.core.util.AtomicFile
-import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +19,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -60,18 +55,13 @@ data class UserPreferencesBackup(
 class SettingsRepository(private val context: Context) {
 
     private val mutex = Mutex()
-    private val TAG = "SettingsRepository"
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
-    private val settingsFile: File
-        get() = File(context.filesDir, "novel_settings_v1.json")
-    private val browserSettingsFile: File
-        get() = File(context.filesDir, "novel_browser_settings_v1.json")
-    private val sharedTtsFile: File
-        get() = File(context.filesDir, "novel_shared_tts_settings_v1.json")
+    private val settingsFile: File get() = File(context.filesDir, "novel_settings_v1.json")
+    private val browserSettingsFile: File get() = File(context.filesDir, "novel_browser_settings_v1.json")
+    private val sharedTtsFile: File get() = File(context.filesDir, "novel_shared_tts_settings_v1.json")
 
     companion object {
         const val ENGINE_TYPE_SYSTEM = "SYSTEM"
-
         private val sharedSettingsFlows = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<ReaderSettings>>()
         private val sharedBrowserFlows = java.util.concurrent.ConcurrentHashMap<String, MutableStateFlow<WebBrowserSettings>>()
 
@@ -91,70 +81,44 @@ class SettingsRepository(private val context: Context) {
     init {
         val cacheKey = try {
             context.filesDir.canonicalPath
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             context.filesDir.absolutePath
         }
 
         synchronized(SettingsRepository::class.java) {
             if (!sharedSettingsFlows.containsKey(cacheKey) || !sharedBrowserFlows.containsKey(cacheKey)) {
-                val backup = restoreBackupFromNovelReaderRoots()
+                val backup = SettingsBackupDelegate.restoreBackupFromNovelReaderRoots(context, json)
                 val isFirstInstall = !settingsFile.exists() && !browserSettingsFile.exists() && !sharedTtsFile.exists()
                 val shouldRestoreBackup = isFirstInstall && backup != null
 
                 val loadedReader = if (backup != null && isFirstInstall) {
                     backup.readerSettings
                 } else {
-                    loadRawSettings()
+                    SettingsPersistenceManager.loadRawSettings(settingsFile, json)
                 }
 
                 val loadedBrowser = if (backup != null && isFirstInstall) {
                     backup.browserSettings
                 } else {
-                    loadRawBrowserSettings()
+                    SettingsPersistenceManager.loadRawBrowserSettings(browserSettingsFile, json)
                 }
 
                 val shared = if (backup != null && isFirstInstall) {
                     backup.sharedTts
                 } else {
-                    loadSharedTts(loadedReader, loadedBrowser)
+                    SettingsPersistenceManager.loadSharedTts(sharedTtsFile, loadedReader, loadedBrowser, json)
                 }
 
-                val mergedReader = loadedReader.copy(
-                    speechRate = shared.speechRate,
-                    speechPitch = shared.speechPitch,
-                    selectedVoiceName = shared.voiceName,
-                    sleepTimerMinutes = shared.sleepTimerMinutes,
-                    skipWords = shared.skipWords,
-                    skipWordsEnabled = shared.skipWordsEnabled,
-                    pronunciationRules = shared.pronunciationRules,
-                    pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
-                    headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
-                    footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules,
-                    favoriteVoiceEnglish = shared.favoriteVoiceEnglish ?: loadedReader.favoriteVoiceEnglish,
-                    favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
-                    favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
-                    selectedEngineType = shared.selectedEngineType,
-                    selectedTtsEnginePackage = shared.selectedTtsEnginePackage ?: loadedReader.selectedTtsEnginePackage,
-                    contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
-                )
-                val mergedBrowser = loadedBrowser.copy(
-                    ttsRate = shared.speechRate,
-                    ttsPitch = shared.speechPitch,
-                    ttsVoice = shared.voiceName,
-                    sleepTimerMinutes = shared.sleepTimerMinutes,
-                    skipWords = shared.skipWords,
-                    skipWordsEnabled = shared.skipWordsEnabled,
-                    pronunciationRules = shared.pronunciationRules,
-                    pronunciationRulesEnabled = shared.pronunciationRulesEnabled
-                )
+                val mergedReader = SharedTtsManager.mergeIntoReader(loadedReader, shared)
+                val mergedBrowser = SharedTtsManager.mergeIntoBrowser(loadedBrowser, shared)
 
                 sharedSettingsFlows[cacheKey] = MutableStateFlow(mergedReader)
                 sharedBrowserFlows[cacheKey] = MutableStateFlow(mergedBrowser)
 
                 if (shouldRestoreBackup) {
-                    saveSettings(mergedReader)
-                    saveBrowserSettings(mergedBrowser)
-                    saveSharedTts(shared)
+                    SettingsPersistenceManager.saveSettings(settingsFile, mergedReader, json)
+                    SettingsPersistenceManager.saveBrowserSettings(browserSettingsFile, mergedBrowser, json)
+                    SettingsPersistenceManager.saveSharedTts(sharedTtsFile, shared, json)
                 }
             }
         }
@@ -172,50 +136,35 @@ class SettingsRepository(private val context: Context) {
         mutex.withLock {
             val updated = transform(_settingsFlow.value)
             _settingsFlow.value = updated
-            saveSettings(updated)
+            SettingsPersistenceManager.saveSettings(settingsFile, updated, json)
+            saveBackupToNovelReaderRoots()
         }
     }
 
     suspend fun setTheme(theme: ThemeMode) = updateSettings { it.copy(theme = theme) }
-
     suspend fun setFontSize(size: Float) = updateSettings { it.copy(fontSizeSp = size) }
-
     suspend fun setAutoScroll(enabled: Boolean) = updateSettings { it.copy(autoScroll = enabled) }
-
     suspend fun setAutoNext(enabled: Boolean) = updateSettings { it.copy(autoNextChapter = enabled) }
-
     suspend fun setSoundCuesEnabled(enabled: Boolean) = updateSettings { it.copy(soundCuesEnabled = enabled) }
-
     suspend fun setContentSelector(selector: String) = updateSettings { it.copy(contentSelector = selector) }
-
     suspend fun setContentSelectorEnabled(enabled: Boolean) = updateSettings { it.copy(contentSelectorEnabled = enabled) }
-
     suspend fun setHeaderSkipString(headerStr: String) = updateSettings { it.copy(headerSkipString = headerStr) }
-
     suspend fun setHeaderSkipEnabled(enabled: Boolean) = updateSettings { it.copy(headerSkipEnabled = enabled) }
-
     suspend fun setFooterSkipString(footerStr: String) = updateSettings { it.copy(footerSkipString = footerStr) }
-
     suspend fun setFooterSkipEnabled(enabled: Boolean) = updateSettings { it.copy(footerSkipEnabled = enabled) }
 
     suspend fun setPronunciationRulesEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
         updateSharedTts { it.copy(pronunciationRulesEnabled = enabled) }
     }
-
     suspend fun setSkipWordsEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
         updateSharedTts { it.copy(skipWordsEnabled = enabled) }
     }
-
     suspend fun setSkipWordsIgnoreSymbols(enabled: Boolean) = withContext(Dispatchers.IO) {
         updateSharedTts { it.copy(skipWordsIgnoreSymbols = enabled) }
     }
-
     suspend fun setBrowserPronunciationRulesEnabled(enabled: Boolean) = setPronunciationRulesEnabled(enabled)
-
     suspend fun setBrowserSkipWordsEnabled(enabled: Boolean) = setSkipWordsEnabled(enabled)
-
     suspend fun setBrowserSkipWordsIgnoreSymbols(enabled: Boolean) = setSkipWordsIgnoreSymbols(enabled)
-
     suspend fun setSleepTimerMinutes(minutes: Int) = withContext(Dispatchers.IO) {
         updateSharedTts { it.copy(sleepTimerMinutes = minutes) }
     }
@@ -225,19 +174,16 @@ class SettingsRepository(private val context: Context) {
     suspend fun updateBrowserSettings(transform: (WebBrowserSettings) -> WebBrowserSettings) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val updated = transform(_browserSettingsFlow.value)
-            saveBrowserSettings(updated)
+            SettingsPersistenceManager.saveBrowserSettings(browserSettingsFile, updated, json)
             _browserSettingsFlow.value = updated
+            saveBackupToNovelReaderRoots()
         }
     }
 
     suspend fun setAutoReadNextChapter(enabled: Boolean) = updateBrowserSettings { it.copy(autoReadNextChapter = enabled) }
-
     suspend fun setBrowserAutoScroll(enabled: Boolean) = updateBrowserSettings { it.copy(ttsAutoScroll = enabled) }
-
     suspend fun setBrowserTtsAutoStart(enabled: Boolean) = updateBrowserSettings { it.copy(ttsAutoStart = enabled) }
-
     suspend fun setBrowserSynthByParagraph(enabled: Boolean) = updateBrowserSettings { it.copy(ttsSynthByParagraph = enabled) }
-
     suspend fun setBrowserSleepTimerMinutes(minutes: Int) = withContext(Dispatchers.IO) {
         updateSharedTts { it.copy(sleepTimerMinutes = minutes) }
     }
@@ -261,9 +207,7 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun resetBrowserIgnoredSelectors() = withContext(Dispatchers.IO) {
         val defaults = WebBrowserSettings().ignoredSelectors
-        updateSharedTts { shared ->
-            shared.copy(ignoredSelectors = defaults)
-        }
+        updateSharedTts { it.copy(ignoredSelectors = defaults) }
     }
 
     suspend fun addIgnoredSelector(selector: String) = addBrowserIgnoredSelector(selector)
@@ -279,7 +223,7 @@ class SettingsRepository(private val context: Context) {
             skipWords = _settingsFlow.value.skipWords,
             pronunciationRules = _settingsFlow.value.pronunciationRules
         )
-        saveBrowserSettings(defaults)
+        SettingsPersistenceManager.saveBrowserSettings(browserSettingsFile, defaults, json)
         _browserSettingsFlow.value = defaults
     }
 
@@ -288,23 +232,19 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun addNextChapterRule(rule: NextChapterSelectorRule) = updateBrowserSettings {
-        val filtered = it.nextChapterRules.filterNot { r -> r.id == rule.id }
-        it.copy(nextChapterRules = filtered + rule)
+        it.copy(nextChapterRules = it.nextChapterRules.filterNot { r -> r.id == rule.id } + rule)
     }
 
     suspend fun updateNextChapterRule(rule: NextChapterSelectorRule) = updateBrowserSettings {
-        val updated = it.nextChapterRules.map { r -> if (r.id == rule.id) rule else r }
-        it.copy(nextChapterRules = updated)
+        it.copy(nextChapterRules = it.nextChapterRules.map { r -> if (r.id == rule.id) rule else r })
     }
 
     suspend fun toggleNextChapterRule(id: String, enabled: Boolean) = updateBrowserSettings {
-        val updated = it.nextChapterRules.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
-        it.copy(nextChapterRules = updated)
+        it.copy(nextChapterRules = it.nextChapterRules.map { r -> if (r.id == id) r.copy(enabled = enabled) else r })
     }
 
     suspend fun deleteNextChapterRule(id: String) = updateBrowserSettings {
-        val filtered = it.nextChapterRules.filterNot { r -> r.id == id }
-        it.copy(nextChapterRules = filtered)
+        it.copy(nextChapterRules = it.nextChapterRules.filterNot { r -> r.id == id })
     }
 
     suspend fun addNextChapterSelectorRule(rule: NextChapterSelectorRule) = addNextChapterRule(rule)
@@ -317,23 +257,19 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun addNavbarShortcut(shortcut: BrowserNavbarShortcut) = updateBrowserSettings {
-        val filtered = it.navbarShortcuts.filterNot { s -> s.id == shortcut.id }
-        it.copy(navbarShortcuts = filtered + shortcut)
+        it.copy(navbarShortcuts = it.navbarShortcuts.filterNot { s -> s.id == shortcut.id } + shortcut)
     }
 
     suspend fun updateNavbarShortcut(shortcut: BrowserNavbarShortcut) = updateBrowserSettings {
-        val updated = it.navbarShortcuts.map { s -> if (s.id == shortcut.id) shortcut else s }
-        it.copy(navbarShortcuts = updated)
+        it.copy(navbarShortcuts = it.navbarShortcuts.map { s -> if (s.id == shortcut.id) shortcut else s })
     }
 
     suspend fun toggleNavbarShortcut(id: String, enabled: Boolean) = updateBrowserSettings {
-        val updated = it.navbarShortcuts.map { s -> if (s.id == id) s.copy(enabled = enabled) else s }
-        it.copy(navbarShortcuts = updated)
+        it.copy(navbarShortcuts = it.navbarShortcuts.map { s -> if (s.id == id) s.copy(enabled = enabled) else s })
     }
 
     suspend fun deleteNavbarShortcut(id: String) = updateBrowserSettings {
-        val filtered = it.navbarShortcuts.filterNot { s -> s.id == id }
-        it.copy(navbarShortcuts = filtered)
+        it.copy(navbarShortcuts = it.navbarShortcuts.filterNot { s -> s.id == id })
     }
 
     suspend fun removeNavbarShortcut(id: String) = deleteNavbarShortcut(id)
@@ -342,218 +278,50 @@ class SettingsRepository(private val context: Context) {
         it.copy(toolbarButtonOrder = order)
     }
 
-    // =========================================================================
-    // Consolidated Shared TTS Configuration (Applied Everywhere)
-    // =========================================================================
-
     private suspend fun updateSharedTts(transform: (SharedTtsSettings) -> SharedTtsSettings) {
         mutex.withLock {
-            val currentShared = SharedTtsSettings(
-                speechRate = _settingsFlow.value.speechRate,
-                speechPitch = _settingsFlow.value.speechPitch,
-                voiceName = _settingsFlow.value.selectedVoiceName,
-                sleepTimerMinutes = _settingsFlow.value.sleepTimerMinutes,
-                skipWords = _settingsFlow.value.skipWords,
-                skipWordsEnabled = _settingsFlow.value.skipWordsEnabled,
-                skipWordsIgnoreSymbols = _settingsFlow.value.skipWordsIgnoreSymbols,
-                pronunciationRules = _settingsFlow.value.pronunciationRules,
-                pronunciationRulesEnabled = _settingsFlow.value.pronunciationRulesEnabled,
-                headerSkipRules = _settingsFlow.value.headerSkipRules,
-                footerSkipRules = _settingsFlow.value.footerSkipRules,
-                favoriteVoiceEnglish = _settingsFlow.value.favoriteVoiceEnglish,
-                favoriteVoiceArabic = _settingsFlow.value.favoriteVoiceArabic,
-                favoriteVoiceFrench = _settingsFlow.value.favoriteVoiceFrench,
-                selectedEngineType = _settingsFlow.value.selectedEngineType,
-                selectedTtsEnginePackage = _settingsFlow.value.selectedTtsEnginePackage,
-                contentSelectors = _settingsFlow.value.contentSelectors,
-                ignoredSelectors = _settingsFlow.value.ignoredSelectors.ifEmpty { _browserSettingsFlow.value.ignoredSelectors }
-            )
+            val currentShared = SharedTtsManager.buildCurrentSharedTts(_settingsFlow.value, _browserSettingsFlow.value)
             val newShared = transform(currentShared)
-            val updatedReader = _settingsFlow.value.copy(
-                speechRate = newShared.speechRate,
-                speechPitch = newShared.speechPitch,
-                selectedVoiceName = newShared.voiceName,
-                sleepTimerMinutes = newShared.sleepTimerMinutes,
-                skipWords = newShared.skipWords,
-                skipWordsEnabled = newShared.skipWordsEnabled,
-                skipWordsIgnoreSymbols = newShared.skipWordsIgnoreSymbols,
-                pronunciationRules = newShared.pronunciationRules,
-                pronunciationRulesEnabled = newShared.pronunciationRulesEnabled,
-                headerSkipRules = newShared.headerSkipRules,
-                footerSkipRules = newShared.footerSkipRules,
-                favoriteVoiceEnglish = newShared.favoriteVoiceEnglish,
-                favoriteVoiceArabic = newShared.favoriteVoiceArabic,
-                favoriteVoiceFrench = newShared.favoriteVoiceFrench,
-                selectedEngineType = newShared.selectedEngineType,
-                selectedTtsEnginePackage = newShared.selectedTtsEnginePackage,
-                contentSelectors = newShared.contentSelectors,
-                ignoredSelectors = newShared.ignoredSelectors
-            )
-            val updatedBrowser = _browserSettingsFlow.value.copy(
-                ttsRate = newShared.speechRate,
-                ttsPitch = newShared.speechPitch,
-                ttsVoice = newShared.voiceName,
-                sleepTimerMinutes = newShared.sleepTimerMinutes,
-                skipWords = newShared.skipWords,
-                skipWordsEnabled = newShared.skipWordsEnabled,
-                skipWordsIgnoreSymbols = newShared.skipWordsIgnoreSymbols,
-                pronunciationRules = newShared.pronunciationRules,
-                pronunciationRulesEnabled = newShared.pronunciationRulesEnabled,
-                contentSelectors = newShared.contentSelectors,
-                headerSkipRules = newShared.headerSkipRules,
-                ignoredSelectors = newShared.ignoredSelectors
-            )
+            val updatedReader = SharedTtsManager.mergeIntoReader(_settingsFlow.value, newShared)
+            val updatedBrowser = SharedTtsManager.mergeIntoBrowser(_browserSettingsFlow.value, newShared)
 
             _settingsFlow.value = updatedReader
             _browserSettingsFlow.value = updatedBrowser
 
-            saveSharedTts(newShared)
-            saveSettings(updatedReader)
-            saveBrowserSettings(updatedBrowser)
+            SettingsPersistenceManager.saveSharedTts(sharedTtsFile, newShared, json)
+            SettingsPersistenceManager.saveSettings(settingsFile, updatedReader, json)
+            SettingsPersistenceManager.saveBrowserSettings(browserSettingsFile, updatedBrowser, json)
+            saveBackupToNovelReaderRoots()
         }
     }
 
-    suspend fun setSpeechRate(rate: Float) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(speechRate = rate) }
-    }
+    suspend fun setSpeechRate(rate: Float) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(speechRate = rate) } }
+    suspend fun setBrowserRate(rate: Float) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(speechRate = rate) } }
+    suspend fun setSpeechPitch(pitch: Float) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(speechPitch = pitch) } }
+    suspend fun setBrowserPitch(pitch: Float) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(speechPitch = pitch) } }
+    suspend fun setVoice(voiceName: String?) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(voiceName = voiceName) } }
+    suspend fun setBrowserVoice(voice: String?) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(voiceName = voice) } }
 
-    suspend fun setBrowserRate(rate: Float) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(speechRate = rate) }
-    }
+    suspend fun addPronunciationRule(rule: PronunciationRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.addPronunciationRule(it, rule) } }
+    suspend fun addBrowserPronunciationRule(rule: PronunciationRule) = addPronunciationRule(rule)
+    suspend fun updatePronunciationRule(rule: PronunciationRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.updatePronunciationRule(it, rule) } }
+    suspend fun togglePronunciationRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.togglePronunciationRule(it, id, enabled) } }
+    suspend fun deletePronunciationRule(id: String) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.deletePronunciationRule(it, id) } }
+    suspend fun removePronunciationRule(index: Int) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.removePronunciationRule(it, index) } }
+    suspend fun removeBrowserPronunciationRule(index: Int) = removePronunciationRule(index)
 
-    suspend fun setSpeechPitch(pitch: Float) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(speechPitch = pitch) }
-    }
+    suspend fun addSkipWord(skip: SkipWord) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.addSkipWord(it, skip) } }
+    suspend fun addBrowserSkipWord(skip: SkipWord) = addSkipWord(skip)
+    suspend fun updateSkipWord(word: SkipWord) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.updateSkipWord(it, word) } }
+    suspend fun toggleSkipWord(id: String, enabled: Boolean) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.toggleSkipWord(it, id, enabled) } }
+    suspend fun deleteSkipWord(id: String) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.deleteSkipWord(it, id) } }
+    suspend fun removeSkipWord(index: Int) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.removeSkipWord(it, index) } }
+    suspend fun removeBrowserSkipWord(index: Int) = removeSkipWord(index)
 
-    suspend fun setBrowserPitch(pitch: Float) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(speechPitch = pitch) }
-    }
-
-    suspend fun setVoice(voiceName: String?) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(voiceName = voiceName) }
-    }
-
-    suspend fun setBrowserVoice(voice: String?) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(voiceName = voice) }
-    }
-
-    suspend fun addPronunciationRule(rule: PronunciationRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.pronunciationRules.filterNot { r -> r.id == rule.id || r.from.equals(rule.from, ignoreCase = true) }
-            it.copy(pronunciationRules = filtered + rule)
-        }
-    }
-
-    suspend fun addBrowserPronunciationRule(rule: PronunciationRule) = withContext(Dispatchers.IO) {
-        addPronunciationRule(rule)
-    }
-
-    suspend fun updatePronunciationRule(rule: PronunciationRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.pronunciationRules.map { r ->
-                if (r.id == rule.id) rule else r
-            }
-            it.copy(pronunciationRules = updated)
-        }
-    }
-
-    suspend fun togglePronunciationRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.pronunciationRules.map { r ->
-                if (r.id == id) r.copy(enabled = enabled) else r
-            }
-            it.copy(pronunciationRules = updated)
-        }
-    }
-
-    suspend fun deletePronunciationRule(id: String) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.pronunciationRules.filterNot { r -> r.id == id }
-            it.copy(pronunciationRules = filtered)
-        }
-    }
-
-    suspend fun removePronunciationRule(index: Int) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            it.copy(pronunciationRules = it.pronunciationRules.filterIndexed { i, _ -> i != index })
-        }
-    }
-
-    suspend fun removeBrowserPronunciationRule(index: Int) = withContext(Dispatchers.IO) {
-        removePronunciationRule(index)
-    }
-
-    suspend fun addSkipWord(skip: SkipWord) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.skipWords.filterNot { s -> s.id == skip.id || s.text.equals(skip.text, ignoreCase = true) }
-            it.copy(skipWords = filtered + skip)
-        }
-    }
-
-    suspend fun addBrowserSkipWord(skip: SkipWord) = withContext(Dispatchers.IO) {
-        addSkipWord(skip)
-    }
-
-    suspend fun updateSkipWord(word: SkipWord) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.skipWords.map { w ->
-                if (w.id == word.id) word else w
-            }
-            it.copy(skipWords = updated)
-        }
-    }
-
-    suspend fun toggleSkipWord(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.skipWords.map { w ->
-                if (w.id == id) w.copy(enabled = enabled) else w
-            }
-            it.copy(skipWords = updated)
-        }
-    }
-
-    suspend fun deleteSkipWord(id: String) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.skipWords.filterNot { w -> w.id == id }
-            it.copy(skipWords = filtered)
-        }
-    }
-
-    suspend fun removeSkipWord(index: Int) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            it.copy(skipWords = it.skipWords.filterIndexed { i, _ -> i != index })
-        }
-    }
-
-    suspend fun removeBrowserSkipWord(index: Int) = withContext(Dispatchers.IO) {
-        removeSkipWord(index)
-    }
-
-    suspend fun addHeaderSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.headerSkipRules.filterNot { r -> r.text.equals(rule.text, ignoreCase = true) }
-            it.copy(headerSkipRules = filtered + rule)
-        }
-    }
-
-    suspend fun removeHeaderSkipRule(index: Int) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            it.copy(headerSkipRules = it.headerSkipRules.filterIndexed { i, _ -> i != index })
-        }
-    }
-
-    suspend fun addFooterSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.footerSkipRules.filterNot { r -> r.text.equals(rule.text, ignoreCase = true) }
-            it.copy(footerSkipRules = filtered + rule)
-        }
-    }
-
-    suspend fun removeFooterSkipRule(index: Int) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            it.copy(footerSkipRules = it.footerSkipRules.filterIndexed { i, _ -> i != index })
-        }
-    }
+    suspend fun addHeaderSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.addHeaderSkipRule(it, rule) } }
+    suspend fun removeHeaderSkipRule(index: Int) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.removeHeaderSkipRule(it, index) } }
+    suspend fun addFooterSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.addFooterSkipRule(it, rule) } }
+    suspend fun removeFooterSkipRule(index: Int) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.removeFooterSkipRule(it, index) } }
 
     suspend fun setFavoriteVoice(language: String, voiceName: String?) = withContext(Dispatchers.IO) {
         updateSharedTts {
@@ -565,106 +333,37 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun setSelectedEngineType(engineType: String) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(selectedEngineType = engineType) }
-    }
+    suspend fun setSelectedEngineType(engineType: String) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(selectedEngineType = engineType) } }
+    suspend fun setSelectedTtsEnginePackage(enginePackage: String?) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(selectedTtsEnginePackage = enginePackage) } }
+    suspend fun setContentSelectors(selectors: List<ContentSelectorRule>) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(contentSelectors = selectors) } }
+    suspend fun addContentSelector(rule: ContentSelectorRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.addContentSelector(it, rule) } }
+    suspend fun updateContentSelector(rule: ContentSelectorRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.updateContentSelector(it, rule) } }
+    suspend fun toggleContentSelector(id: String, enabled: Boolean) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.toggleContentSelector(it, id, enabled) } }
+    suspend fun removeContentSelector(id: String) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.removeContentSelector(it, id) } }
 
-    suspend fun setSelectedTtsEnginePackage(enginePackage: String?) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(selectedTtsEnginePackage = enginePackage) }
-    }
-
-    suspend fun setContentSelectors(selectors: List<ContentSelectorRule>) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(contentSelectors = selectors) }
-    }
-
-    suspend fun addContentSelector(rule: ContentSelectorRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.contentSelectors.filterNot { r -> r.id == rule.id }
-            it.copy(contentSelectors = filtered + rule)
-        }
-    }
-
-    suspend fun updateContentSelector(rule: ContentSelectorRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.contentSelectors.map { r -> if (r.id == rule.id) rule else r }
-            it.copy(contentSelectors = updated)
-        }
-    }
-
-    suspend fun toggleContentSelector(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.contentSelectors.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
-            it.copy(contentSelectors = updated)
-        }
-    }
-
-    suspend fun removeContentSelector(id: String) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val filtered = it.contentSelectors.filterNot { r -> r.id == id }
-            it.copy(contentSelectors = filtered)
-        }
-    }
-
-    suspend fun setHeaderSkipRules(rules: List<SkipRule>) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(headerSkipRules = rules) }
-    }
-
-    suspend fun setFooterSkipRules(rules: List<SkipRule>) = withContext(Dispatchers.IO) {
-        updateSharedTts { it.copy(footerSkipRules = rules) }
-    }
-
-    suspend fun updateHeaderSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.headerSkipRules.map { r -> if (r.id == rule.id) rule else r }
-            it.copy(headerSkipRules = updated)
-        }
-    }
-
-    suspend fun deleteHeaderSkipRule(id: String) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            it.copy(headerSkipRules = it.headerSkipRules.filterNot { r -> r.id == id })
-        }
-    }
-
-    suspend fun toggleHeaderSkipRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.headerSkipRules.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
-            it.copy(headerSkipRules = updated)
-        }
-    }
-
-    suspend fun updateFooterSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.footerSkipRules.map { r -> if (r.id == rule.id) rule else r }
-            it.copy(footerSkipRules = updated)
-        }
-    }
-
-    suspend fun deleteFooterSkipRule(id: String) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            it.copy(footerSkipRules = it.footerSkipRules.filterNot { r -> r.id == id })
-        }
-    }
-
-    suspend fun toggleFooterSkipRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {
-        updateSharedTts {
-            val updated = it.footerSkipRules.map { r -> if (r.id == id) r.copy(enabled = enabled) else r }
-            it.copy(footerSkipRules = updated)
-        }
-    }
+    suspend fun setHeaderSkipRules(rules: List<SkipRule>) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(headerSkipRules = rules) } }
+    suspend fun setFooterSkipRules(rules: List<SkipRule>) = withContext(Dispatchers.IO) { updateSharedTts { it.copy(footerSkipRules = rules) } }
+    suspend fun updateHeaderSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.updateHeaderSkipRule(it, rule) } }
+    suspend fun deleteHeaderSkipRule(id: String) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.deleteHeaderSkipRule(it, id) } }
+    suspend fun toggleHeaderSkipRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.toggleHeaderSkipRule(it, id, enabled) } }
+    suspend fun updateFooterSkipRule(rule: SkipRule) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.updateFooterSkipRule(it, rule) } }
+    suspend fun deleteFooterSkipRule(id: String) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.deleteFooterSkipRule(it, id) } }
+    suspend fun toggleFooterSkipRule(id: String, enabled: Boolean) = withContext(Dispatchers.IO) { updateSharedTts { SharedTtsManager.toggleFooterSkipRule(it, id, enabled) } }
 
     suspend fun updateQuickToolbarSettings(toolbarSettings: com.novelarrow.reader.data.model.QuickToolbarSettings) = withContext(Dispatchers.IO) {
         val current = _settingsFlow.value
         val updated = current.copy(quickToolbarSettings = toolbarSettings)
-        saveSettings(updated)
+        SettingsPersistenceManager.saveSettings(settingsFile, updated, json)
         _settingsFlow.value = updated
+        saveBackupToNovelReaderRoots()
     }
 
     suspend fun updateHardwareButtonSettings(hardwareButtonSettings: com.novelarrow.reader.data.model.HardwareButtonSettings) = withContext(Dispatchers.IO) {
         val current = _settingsFlow.value
         val updated = current.copy(hardwareButtonSettings = hardwareButtonSettings)
-        saveSettings(updated)
+        SettingsPersistenceManager.saveSettings(settingsFile, updated, json)
         _settingsFlow.value = updated
+        saveBackupToNovelReaderRoots()
     }
 
     suspend fun setQuickToolbarEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
@@ -672,260 +371,34 @@ class SettingsRepository(private val context: Context) {
         val updated = current.copy(
             quickToolbarSettings = current.quickToolbarSettings.copy(enabled = enabled)
         )
-        saveSettings(updated)
+        SettingsPersistenceManager.saveSettings(settingsFile, updated, json)
         _settingsFlow.value = updated
-    }
-
-    // =========================================================================
-    // Persistence
-    // =========================================================================
-
-    private fun writeAtomically(file: File, content: String) {
-        val atomicFile = AtomicFile(file)
-        var fos: java.io.FileOutputStream? = null
-        try {
-            fos = atomicFile.startWrite()
-            fos.write(content.toByteArray(Charsets.UTF_8))
-            atomicFile.finishWrite(fos)
-        } catch (e: Exception) {
-            atomicFile.failWrite(fos)
-            AppLogger.e(TAG, "Atomic write failed for ${file.name}: ${e.message}", e)
-            throw e
-        }
-    }
-
-    private fun readAtomically(file: File): String? {
-        if (!file.exists()) return null
-        return try {
-            val atomicFile = AtomicFile(file)
-            String(atomicFile.readFully(), Charsets.UTF_8)
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to read atomic file ${file.name}: ${e.message}", e)
-            null
-        }
-    }
-
-    private fun loadRawSettings(): ReaderSettings {
-        return try {
-            val text = readAtomically(settingsFile) ?: return ReaderSettings()
-            json.decodeFromString<ReaderSettings>(text)
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to decode reader settings: ${e.message}", e)
-            ReaderSettings()
-        }
-    }
-
-    private fun saveSettings(settings: ReaderSettings) {
-        try {
-            val text = json.encodeToString(settings)
-            writeAtomically(settingsFile, text)
-            saveBackupToNovelReaderRoots()
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to save settings: ${e.message}", e)
-        }
-    }
-
-    private fun loadRawBrowserSettings(): WebBrowserSettings {
-        return try {
-            val text = readAtomically(browserSettingsFile) ?: return WebBrowserSettings()
-            json.decodeFromString<WebBrowserSettings>(text)
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to decode browser settings: ${e.message}", e)
-            WebBrowserSettings()
-        }
-    }
-
-    private fun saveBrowserSettings(settings: WebBrowserSettings) {
-        try {
-            val text = json.encodeToString(settings)
-            writeAtomically(browserSettingsFile, text)
-            saveBackupToNovelReaderRoots()
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to save browser settings: ${e.message}", e)
-        }
-    }
-
-    private fun loadSharedTts(reader: ReaderSettings, browser: WebBrowserSettings): SharedTtsSettings {
-        try {
-            val text = readAtomically(sharedTtsFile)
-            if (text != null) {
-                val decoded = json.decodeFromString<SharedTtsSettings>(text)
-                val sanitizedRules = decoded.pronunciationRules.map {
-                    if (it.id.isBlank()) it.copy(id = java.util.UUID.randomUUID().toString()) else it
-                }
-                val sanitizedSkips = decoded.skipWords.map {
-                    if (it.id.isBlank()) it.copy(id = java.util.UUID.randomUUID().toString()) else it
-                }
-                return decoded.copy(pronunciationRules = sanitizedRules, skipWords = sanitizedSkips)
-            }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed to decode shared TTS settings: ${e.message}", e)
-        }
-
-        // Fallback: merge existing user settings from reader and browser
-        val mergedSkips = (reader.skipWords + browser.skipWords).distinctBy { it.text.lowercase() }.map {
-            if (it.id.isBlank()) it.copy(id = java.util.UUID.randomUUID().toString()) else it
-        }
-        val mergedRules = (reader.pronunciationRules + browser.pronunciationRules).distinctBy { it.from.lowercase() }.map {
-            if (it.id.isBlank()) it.copy(id = java.util.UUID.randomUUID().toString()) else it
-        }
-        val rate = if (reader.speechRate != 1.0f) reader.speechRate else browser.ttsRate
-        val pitch = if (reader.speechPitch != 1.0f) reader.speechPitch else browser.ttsPitch
-        val voice = reader.selectedVoiceName ?: browser.ttsVoice
-        val sleepMinutes = if (reader.sleepTimerMinutes > 0) reader.sleepTimerMinutes else browser.sleepTimerMinutes
-
-        val initial = SharedTtsSettings(
-            speechRate = rate,
-            speechPitch = pitch,
-            voiceName = voice,
-            sleepTimerMinutes = sleepMinutes,
-            skipWords = mergedSkips,
-            skipWordsEnabled = reader.skipWordsEnabled,
-            skipWordsIgnoreSymbols = reader.skipWordsIgnoreSymbols,
-            pronunciationRules = mergedRules,
-            pronunciationRulesEnabled = reader.pronunciationRulesEnabled,
-            headerSkipRules = reader.headerSkipRules,
-            footerSkipRules = reader.footerSkipRules,
-            favoriteVoiceEnglish = reader.favoriteVoiceEnglish,
-            favoriteVoiceArabic = reader.favoriteVoiceArabic,
-            favoriteVoiceFrench = reader.favoriteVoiceFrench,
-            selectedEngineType = reader.selectedEngineType,
-            selectedTtsEnginePackage = reader.selectedTtsEnginePackage,
-            contentSelectors = reader.contentSelectors
-        )
-        saveSharedTts(initial)
-        return initial
-    }
-
-    private fun saveSharedTts(shared: SharedTtsSettings) {
-        try {
-            val text = json.encodeToString(shared)
-            writeAtomically(sharedTtsFile, text)
-            saveBackupToNovelReaderRoots()
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to save shared TTS settings: ${e.message}", e)
-        }
+        saveBackupToNovelReaderRoots()
     }
 
     suspend fun applyRestoredBackup(backup: UserPreferencesBackup) = withContext(Dispatchers.IO) {
-        val loadedReader = backup.readerSettings
-        val loadedBrowser = backup.browserSettings
-        val shared = backup.sharedTts
+        val mergedReader = SharedTtsManager.mergeIntoReader(backup.readerSettings, backup.sharedTts)
+        val mergedBrowser = SharedTtsManager.mergeIntoBrowser(backup.browserSettings, backup.sharedTts)
 
-        val mergedReader = loadedReader.copy(
-            speechRate = shared.speechRate,
-            speechPitch = shared.speechPitch,
-            selectedVoiceName = shared.voiceName,
-            sleepTimerMinutes = shared.sleepTimerMinutes,
-            skipWords = shared.skipWords,
-            skipWordsEnabled = shared.skipWordsEnabled,
-            skipWordsIgnoreSymbols = shared.skipWordsIgnoreSymbols,
-            pronunciationRules = shared.pronunciationRules,
-            pronunciationRulesEnabled = shared.pronunciationRulesEnabled,
-            headerSkipRules = if (shared.headerSkipRules.isNotEmpty()) shared.headerSkipRules else loadedReader.headerSkipRules,
-            footerSkipRules = if (shared.footerSkipRules.isNotEmpty()) shared.footerSkipRules else loadedReader.footerSkipRules,
-            favoriteVoiceEnglish = shared.favoriteVoiceEnglish ?: loadedReader.favoriteVoiceEnglish,
-            favoriteVoiceArabic = shared.favoriteVoiceArabic ?: loadedReader.favoriteVoiceArabic,
-            favoriteVoiceFrench = shared.favoriteVoiceFrench ?: loadedReader.favoriteVoiceFrench,
-            selectedEngineType = shared.selectedEngineType,
-            selectedTtsEnginePackage = shared.selectedTtsEnginePackage ?: loadedReader.selectedTtsEnginePackage,
-            contentSelectors = if (shared.contentSelectors.isNotEmpty()) shared.contentSelectors else loadedReader.contentSelectors
-        )
-        val mergedBrowser = loadedBrowser.copy(
-            ttsRate = shared.speechRate,
-            ttsPitch = shared.speechPitch,
-            ttsVoice = shared.voiceName,
-            sleepTimerMinutes = shared.sleepTimerMinutes,
-            skipWords = shared.skipWords,
-            skipWordsEnabled = shared.skipWordsEnabled,
-            skipWordsIgnoreSymbols = shared.skipWordsIgnoreSymbols,
-            pronunciationRules = shared.pronunciationRules,
-            pronunciationRulesEnabled = shared.pronunciationRulesEnabled
-        )
-
-        saveSettings(mergedReader)
-        saveBrowserSettings(mergedBrowser)
-        saveSharedTts(shared)
+        SettingsPersistenceManager.saveSettings(settingsFile, mergedReader, json)
+        SettingsPersistenceManager.saveBrowserSettings(browserSettingsFile, mergedBrowser, json)
+        SettingsPersistenceManager.saveSharedTts(sharedTtsFile, backup.sharedTts, json)
 
         _settingsFlow.value = mergedReader
         _browserSettingsFlow.value = mergedBrowser
-    }
-
-    private fun getNovelReaderRoots(): List<File> {
-        return com.novelarrow.reader.data.backup.BackupRestoreManager.getNovelReaderRoots(context)
+        saveBackupToNovelReaderRoots()
     }
 
     fun saveBackupToNovelReaderRoots() {
-        try {
-            val currentReader = _settingsFlow.value
-            val currentBrowser = _browserSettingsFlow.value
-            val currentShared = SharedTtsSettings(
-                speechRate = currentReader.speechRate,
-                speechPitch = currentReader.speechPitch,
-                voiceName = currentReader.selectedVoiceName,
-                sleepTimerMinutes = currentReader.sleepTimerMinutes,
-                skipWords = currentReader.skipWords,
-                skipWordsEnabled = currentReader.skipWordsEnabled,
-                skipWordsIgnoreSymbols = currentReader.skipWordsIgnoreSymbols,
-                pronunciationRules = currentReader.pronunciationRules,
-                pronunciationRulesEnabled = currentReader.pronunciationRulesEnabled,
-                headerSkipRules = currentReader.headerSkipRules,
-                footerSkipRules = currentReader.footerSkipRules,
-                favoriteVoiceEnglish = currentReader.favoriteVoiceEnglish,
-                favoriteVoiceArabic = currentReader.favoriteVoiceArabic,
-                favoriteVoiceFrench = currentReader.favoriteVoiceFrench,
-                selectedEngineType = currentReader.selectedEngineType,
-                selectedTtsEnginePackage = currentReader.selectedTtsEnginePackage,
-                contentSelectors = currentReader.contentSelectors
-            )
-
-            val backup = UserPreferencesBackup(
-                readerSettings = currentReader,
-                browserSettings = currentBrowser,
-                sharedTts = currentShared,
-                lastUpdated = System.currentTimeMillis()
-            )
-            val jsonText = json.encodeToString(backup)
-
-            val roots = getNovelReaderRoots()
-            for (root in roots) {
-                try {
-                    if (!root.exists()) {
-                        root.mkdirs()
-                    }
-                    if (root.exists() && root.isDirectory) {
-                        File(root, ".novelreader_preferences.json").writeText(jsonText, Charsets.UTF_8)
-                        File(root, ".preferences.json").writeText(jsonText, Charsets.UTF_8)
-                    }
-                } catch (e: Exception) {
-                    Log.d("SettingsRepo", "Cannot write backup to ${root.absolutePath}: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("SettingsRepo", "Failed to backup preferences: ${e.message}")
-        }
-    }
-
-    private fun restoreBackupFromNovelReaderRoots(): UserPreferencesBackup? {
-        val candidateFileNames = listOf(".novelreader_preferences.json", ".preferences.json")
-        for (root in getNovelReaderRoots()) {
-            if (!root.exists() || !root.isDirectory) continue
-            for (fName in candidateFileNames) {
-                val f = File(root, fName)
-                if (f.exists() && f.isFile && f.length() > 0L) {
-                    try {
-                        val text = f.readText(Charsets.UTF_8)
-                        if (text.isNotBlank()) {
-                            val backup = json.decodeFromString<UserPreferencesBackup>(text)
-                            Log.i("SettingsRepo", "Loaded preferences from ${f.absolutePath} (theme=${backup.readerSettings.theme}, rate=${backup.sharedTts.speechRate})")
-                            return backup
-                        }
-                    } catch (e: Exception) {
-                        Log.w("SettingsRepo", "Failed to parse backup from ${f.absolutePath}: ${e.message}")
-                    }
-                }
-            }
-        }
-        return null
+        val currentReader = _settingsFlow.value
+        val currentBrowser = _browserSettingsFlow.value
+        val currentShared = SharedTtsManager.buildCurrentSharedTts(currentReader, currentBrowser)
+        val backup = UserPreferencesBackup(
+            readerSettings = currentReader,
+            browserSettings = currentBrowser,
+            sharedTts = currentShared,
+            lastUpdated = System.currentTimeMillis()
+        )
+        SettingsBackupDelegate.saveBackupToNovelReaderRoots(context, backup, json)
     }
 }

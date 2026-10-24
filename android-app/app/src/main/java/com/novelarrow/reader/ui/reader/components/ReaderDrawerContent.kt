@@ -132,12 +132,7 @@ fun LibraryDrawerContent(
     var sharingNovel by remember { mutableStateOf<Novel?>(null) }
     var sharingChapter by remember { mutableStateOf<Chapter?>(null) }
     var novelToDelete by remember { mutableStateOf<Novel?>(null) }
-    var deleteFilesFromDisk by remember { mutableStateOf(false) }
     var chapterToDelete by remember { mutableStateOf<Chapter?>(null) }
-    var deleteChapterFromDisk by remember { mutableStateOf(false) }
-    var draggingIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOverIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
 
     val chapterListState = rememberLazyListState()
     val activeChapterIndex = remember(chapters, currentChapter, currentNovel) {
@@ -206,522 +201,45 @@ fun LibraryDrawerContent(
         HorizontalDivider()
 
         if (selectedTab == 0) {
-            Column(modifier = Modifier.weight(1f)) {
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    if (novels.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.Book,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = "No novels in library yet",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Button(
-                                        onClick = onAddFolder,
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Import Folder")
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        items(novels.size) { i ->
-                            val novel = novels[i]
-                            val isCurrent = novel.id == currentNovel?.id
-
-                            val isActionsVisible = activeActionNovelId == novel.id
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        onClick = {
-                                            if (activeActionNovelId != null) {
-                                                activeActionNovelId = null
-                                            } else {
-                                                onSelectNovel(novel)
-                                                selectedTab = 1
-                                            }
-                                        },
-                                        onLongClick = {
-                                            activeActionNovelId = if (activeActionNovelId == novel.id) null else novel.id
-                                        }
-                                    )
-                                    .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.Book,
-                                    contentDescription = null,
-                                    tint = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = novel.title,
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-                                    }
-                                    Text(
-                                        text = "${novel.chapterCount} chapters • ${novel.currentChapterIndex + 1}/${novel.chapterCount}",
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-                                if (isActionsVisible) {
-                                    IconButton(
-                                        onClick = {
-                                            activeActionNovelId = null
-                                            sharingNovel = novel
-                                        },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Share,
-                                            contentDescription = "Share novel",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            activeActionNovelId = null
-                                            onArchiveNovel(novel)
-                                        },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Archive,
-                                            contentDescription = "Archive novel",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            novelToDelete = novel
-                                            deleteFilesFromDisk = false
-                                        },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = "Remove",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                        }
-                    }
-
-                    // Demarking Line & Browser Tabs Section
-                    item {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 8.dp),
-                            thickness = 1.5.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.Language,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Browser Tabs (${browserTabs.size})",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (onOpenHistory != null) {
-                                    IconButton(
-                                        onClick = onOpenHistory,
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.History,
-                                            contentDescription = "Browsing History",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                                IconButton(
-                                    onClick = onNewTab,
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = "New Tab",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (browserTabs.isEmpty()) {
-                        item {
-                            Text(
-                                text = "No open tabs",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-                        }
-                    } else {
-                        items(browserTabs.size) { tIdx ->
-                            val tab = browserTabs[tIdx]
-                            val isSelectedTab = tab.id == currentTabId
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSelectTab(tab.id) }
-                                    .background(if (isSelectedTab) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.Language,
-                                    contentDescription = null,
-                                    tint = if (isSelectedTab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = tab.title.ifBlank { "New Tab" },
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = if (isSelectedTab) FontWeight.Bold else FontWeight.Normal
-                                        ),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = tab.url.replace("https://", "").replace("http://", ""),
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                if (browserTabs.size > 1) {
-                                    IconButton(
-                                        onClick = { onCloseTab(tab.id) },
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Close,
-                                            contentDescription = "Close Tab",
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                                        )
-                                    }
-                                }
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                        }
-                    }
-                }
-            }
+            ReaderNovelsTab(
+                novels = novels,
+                currentNovel = currentNovel,
+                browserTabs = browserTabs,
+                currentTabId = currentTabId,
+                activeActionNovelId = activeActionNovelId,
+                onSetActiveActionNovelId = { activeActionNovelId = it },
+                onSelectNovel = onSelectNovel,
+                onSwitchToChaptersTab = { selectedTab = 1 },
+                onShareNovel = { sharingNovel = it },
+                onArchiveNovel = onArchiveNovel,
+                onDeleteNovelRequest = {
+                    novelToDelete = it
+                },
+                onAddFolder = onAddFolder,
+                onOpenHistory = onOpenHistory,
+                onNewTab = onNewTab,
+                onSelectTab = onSelectTab,
+                onCloseTab = onCloseTab,
+                modifier = Modifier.weight(1f)
+            )
         } else {
-            // Chapters list
-            Column(modifier = Modifier.weight(1f)) {
-                if (currentNovel != null) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Book,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = currentNovel.title,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                }
-                LazyColumn(
-                    state = chapterListState,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    if (chapters.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "No chapters in current novel",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                        }
-                    } else {
-                        items(chapters.size) { i ->
-                            val chapter = chapters[i]
-                            val isCurrent = if (currentChapter != null) {
-                                chapter.id == currentChapter.id
-                            } else {
-                                i == activeChapterIndex
-                            }
-                            val isDraggingThis = draggingIndex == i
-                            val isTargeted = dragOverIndex == i && !isDraggingThis
-
-                            val isChapterActionsVisible = activeActionChapterId == chapter.id || isDraggingThis
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .graphicsLayer {
-                                        if (isDraggingThis) {
-                                            translationY = dragOffsetY
-                                            shadowElevation = 16f
-                                        }
-                                    }
-                                    .zIndex(if (isDraggingThis) 10f else 0f)
-                                    .background(
-                                        when {
-                                            isDraggingThis -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                                            isTargeted -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                            isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                            else -> Color.Transparent
-                                        }
-                                    )
-                                    .combinedClickable(
-                                        onClick = {
-                                            if (activeActionChapterId != null && activeActionChapterId != chapter.id) {
-                                                activeActionChapterId = null
-                                            } else {
-                                                onSelectChapter(i)
-                                            }
-                                        },
-                                        onLongClick = {
-                                            activeActionChapterId = if (activeActionChapterId == chapter.id) null else chapter.id
-                                        }
-                                    )
-                                    .padding(
-                                        start = if (isChapterActionsVisible) 6.dp else 16.dp,
-                                        end = if (isChapterActionsVisible) 6.dp else 16.dp,
-                                        top = 8.dp,
-                                        bottom = 8.dp
-                                    ),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // 6 Dots Drag & Drop Reordering Handle on the FAR LEFT (only when long-pressed)
-                                if (isChapterActionsVisible) {
-                                    Icon(
-                                        imageVector = Icons.Default.DragIndicator,
-                                        contentDescription = "Hold and drag to reorder",
-                                        tint = if (isDraggingThis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .pointerInput(i) {
-                                                detectDragGestures(
-                                                    onDragStart = {
-                                                        draggingIndex = i
-                                                        dragOverIndex = i
-                                                        dragOffsetY = 0f
-                                                    },
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        dragOffsetY += dragAmount.y
-                                                        val approxItemHeightPx = 135f
-                                                        val diff = (dragOffsetY / approxItemHeightPx).toInt()
-                                                        val target = (i + diff).coerceIn(0, chapters.size - 1)
-                                                        if (target != dragOverIndex) {
-                                                            dragOverIndex = target
-                                                        }
-                                                    },
-                                                    onDragEnd = {
-                                                        val from = draggingIndex
-                                                        val to = dragOverIndex
-                                                        if (from != null && to != null && from != to) {
-                                                            onMoveChapter(from, to)
-                                                        }
-                                                        draggingIndex = null
-                                                        dragOverIndex = null
-                                                        dragOffsetY = 0f
-                                                    },
-                                                    onDragCancel = {
-                                                        draggingIndex = null
-                                                        dragOverIndex = null
-                                                        dragOffsetY = 0f
-                                                    }
-                                                )
-                                            }
-                                            .padding(end = 4.dp)
-                                    )
-                                }
-
-                                Text(
-                                    text = "${i + 1}",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.width(28.dp)
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = chapter.title,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-                                            ),
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-
-                                        if (chapter.isCompleted) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.Visibility,
-                                                contentDescription = "Chapter read",
-                                                tint = Color(0xFF4CAF50),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-
-                                        if (isCurrent) {
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            val heartbeatTransition = rememberInfiniteTransition(label = "chapterHeartbeat")
-                                            val heartbeatScale by heartbeatTransition.animateFloat(
-                                                initialValue = 0.8f,
-                                                targetValue = 1.35f,
-                                                animationSpec = infiniteRepeatable(
-                                                    animation = tween(700, easing = FastOutSlowInEasing),
-                                                    repeatMode = RepeatMode.Reverse
-                                                ),
-                                                label = "heartbeatScale"
-                                            )
-                                            val heartbeatAlpha by heartbeatTransition.animateFloat(
-                                                initialValue = 0.5f,
-                                                targetValue = 1.0f,
-                                                animationSpec = infiniteRepeatable(
-                                                    animation = tween(700, easing = FastOutSlowInEasing),
-                                                    repeatMode = RepeatMode.Reverse
-                                                ),
-                                                label = "heartbeatAlpha"
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(8.dp)
-                                                    .scale(heartbeatScale)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0xFFFF9800).copy(alpha = heartbeatAlpha))
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Actions: Read status toggle & Delete Chapter (only when long-pressed)
-                                if (isChapterActionsVisible) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                activeActionChapterId = null
-                                                sharingChapter = chapter
-                                            },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Share,
-                                                contentDescription = "Share Chapter",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(17.dp)
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = { onToggleChapterReadStatus(chapter) },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(
-                                                if (chapter.isCompleted) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                                contentDescription = if (chapter.isCompleted) "Mark as unread" else "Mark as read",
-                                                tint = if (chapter.isCompleted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                chapterToDelete = chapter
-                                                deleteChapterFromDisk = false
-                                            },
-                                            modifier = Modifier.size(30.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Delete Chapter",
-                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                        }
-                    }
-                }
-            }
+            ReaderChaptersTab(
+                currentNovel = currentNovel,
+                chapters = chapters,
+                currentChapter = currentChapter,
+                activeChapterIndex = activeChapterIndex,
+                chapterListState = chapterListState,
+                activeActionChapterId = activeActionChapterId,
+                onSetActiveActionChapterId = { activeActionChapterId = it },
+                onSelectChapter = onSelectChapter,
+                onToggleChapterReadStatus = onToggleChapterReadStatus,
+                onShareChapter = { sharingChapter = it },
+                onDeleteChapterRequest = {
+                    chapterToDelete = it
+                },
+                onMoveChapter = onMoveChapter,
+                modifier = Modifier.weight(1f)
+            )
         }
 
         HorizontalDivider()
@@ -820,117 +338,25 @@ fun LibraryDrawerContent(
             }
         }
 
-        if (novelToDelete != null) {
-            val novel = novelToDelete!!
-            AlertDialog(
-                onDismissRequest = { novelToDelete = null },
-                title = {
-                    Text(
-                        text = "Remove Folder",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+        novelToDelete?.let { novel ->
+            NovelDeleteDialog(
+                novel = novel,
+                onConfirm = { deleteFromDisk ->
+                    onDeleteNovel(novel, deleteFromDisk)
+                    novelToDelete = null
                 },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "Are you sure you want to remove \"${novel.title}\" from the library?",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { deleteFilesFromDisk = !deleteFilesFromDisk }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Checkbox(
-                                checked = deleteFilesFromDisk,
-                                onCheckedChange = { deleteFilesFromDisk = it }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Delete files in memory as well",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (deleteFilesFromDisk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            onDeleteNovel(novel, deleteFilesFromDisk)
-                            novelToDelete = null
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (deleteFilesFromDisk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text("Delete")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { novelToDelete = null }) {
-                        Text("Cancel")
-                    }
-                }
+                onDismiss = { novelToDelete = null }
             )
         }
 
-        if (chapterToDelete != null) {
-            val chapter = chapterToDelete!!
-            AlertDialog(
-                onDismissRequest = { chapterToDelete = null },
-                title = {
-                    Text(
-                        text = "Delete Chapter",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+        chapterToDelete?.let { chapter ->
+            ChapterDeleteDialog(
+                chapter = chapter,
+                onConfirm = { deleteFromDisk ->
+                    onDeleteChapter(chapter, deleteFromDisk)
+                    chapterToDelete = null
                 },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            text = "Are you sure you want to remove \"${chapter.title}\" from this playlist?",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { deleteChapterFromDisk = !deleteChapterFromDisk }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Checkbox(
-                                checked = deleteChapterFromDisk,
-                                onCheckedChange = { deleteChapterFromDisk = it }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Delete file from device storage as well",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (deleteChapterFromDisk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            onDeleteChapter(chapter, deleteChapterFromDisk)
-                            chapterToDelete = null
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (deleteChapterFromDisk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text("Delete")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { chapterToDelete = null }) {
-                        Text("Cancel")
-                    }
-                }
+                onDismiss = { chapterToDelete = null }
             )
         }
 

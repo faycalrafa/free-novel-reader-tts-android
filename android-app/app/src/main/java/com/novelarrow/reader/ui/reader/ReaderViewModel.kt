@@ -2,89 +2,25 @@ package com.novelarrow.reader.ui.reader
 
 import android.app.Application
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.speech.tts.Voice
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.novelarrow.reader.data.model.Chapter
-import com.novelarrow.reader.data.model.Novel
-import com.novelarrow.reader.data.model.Paragraph
-import com.novelarrow.reader.data.model.ReaderSettings
-import com.novelarrow.reader.data.model.ThemeMode
-import com.novelarrow.reader.data.parser.ChapterParser
+import com.novelarrow.reader.data.backup.ExistingConfigsReport
+import com.novelarrow.reader.data.model.*
 import com.novelarrow.reader.data.repository.ChapterSortPreset
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.LibraryUpdateEvent
 import com.novelarrow.reader.data.repository.SettingsRepository
+import com.novelarrow.reader.data.updater.AppUpdateManager
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.PlaybackSource
-import kotlinx.coroutines.Dispatchers
+import com.novelarrow.reader.ui.reader.delegate.*
+import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import com.novelarrow.reader.data.updater.AppUpdateManager
-import com.novelarrow.reader.data.updater.CheckUpdateResult
-import com.novelarrow.reader.data.updater.SignatureCompatibility
-import com.novelarrow.reader.data.updater.UpdateInfo
-import com.novelarrow.reader.data.backup.BackupRestoreManager
-import com.novelarrow.reader.data.backup.ExistingConfigsReport
-import com.novelarrow.reader.data.model.RuleImpact
-import com.novelarrow.reader.data.model.RuleType
-import com.novelarrow.reader.data.model.WebBrowserSettings
-import com.novelarrow.reader.data.repository.UserPreferencesBackup
-import com.novelarrow.reader.util.AppLogger
-import com.novelarrow.reader.util.PermissionUtils
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-
-data class ReaderUiState(
-    val novels: List<Novel> = emptyList(),
-    val archivedNovels: List<Novel> = emptyList(),
-    val currentNovel: Novel? = null,
-    val inspectedNovel: Novel? = null,
-    val chapters: List<Chapter> = emptyList(),
-    val inspectedChapters: List<Chapter> = emptyList(),
-    val currentChapter: Chapter? = null,
-    val paragraphs: List<Paragraph> = emptyList(),
-    val currentParagraphIndex: Int = 0,
-    val isPlaying: Boolean = false,
-    val isLoading: Boolean = false,
-    val isLibraryScanning: Boolean = false,
-    val scanProgress: Float = 0f,
-    val scanCurrentIndex: Int = 0,
-    val scanTotalItems: Int = 0,
-    val scanCurrentItem: String = "",
-    val settings: ReaderSettings = ReaderSettings(),
-    val isTtsDockVisible: Boolean = false,
-    val isAutoLoopActive: Boolean = false,
-    val loopRemaining: Int = 0,
-    val availableVoices: List<Voice> = emptyList(),
-    val sleepTimerMinutes: Int = 0,
-    val sleepTimerRemainingSeconds: Int = 0,
-    val toastMessage: String? = null,
-    val updateInfo: UpdateInfo? = null,
-    val showUpdateDialog: Boolean = false,
-    val isCheckingUpdate: Boolean = false,
-    val isDownloadingUpdate: Boolean = false,
-    val updateProgress: Float = 0f,
-    val updateDownloadedBytes: Long = 0L,
-    val updateTotalBytes: Long = 0L,
-    val downloadedApk: File? = null,
-    val installedVersionName: String = "2.9.0",
-    val showRawEditor: Boolean = false,
-    val rawChapterContent: String? = null,
-    val showSignatureMismatchDialog: Boolean = false,
-    val signatureMismatchInfo: SignatureCompatibility.Mismatch? = null,
-    val showExistingConfigsDialog: Boolean = false,
-    val existingConfigsReport: ExistingConfigsReport? = null,
-    val lastActiveNovelId: String? = null,
-    val flashHandleRed: Boolean = false,
-    val activeRuleImpacts: List<RuleImpact> = emptyList()
-)
 
 class ReaderViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -94,8 +30,75 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
-    private var sleepTimerJob: Job? = null
-    private var downloadJob: Job? = null
+    private var lastResumeRefreshTimeMs = 0L
+
+    // Content Loader
+    private val contentLoader = ReaderContentLoader(
+        scope = viewModelScope,
+        uiState = _uiState,
+        libraryRepository = libraryRepository,
+        playbackDelegateProvider = { playbackDelegate }
+    )
+
+    // Delegates
+    private val settingsDelegate = ReaderSettingsDelegate(
+        application = application,
+        settingsRepository = settingsRepository,
+        scope = viewModelScope,
+        getSettings = { _uiState.value.settings },
+        getCurrentChapter = { _uiState.value.currentChapter },
+        reloadCurrentChapter = { chap -> viewModelScope.launch { contentLoader.loadChapterContent(chap, true) } }
+    )
+
+    private val updateDelegate = ReaderAppUpdateDelegate(
+        application = application,
+        scope = viewModelScope,
+        uiState = _uiState
+    )
+
+    private val playbackDelegate: ReaderPlaybackDelegate = ReaderPlaybackDelegate(
+        application = application,
+        scope = viewModelScope,
+        uiState = _uiState,
+        settingsRepository = settingsRepository,
+        saveCurrentChapterProgress = { contentLoader.saveCurrentChapterProgress() },
+        syncActiveProgress = { novId, chIdx, chId, pIdx, comp ->
+            contentLoader.syncActiveProgress(novId, chIdx, chId, pIdx, comp)
+        },
+        selectChapter = { idx, forceStart -> contentLoader.selectChapter(idx, forceStart) },
+        reloadCurrentChapter = { chap -> viewModelScope.launch { contentLoader.loadChapterContent(chap, true) } }
+    )
+
+    private val novelOpsDelegate: ReaderNovelOperationsDelegate = ReaderNovelOperationsDelegate(
+        application = application,
+        scope = viewModelScope,
+        uiState = _uiState,
+        libraryRepository = libraryRepository,
+        selectNovel = { contentLoader.selectNovel(it) },
+        selectChapter = { contentLoader.selectChapter(it) },
+        refreshCurrentNovelState = { contentLoader.refreshCurrentNovelState(it) }
+    )
+
+    private val backupDelegate = ReaderConfigBackupDelegate(
+        application = application,
+        scope = viewModelScope,
+        uiState = _uiState,
+        settingsRepository = settingsRepository,
+        libraryRepository = libraryRepository,
+        selectNovel = { contentLoader.selectNovel(it) },
+        scanRootFolder = { novelOpsDelegate.scanRootFolder(it) },
+        loadInitialLibrary = { loadInitialLibrary() }
+    )
+
+    private val chapterOpsDelegate = ReaderChapterOperationsDelegate(
+        scope = viewModelScope,
+        uiState = _uiState,
+        libraryRepository = libraryRepository,
+        loadChapterContent = { chap, restore -> viewModelScope.launch { contentLoader.loadChapterContent(chap, restore) } },
+        speakAtParagraph = { playbackDelegate.speakAtParagraph(it) },
+        updatePlaybackServiceNotification = { playbackDelegate.updatePlaybackServiceNotification() },
+        onRefreshLibrary = { novelOpsDelegate.refreshLibrary() }
+    )
 
     init {
         AudioPlaybackCoordinator.initialize(application)
@@ -109,58 +112,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         checkForUpdate(silent = true)
     }
 
-    fun syncActiveProgress(
-        novelId: String? = _uiState.value.currentNovel?.id,
-        chapterIndex: Int,
-        chapterId: String? = null,
-        paragraphIndex: Int = _uiState.value.currentParagraphIndex,
-        isCompleted: Boolean = false
-    ) {
-        if (novelId == null) return
-        _uiState.update { state ->
-            val updatedNovels = state.novels.map { nov ->
-                if (nov.id == novelId) nov.copy(
-                    currentChapterIndex = chapterIndex,
-                    currentChapterId = chapterId ?: nov.currentChapterId
-                ) else nov
-            }
-            val updatedCurrentNovel = if (state.currentNovel?.id == novelId) {
-                state.currentNovel.copy(
-                    currentChapterIndex = chapterIndex,
-                    currentChapterId = chapterId ?: state.currentNovel.currentChapterId
-                )
-            } else {
-                state.currentNovel
-            }
-            val updatedChapters = state.chapters.map { chap ->
-                if ((chapterId != null && chap.id == chapterId) || chap.orderIndex == chapterIndex) {
-                    chap.copy(
-                        lastReadParagraphIndex = paragraphIndex,
-                        isCompleted = isCompleted || chap.isCompleted
-                    )
-                } else chap
-            }
-            val updatedCurrentChapter = if (state.currentChapter != null &&
-                ((chapterId != null && state.currentChapter.id == chapterId) || state.currentChapter.orderIndex == chapterIndex)
-            ) {
-                state.currentChapter.copy(
-                    lastReadParagraphIndex = paragraphIndex,
-                    isCompleted = isCompleted || state.currentChapter.isCompleted
-                )
-            } else {
-                state.currentChapter
-            }
-
-            state.copy(
-                novels = updatedNovels,
-                currentNovel = updatedCurrentNovel,
-                chapters = updatedChapters,
-                currentChapter = updatedCurrentChapter,
-                currentParagraphIndex = paragraphIndex
-            )
-        }
-    }
-
     private fun observePlaybackService() {
         viewModelScope.launch {
             AudioPlaybackCoordinator.playbackProgressState.collect { progress ->
@@ -168,7 +119,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     val curNovel = _uiState.value.currentNovel
                     val isMatchingNovel = curNovel != null && progress.novelId == curNovel.id
                     if (progress.novelId != null) {
-                        syncActiveProgress(
+                        contentLoader.syncActiveProgress(
                             novelId = progress.novelId,
                             chapterIndex = progress.chapterIndex,
                             chapterId = progress.chapterId,
@@ -199,7 +150,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                         currentParagraphIndex = progress.currentParagraphIndex
                                     )
                                 }
-                                loadChapterContent(newChap, restoreProgress = false)
+                                contentLoader.loadChapterContent(newChap, restoreProgress = false)
                             }
                         }
                     } else if (progress.novelId != null) {
@@ -235,11 +186,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             settingsRepository.settingsFlow.collect { settings ->
                 val prevSettings = _uiState.value.settings
-                _uiState.update {
-                    it.copy(
-                        settings = settings
-                    )
-                }
+                _uiState.update { it.copy(settings = settings) }
 
                 val filtersChanged = prevSettings.pronunciationRules != settings.pronunciationRules ||
                         prevSettings.pronunciationRulesEnabled != settings.pronunciationRulesEnabled ||
@@ -252,53 +199,11 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
                 val currentChapter = _uiState.value.currentChapter
                 if (filtersChanged && currentChapter != null && _uiState.value.paragraphs.isNotEmpty()) {
-                    try {
-                        val content = libraryRepository.readChapterContent(currentChapter)
-                        val parseResult = withContext(Dispatchers.Default) {
-                            ChapterParser.parseWithDiagnostics(
-                                content = content,
-                                fileName = currentChapter.title,
-                                contentSelector = settings.contentSelector,
-                                contentSelectorEnabled = settings.contentSelectorEnabled,
-                                pronunciationRules = settings.pronunciationRules,
-                                pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
-                                skipWords = settings.skipWords,
-                                skipWordsEnabled = settings.skipWordsEnabled,
-                                skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
-                                headerSkipString = settings.headerSkipString,
-                                headerSkipEnabled = settings.headerSkipEnabled,
-                                footerSkipString = settings.footerSkipString,
-                                footerSkipEnabled = settings.footerSkipEnabled,
-                                headerSkipRules = settings.headerSkipRules,
-                                footerSkipRules = settings.footerSkipRules,
-                                folderPath = currentChapter.fileUri.ifBlank { _uiState.value.currentNovel?.rootTreeUri },
-                                novelUrl = currentChapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl,
-                                contentSelectors = settings.contentSelectors,
-                                ignoredSelectors = settings.ignoredSelectors
-                            )
-                        }
-                        val rawParagraphs = parseResult.paragraphs
-                        val newParagraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
-                        val safeIndex = _uiState.value.currentParagraphIndex.coerceIn(0, (newParagraphs.size - 1).coerceAtLeast(0))
-                        _uiState.update {
-                            it.copy(
-                                paragraphs = newParagraphs,
-                                currentParagraphIndex = safeIndex,
-                                activeRuleImpacts = parseResult.ruleImpacts
-                            )
-                        }
-                        if (_uiState.value.isPlaying) {
-                            AudioPlaybackCoordinator.updateActiveParagraphs(newParagraphs)
-                        }
-                    } catch (e: Exception) {
-                        com.novelarrow.reader.util.AppLogger.e("ReaderViewModel", "Failed to dynamically re-parse chapter on settings update: ${e.message}", e)
-                    }
+                    contentLoader.loadChapterContent(currentChapter, restoreProgress = true)
                 }
             }
         }
     }
-
-    private var lastResumeRefreshTimeMs = 0L
 
     private fun observeLibraryUpdates() {
         viewModelScope.launch {
@@ -317,22 +222,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 val inspNovel = _uiState.value.inspectedNovel
 
                 when (event) {
-                    is LibraryUpdateEvent.ChapterDownloaded -> {
-                        if (curNovel != null && curNovel.title.equals(event.novelTitle, ignoreCase = true)) {
-                            val updatedNovel = novels.firstOrNull { it.id == curNovel.id } ?: curNovel
-                            refreshCurrentNovelState(updatedNovel)
-                        }
-                        if (inspNovel != null && inspNovel.title.equals(event.novelTitle, ignoreCase = true)) {
-                            val inspectedChaps = libraryRepository.getChapters(inspNovel.id)
-                            _uiState.update { it.copy(inspectedChapters = inspectedChaps) }
-                        }
-                    }
+                    is LibraryUpdateEvent.ChapterDownloaded,
                     is LibraryUpdateEvent.BatchCommitted -> {
-                        if (curNovel != null && curNovel.title.equals(event.novelTitle, ignoreCase = true)) {
+                        val novelTitle = if (event is LibraryUpdateEvent.ChapterDownloaded) event.novelTitle else (event as LibraryUpdateEvent.BatchCommitted).novelTitle
+                        if (curNovel != null && curNovel.title.equals(novelTitle, ignoreCase = true)) {
                             val updatedNovel = novels.firstOrNull { it.id == curNovel.id } ?: curNovel
-                            refreshCurrentNovelState(updatedNovel)
+                            contentLoader.refreshCurrentNovelState(updatedNovel)
                         }
-                        if (inspNovel != null && inspNovel.title.equals(event.novelTitle, ignoreCase = true)) {
+                        if (inspNovel != null && inspNovel.title.equals(novelTitle, ignoreCase = true)) {
                             val inspectedChaps = libraryRepository.getChapters(inspNovel.id)
                             _uiState.update { it.copy(inspectedChapters = inspectedChaps) }
                         }
@@ -342,7 +239,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                         if (curNovel != null) {
                             val updatedNovel = novels.firstOrNull { it.id == curNovel.id }
                             if (updatedNovel != null) {
-                                refreshCurrentNovelState(updatedNovel)
+                                contentLoader.refreshCurrentNovelState(updatedNovel)
                             }
                         }
                         if (inspNovel != null) {
@@ -352,24 +249,6 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     }
                 }
             }
-        }
-    }
-
-    private suspend fun refreshCurrentNovelState(updatedNovel: Novel) {
-        val chapters = libraryRepository.getChapters(updatedNovel.id)
-        val curChap = _uiState.value.currentChapter
-        val newCurrentChap = if (curChap != null) {
-            chapters.firstOrNull { it.id == curChap.id } ?: chapters.getOrNull(updatedNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0)))
-        } else {
-            chapters.getOrNull(updatedNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0)))
-        }
-
-        _uiState.update {
-            it.copy(
-                currentNovel = updatedNovel,
-                chapters = chapters,
-                currentChapter = newCurrentChap ?: it.currentChapter
-            )
         }
     }
 
@@ -395,7 +274,7 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                 _uiState.value.currentNovel?.let { cur ->
                     val updated = refreshedNovels.firstOrNull { it.id == cur.id }
                     if (updated != null) {
-                        refreshCurrentNovelState(updated)
+                        contentLoader.refreshCurrentNovelState(updated)
                     }
                 }
             } catch (e: Exception) {
@@ -422,1638 +301,144 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun checkForExistingConfigs(force: Boolean = false, onComplete: (Boolean) -> Unit = {}) {
-        viewModelScope.launch {
-            val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
-            val alreadyHandled = prefs.getBoolean("has_handled_existing_configs", false)
-            if (!force && alreadyHandled) {
-                onComplete(false)
-                return@launch
-            }
-            val report = BackupRestoreManager.detectExistingConfigs(getApplication())
-            if (report.hasConfigs) {
-                _uiState.update {
-                    it.copy(
-                        showExistingConfigsDialog = true,
-                        existingConfigsReport = report
-                    )
-                }
-                onComplete(true)
-            } else {
-                onComplete(false)
-            }
-        }
-    }
-
-    fun restoreExistingConfigs(report: ExistingConfigsReport) {
-        viewModelScope.launch {
-            val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
-            _uiState.update { it.copy(showExistingConfigsDialog = false, isLoading = true) }
-            BackupRestoreManager.restoreAllData(
-                getApplication(),
-                report,
-                settingsRepository,
-                libraryRepository
-            )
-            val novels = libraryRepository.getNovels()
-            val target = novels.firstOrNull { it.id == report.libraryBackup?.lastActiveNovelId } ?: novels.firstOrNull()
-            _uiState.update {
-                it.copy(
-                    novels = novels,
-                    isLoading = false,
-                    toastMessage = "Restored preferences and reading progress."
-                )
-            }
-            if (target != null) {
-                selectNovel(target)
-            }
-        }
-    }
-
-    fun refuseAndDeleteExistingConfigs(report: ExistingConfigsReport) {
-        viewModelScope.launch {
-            val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
-            _uiState.update { it.copy(showExistingConfigsDialog = false, isLoading = true) }
-            BackupRestoreManager.deleteAllHiddenConfigs(getApplication(), report)
-            // Reset to defaults
-            val defaultSettings = ReaderSettings()
-            val defaultBrowser = WebBrowserSettings()
-            settingsRepository.applyRestoredBackup(
-                UserPreferencesBackup(
-                    readerSettings = defaultSettings,
-                    browserSettings = defaultBrowser
-                )
-            )
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    toastMessage = "Saved backup files deleted. Starting fresh."
-                )
-            }
-            loadInitialLibrary()
-        }
-    }
-
-    fun skipExistingConfigs() {
-        val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("has_handled_existing_configs", true).apply()
-        _uiState.update { it.copy(showExistingConfigsDialog = false) }
-        loadInitialLibrary()
-    }
-
-    fun refreshLibrary(targetNovelId: String? = null) {
-        viewModelScope.launch {
-            try {
-                _uiState.update { it.copy(isLoading = true) }
-                val allNovels = libraryRepository.refreshEntireLibrary()
-                val unarchivedNovels = allNovels.filter { !it.isArchived }
-                val archivedNovels = libraryRepository.getArchivedNovels()
-
-                val current = _uiState.value.currentNovel
-                val updatedCurrent = if (current != null) {
-                    allNovels.firstOrNull { it.id == current.id } ?: current
-                } else null
-
-                val updatedChapters = if (updatedCurrent != null) {
-                    libraryRepository.getChapters(updatedCurrent.id)
-                } else {
-                    _uiState.value.chapters
-                }
-
-                val currentChap = _uiState.value.currentChapter
-                val updatedChap = if (currentChap != null && updatedChapters.isNotEmpty()) {
-                    updatedChapters.firstOrNull { it.id == currentChap.id }
-                        ?: updatedChapters.firstOrNull { it.title.equals(currentChap.title, ignoreCase = true) }
-                        ?: updatedChapters.getOrNull(updatedCurrent?.currentChapterIndex ?: 0)
-                } else {
-                    updatedChapters.getOrNull(updatedCurrent?.currentChapterIndex ?: 0)
-                }
-
-                _uiState.update {
-                    it.copy(
-                        novels = unarchivedNovels,
-                        archivedNovels = archivedNovels,
-                        currentNovel = updatedCurrent,
-                        chapters = updatedChapters,
-                        currentChapter = updatedChap,
-                        isLoading = false
-                    )
-                }
-
-                if (targetNovelId != null) {
-                    val target = unarchivedNovels.firstOrNull { it.id == targetNovelId }
-                    if (target != null) {
-                        selectNovel(target)
-                    }
-                } else if (_uiState.value.currentNovel == null && unarchivedNovels.isNotEmpty()) {
-                    selectNovel(unarchivedNovels.first())
-                }
-            } catch (e: Exception) {
-                com.novelarrow.reader.util.AppLogger.e("ReaderViewModel", "Error during library refresh: ${e.message}", e)
-                _uiState.update { it.copy(isLoading = false) }
-            }
-        }
-    }
-
-    fun checkAndImportDefaultDownloadFolderOnFirstLaunch() {
-        val hasPermission = PermissionUtils.hasStoragePermission(getApplication())
-        if (!hasPermission) return // Don't consume first launch check if permission is not yet granted
-
-        val prefs = getApplication<Application>().getSharedPreferences("novel_reader_prefs", Context.MODE_PRIVATE)
-        val alreadyChecked = prefs.getBoolean("has_checked_default_novelreader_folder", false)
-        if (alreadyChecked) return
-
-        val candidateDirs = BackupRestoreManager.getNovelReaderRoots(getApplication())
-
-        for (dir in candidateDirs) {
-            if (dir.exists() && dir.isDirectory) {
-                val hasChapters = hasAnySupportedChapters(dir)
-                if (hasChapters) {
-                    prefs.edit().putBoolean("has_checked_default_novelreader_folder", true).apply()
-                    scanRootFolder(Uri.fromFile(dir))
-                    return
-                }
-            }
-        }
-        prefs.edit().putBoolean("has_checked_default_novelreader_folder", true).apply()
-    }
-
-    private fun hasAnySupportedChapters(dir: File): Boolean {
-        return try {
-            val files = dir.listFiles() ?: return false
-            files.any { file ->
-                if (file.isDirectory) {
-                    val subFiles = file.listFiles() ?: emptyArray()
-                    subFiles.any { it.isFile && libraryRepository.isSupported(it.name) }
-                } else {
-                    file.isFile && libraryRepository.isSupported(file.name)
-                }
-            }
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    fun openRawChapterEditor() {
-        val chapter = _uiState.value.currentChapter ?: return
-        viewModelScope.launch {
-            try {
-                val content = libraryRepository.readChapterContent(chapter)
-                _uiState.update {
-                    it.copy(
-                        rawChapterContent = content,
-                        showRawEditor = true
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(toastMessage = "Error loading raw chapter: ${e.message}") }
-            }
-        }
-    }
-
-    fun dismissRawEditor() {
-        _uiState.update { it.copy(showRawEditor = false, rawChapterContent = null) }
-    }
-
-    fun saveRawChapterContent(newContent: String) {
-        val chapter = _uiState.value.currentChapter ?: return
-        viewModelScope.launch {
-            val success = libraryRepository.saveChapterContent(chapter, newContent)
-            if (success) {
-                _uiState.update {
-                    it.copy(
-                        toastMessage = "Saved chapter changes successfully",
-                        showRawEditor = false,
-                        rawChapterContent = null
-                    )
-                }
-                loadChapterContent(chapter, restoreProgress = true)
-            } else {
-                _uiState.update { it.copy(toastMessage = "Failed to save chapter content") }
-            }
-        }
-    }
-
-    fun scanRootFolder(treeUri: Uri) {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isLibraryScanning = true,
-                    scanProgress = 0f,
-                    scanCurrentIndex = 0,
-                    scanTotalItems = 0,
-                    scanCurrentItem = "Accessing folder..."
-                )
-            }
-            try {
-                try {
-                    val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                    getApplication<Application>().contentResolver.takePersistableUriPermission(treeUri, flags)
-                } catch (_: Exception) {
-                    try {
-                        getApplication<Application>().contentResolver.takePersistableUriPermission(
-                            treeUri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        )
-                    } catch (_: Exception) {}
-                }
-
-                val novels = libraryRepository.scanRootDirectory(treeUri) { current, total, name ->
-                    val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
-                    _uiState.update {
-                        it.copy(
-                            scanProgress = progress.coerceIn(0f, 1f),
-                            scanCurrentIndex = current,
-                            scanTotalItems = total,
-                            scanCurrentItem = name
-                        )
-                    }
-                }
-
-                _uiState.update {
-                    it.copy(
-                        novels = novels,
-                        isLibraryScanning = false,
-                        toastMessage = if (novels.isNotEmpty()) {
-                            "Loaded ${novels.size} playlists from folder"
-                        } else {
-                            "No supported chapters found in selected folder."
-                        }
-                    )
-                }
-                if (novels.isNotEmpty()) {
-                    selectNovel(novels.first())
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                _uiState.update {
-                    it.copy(
-                        isLibraryScanning = false,
-                        toastMessage = "Error importing folder: ${e.message}"
-                    )
-                }
-            }
-        }
-    }
-
-    fun loadSampleNovel() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
-            val sampleNovel = libraryRepository.createAndLoadSampleNovel()
-            val novels = libraryRepository.getNovels()
-            _uiState.update {
-                it.copy(
-                    novels = novels,
-                    isLoading = false,
-                    toastMessage = "Loaded sample: Introduction to Quantum Mechanics"
-                )
-            }
-            selectNovel(sampleNovel)
-        }
-    }
-
-    fun inspectNovel(novel: Novel) {
-        viewModelScope.launch {
-            try {
-                val chapters = libraryRepository.getChapters(novel.id)
-                _uiState.update {
-                    it.copy(
-                        inspectedNovel = novel,
-                        inspectedChapters = chapters
-                    )
-                }
-            } catch (e: Exception) {
-                com.novelarrow.reader.util.AppLogger.e("ReaderViewModel", "Failed to inspect novel ${novel.title}: ${e.message}", e)
-            }
-        }
-    }
-
-    fun selectChapterFromInspected(index: Int) {
-        val novel = _uiState.value.inspectedNovel
-        val chapters = _uiState.value.inspectedChapters
-        if (novel != null && chapters.isNotEmpty() && index in chapters.indices) {
-            _uiState.update {
-                it.copy(
-                    currentNovel = novel,
-                    chapters = chapters
-                )
-            }
-            selectChapter(index)
-        } else {
-            selectChapter(index)
-        }
+    // Content & Navigation facade
+    fun syncActiveProgress(
+        novelId: String? = _uiState.value.currentNovel?.id,
+        chapterIndex: Int,
+        chapterId: String? = null,
+        paragraphIndex: Int = _uiState.value.currentParagraphIndex,
+        isCompleted: Boolean = false
+    ) {
+        contentLoader.syncActiveProgress(novelId, chapterIndex, chapterId, paragraphIndex, isCompleted)
     }
 
     fun selectNovel(novel: Novel) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, lastActiveNovelId = novel.id) }
-            val freshNovel = libraryRepository.getNovel(novel.id) ?: novel
-            _uiState.update { it.copy(currentNovel = freshNovel) }
-            val chapters = libraryRepository.getChapters(freshNovel.id)
-            val activeProgress = AudioPlaybackCoordinator.playbackProgressState.value
-            val isPlayingThisNovel = activeProgress.source == PlaybackSource.READER && activeProgress.novelId == freshNovel.id
-            val chapterIdx = if (isPlayingThisNovel && activeProgress.chapterIndex in chapters.indices) {
-                activeProgress.chapterIndex
-            } else if (freshNovel.currentChapterId != null) {
-                val idx = chapters.indexOfFirst { it.id == freshNovel.currentChapterId }
-                if (idx >= 0) idx else freshNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
-            } else {
-                freshNovel.currentChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
-            }
-            val currentChapter = chapters.getOrNull(chapterIdx)
-
-            _uiState.update {
-                it.copy(
-                    chapters = chapters,
-                    currentChapter = currentChapter,
-                    isLoading = false
-                )
-            }
-
-            if (currentChapter != null) {
-                loadChapterContent(currentChapter, restoreProgress = true)
-            }
-        }
-    }
-
-    fun saveCurrentChapterProgress() {
-        val novel = _uiState.value.currentNovel ?: return
-        val chapter = _uiState.value.currentChapter ?: return
-        val currentIdx = _uiState.value.currentParagraphIndex
-        val total = _uiState.value.paragraphs.size
-        val isCompleted = total > 0 && currentIdx >= total - 1
-
-        syncActiveProgress(
-            novelId = novel.id,
-            chapterIndex = chapter.orderIndex,
-            chapterId = chapter.id,
-            paragraphIndex = currentIdx,
-            isCompleted = isCompleted
-        )
-
-        viewModelScope.launch {
-            libraryRepository.updateChapterProgress(
-                novelId = novel.id,
-                chapterIndex = chapter.orderIndex,
-                paragraphIndex = currentIdx,
-                scrollOffset = 0,
-                isCompleted = isCompleted
-            )
-        }
+        contentLoader.selectNovel(novel)
     }
 
     fun selectChapter(index: Int, forceStartAtBeginning: Boolean = false) {
-        val currentChaps = _uiState.value.chapters
-        if (index !in currentChaps.indices) return
-        val wasPlaying = _uiState.value.isPlaying
-
-        if (wasPlaying) {
-            AudioPlaybackCoordinator.pause()
-        }
-
-        val currentChap = _uiState.value.currentChapter
-        if (currentChap != null && currentChap.orderIndex != index) {
-            saveCurrentChapterProgress()
-        }
-
-        val chapters = _uiState.value.chapters
-        val chapter = chapters[index]
-
-        val curNovel = _uiState.value.currentNovel
-        if (curNovel != null) {
-            syncActiveProgress(
-                novelId = curNovel.id,
-                chapterIndex = index,
-                chapterId = chapter.id,
-                paragraphIndex = if (forceStartAtBeginning) 0 else chapter.lastReadParagraphIndex
-            )
-        }
-
-        viewModelScope.launch {
-            loadChapterContent(chapter, restoreProgress = !forceStartAtBeginning)
-            if (wasPlaying) {
-                val startPara = if (forceStartAtBeginning) 0 else _uiState.value.currentParagraphIndex
-                speakAtParagraph(startPara)
-            }
-        }
-    }
-
-    private suspend fun loadChapterContent(chapter: Chapter, restoreProgress: Boolean) {
-        _uiState.update { it.copy(isLoading = true, currentChapter = chapter) }
-        try {
-            val content = libraryRepository.readChapterContent(chapter)
-            val settings = _uiState.value.settings
-            val parseResult = withContext(Dispatchers.Default) {
-                ChapterParser.parseWithDiagnostics(
-                    content = content,
-                    fileName = chapter.title,
-                    contentSelector = settings.contentSelector,
-                    contentSelectorEnabled = settings.contentSelectorEnabled,
-                    pronunciationRules = settings.pronunciationRules,
-                    pronunciationRulesEnabled = settings.pronunciationRulesEnabled,
-                    skipWords = settings.skipWords,
-                    skipWordsEnabled = settings.skipWordsEnabled,
-                    skipWordsIgnoreSymbols = settings.skipWordsIgnoreSymbols,
-                    headerSkipString = settings.headerSkipString,
-                    headerSkipEnabled = settings.headerSkipEnabled,
-                    footerSkipString = settings.footerSkipString,
-                    footerSkipEnabled = settings.footerSkipEnabled,
-                    headerSkipRules = settings.headerSkipRules,
-                    footerSkipRules = settings.footerSkipRules,
-                    folderPath = chapter.fileUri.ifBlank { _uiState.value.currentNovel?.rootTreeUri },
-                    novelUrl = chapter.webSourceUrl ?: _uiState.value.currentNovel?.webUrl,
-                    contentSelectors = settings.contentSelectors,
-                    ignoredSelectors = settings.ignoredSelectors
-                )
-            }
-            val rawParagraphs = parseResult.paragraphs
-            val paragraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
-
-            val novel = _uiState.value.currentNovel
-            val activeProgress = AudioPlaybackCoordinator.playbackProgressState.value
-            val isPlayingThisChapter = activeProgress.source == PlaybackSource.READER &&
-                activeProgress.novelId == novel?.id &&
-                (activeProgress.chapterId == chapter.id || activeProgress.chapterIndex == chapter.orderIndex)
-
-            val targetIndex = if (isPlayingThisChapter) {
-                activeProgress.currentParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
-            } else if (restoreProgress) {
-                chapter.lastReadParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
-            } else {
-                0
-            }
-
-            if (novel != null) {
-                syncActiveProgress(
-                    novelId = novel.id,
-                    chapterIndex = chapter.orderIndex,
-                    chapterId = chapter.id,
-                    paragraphIndex = targetIndex,
-                    isCompleted = chapter.isCompleted
-                )
-            }
-
-            _uiState.update {
-                it.copy(
-                    paragraphs = paragraphs,
-                    currentParagraphIndex = targetIndex,
-                    isLoading = false,
-                    activeRuleImpacts = parseResult.ruleImpacts
-                )
-            }
-
-            if (novel != null && !isPlayingThisChapter) {
-                libraryRepository.updateChapterProgress(
-                    novelId = novel.id,
-                    chapterIndex = chapter.orderIndex,
-                    paragraphIndex = targetIndex,
-                    scrollOffset = chapter.lastScrollOffset,
-                    isCompleted = chapter.isCompleted
-                )
-            }
-            updatePlaybackServiceNotification()
-        } catch (e: Exception) {
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
-                    toastMessage = "Failed to load chapter: ${e.message}"
-                )
-            }
-        }
-    }
-
-    fun playTts() {
-        val state = _uiState.value
-        val novel = state.currentNovel ?: return
-        val chapter = state.currentChapter ?: return
-        val paragraphs = state.paragraphs
-        val readableParagraphs = paragraphs.filter { it.spokenText.isNotBlank() }
-        if (readableParagraphs.isEmpty()) {
-            _uiState.update {
-                it.copy(
-                    flashHandleRed = true,
-                    isTtsDockVisible = true,
-                    toastMessage = "No text detected. Check if filters or selectors are misconfigured."
-                )
-            }
-            return
-        }
-
-        _uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true, flashHandleRed = false) }
-
-        AudioPlaybackCoordinator.playReaderChapter(
-            context = getApplication(),
-            novelId = novel.id,
-            novelTitle = novel.title,
-            chapterId = chapter.id,
-            chapterTitle = chapter.title,
-            chapterIndex = chapter.orderIndex,
-            totalChapters = state.chapters.size,
-            paragraphs = readableParagraphs,
-            startParagraphIndex = state.currentParagraphIndex.coerceIn(0, readableParagraphs.size - 1),
-            autoNext = state.settings.autoNextChapter || state.isAutoLoopActive,
-            rate = state.settings.speechRate,
-            pitch = state.settings.speechPitch,
-            voiceName = state.settings.selectedVoiceName,
-            isPreMerged = true
-        )
-    }
-
-    fun resetFlashHandleRed() {
-        _uiState.update { it.copy(flashHandleRed = false) }
-    }
-
-    fun toggleActiveRule(rule: RuleImpact, enabled: Boolean) {
-        viewModelScope.launch {
-            when (rule.ruleType) {
-                RuleType.CONTENT_CONTAINER, RuleType.CONTENT_SELECTOR -> {
-                    settingsRepository.toggleContentSelector(rule.id, enabled)
-                }
-                RuleType.IGNORED_SELECTOR -> {
-                    val cleanSel = rule.name
-                    if (enabled) {
-                        settingsRepository.addBrowserIgnoredSelector(cleanSel)
-                    } else {
-                        settingsRepository.removeBrowserIgnoredSelector(cleanSel)
-                    }
-                }
-                RuleType.SKIP_WORD -> {
-                    settingsRepository.toggleSkipWord(rule.id, enabled)
-                }
-                RuleType.PRONUNCIATION -> {
-                    settingsRepository.togglePronunciationRule(rule.id, enabled)
-                }
-                RuleType.HEADER_SKIP -> {
-                    settingsRepository.setHeaderSkipEnabled(enabled)
-                }
-                RuleType.FOOTER_SKIP -> {
-                    settingsRepository.setFooterSkipEnabled(enabled)
-                }
-            }
-            val currentChap = _uiState.value.currentChapter
-            if (currentChap != null) {
-                loadChapterContent(currentChap, restoreProgress = true)
-            }
-        }
-    }
-
-    fun pauseTts() {
-        AudioPlaybackCoordinator.pause()
-        _uiState.update { it.copy(isPlaying = false) }
-    }
-
-    fun togglePlayPause() {
-        if (_uiState.value.isPlaying) pauseTts() else playTts()
-    }
-
-    fun stopTts() {
-        AudioPlaybackCoordinator.stop()
-        _uiState.update { it.copy(isPlaying = false, isTtsDockVisible = false) }
-    }
-
-    fun setSleepTimer(minutes: Int) {
-        AudioPlaybackCoordinator.setSleepTimer(minutes)
-    }
-
-    fun seekToParagraph(index: Int) {
-        speakAtParagraph(index)
-    }
-
-    fun speakAtParagraph(index: Int) {
-        val total = _uiState.value.paragraphs.size
-        if (index !in 0 until total) return
-        val state = _uiState.value
-        val novel = state.currentNovel ?: return
-        val chapter = state.currentChapter ?: return
-
-        _uiState.update { it.copy(currentParagraphIndex = index, isPlaying = true, isTtsDockVisible = true) }
-
-        val progress = AudioPlaybackCoordinator.playbackProgressState.value
-        if (progress.source == PlaybackSource.READER &&
-            progress.novelId == novel.id &&
-            progress.chapterId == chapter.id
-        ) {
-            AudioPlaybackCoordinator.seekToParagraph(index)
-        } else {
-            AudioPlaybackCoordinator.playReaderChapter(
-                context = getApplication(),
-                novelId = novel.id,
-                novelTitle = novel.title,
-                chapterId = chapter.id,
-                chapterTitle = chapter.title,
-                chapterIndex = chapter.orderIndex,
-                totalChapters = state.chapters.size,
-                paragraphs = state.paragraphs,
-                startParagraphIndex = index,
-                autoNext = state.settings.autoNextChapter || state.isAutoLoopActive,
-                rate = state.settings.speechRate,
-                pitch = state.settings.speechPitch,
-                voiceName = state.settings.selectedVoiceName,
-                isPreMerged = true
-            )
-        }
-    }
-
-    fun nextParagraph() {
-        val current = _uiState.value.currentParagraphIndex
-        val total = _uiState.value.paragraphs.size
-        if (current + 1 < total) {
-            if (_uiState.value.isPlaying) {
-                AudioPlaybackCoordinator.nextParagraph()
-            } else {
-                speakAtParagraph(current + 1)
-            }
-        } else {
-            nextChapter()
-        }
-    }
-
-    fun previousParagraph() {
-        val current = _uiState.value.currentParagraphIndex
-        if (current - 1 >= 0) {
-            if (_uiState.value.isPlaying) {
-                AudioPlaybackCoordinator.previousParagraph()
-            } else {
-                speakAtParagraph(current - 1)
-            }
-        }
-    }
-
-    fun nextChapter() {
-        saveCurrentChapterProgress()
-        val chapters = _uiState.value.chapters
-        val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
-        if (currentIdx + 1 < chapters.size) {
-            val nextIdx = currentIdx + 1
-            val novel = _uiState.value.currentNovel
-            if (novel != null && nextIdx in chapters.indices) {
-                syncActiveProgress(
-                    novelId = novel.id,
-                    chapterIndex = nextIdx,
-                    chapterId = chapters[nextIdx].id,
-                    paragraphIndex = chapters[nextIdx].lastReadParagraphIndex
-                )
-            }
-            if (_uiState.value.isPlaying) {
-                AudioPlaybackCoordinator.nextChapter()
-            } else {
-                selectChapter(nextIdx, forceStartAtBeginning = false)
-            }
-        } else {
-            _uiState.update { it.copy(toastMessage = "End of novel reached") }
-            stopTts()
-        }
-    }
-
-    fun previousChapter() {
-        saveCurrentChapterProgress()
-        val chapters = _uiState.value.chapters
-        val currentIdx = _uiState.value.currentChapter?.orderIndex ?: 0
-        if (currentIdx - 1 >= 0) {
-            val prevIdx = currentIdx - 1
-            val novel = _uiState.value.currentNovel
-            if (novel != null && prevIdx in chapters.indices) {
-                syncActiveProgress(
-                    novelId = novel.id,
-                    chapterIndex = prevIdx,
-                    chapterId = chapters[prevIdx].id,
-                    paragraphIndex = chapters[prevIdx].lastReadParagraphIndex
-                )
-            }
-            if (_uiState.value.isPlaying) {
-                AudioPlaybackCoordinator.previousChapter()
-            } else {
-                selectChapter(prevIdx, forceStartAtBeginning = false)
-            }
-        }
-    }
-
-    fun toggleAutoLoop() {
-        _uiState.update {
-            val next = !it.isAutoLoopActive
-            it.copy(
-                isAutoLoopActive = next,
-                loopRemaining = if (next) it.settings.loopCount else 0,
-                toastMessage = if (next) "Auto-next loop active" else "Auto-next loop stopped"
-            )
-        }
-    }
-
-    fun toggleTtsDock() {
-        _uiState.update { it.copy(isTtsDockVisible = !it.isTtsDockVisible) }
-    }
-
-    fun deleteNovel(novelId: String, deleteFilesFromDisk: Boolean = false) {
-        val isCurrent = _uiState.value.currentNovel?.id == novelId
-        if (isCurrent) {
-            AudioPlaybackCoordinator.stop()
-        }
-        viewModelScope.launch {
-            val targetNovelTitle = _uiState.value.novels.firstOrNull { it.id == novelId }?.title
-                ?: _uiState.value.archivedNovels.firstOrNull { it.id == novelId }?.title
-                ?: "Folder"
-
-            libraryRepository.deleteNovel(novelId, deleteFilesFromDisk)
-
-            val remainingNovels = libraryRepository.getNovels()
-            val remainingArchived = libraryRepository.getArchivedNovels()
-            val isInspected = _uiState.value.inspectedNovel?.id == novelId
-
-            if (isCurrent) {
-                if (remainingNovels.isNotEmpty()) {
-                    val nextNovel = remainingNovels.first()
-                    _uiState.update {
-                        it.copy(
-                            novels = remainingNovels,
-                            archivedNovels = remainingArchived,
-                            inspectedNovel = if (isInspected) null else it.inspectedNovel,
-                            inspectedChapters = if (isInspected) emptyList() else it.inspectedChapters,
-                            toastMessage = "Removed folder: $targetNovelTitle"
-                        )
-                    }
-                    selectNovel(nextNovel)
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            novels = emptyList(),
-                            archivedNovels = remainingArchived,
-                            currentNovel = null,
-                            chapters = emptyList(),
-                            currentChapter = null,
-                            paragraphs = emptyList(),
-                            currentParagraphIndex = 0,
-                            isPlaying = false,
-                            inspectedNovel = null,
-                            inspectedChapters = emptyList(),
-                            toastMessage = "Library is now empty."
-                        )
-                    }
-                }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        novels = remainingNovels,
-                        archivedNovels = remainingArchived,
-                        inspectedNovel = if (isInspected) null else it.inspectedNovel,
-                        inspectedChapters = if (isInspected) emptyList() else it.inspectedChapters,
-                        toastMessage = "Removed folder: $targetNovelTitle"
-                    )
-                }
-            }
-        }
-    }
-
-    fun archiveNovel(novel: Novel) {
-        val wasPlaying = _uiState.value.isPlaying
-        val isCurrent = _uiState.value.currentNovel?.id == novel.id
-        if (isCurrent && wasPlaying) {
-            AudioPlaybackCoordinator.pause()
-        }
-        val isInspected = _uiState.value.inspectedNovel?.id == novel.id
-        if (isInspected) {
-            _uiState.update { it.copy(inspectedNovel = null, inspectedChapters = emptyList()) }
-        }
-        viewModelScope.launch {
-            libraryRepository.archiveNovel(novel.id)
-            refreshLibrary()
-            _uiState.update { it.copy(toastMessage = "Archived '${novel.title}'") }
-        }
-    }
-
-    fun restoreNovel(novel: Novel) {
-        viewModelScope.launch {
-            libraryRepository.restoreNovel(novel.id)
-            refreshLibrary(targetNovelId = novel.id)
-            _uiState.update { it.copy(toastMessage = "Restored '${novel.title}' to library") }
-        }
-    }
-
-    fun updateNovelTitle(novelId: String, newTitle: String) {
-        viewModelScope.launch {
-            libraryRepository.updateNovelTitle(novelId, newTitle)
-            val isInspected = _uiState.value.inspectedNovel?.id == novelId
-            val isCurrent = _uiState.value.currentNovel?.id == novelId
-            val updatedNovels = libraryRepository.getNovels()
-            val target = updatedNovels.firstOrNull { it.id == novelId }
-            _uiState.update {
-                it.copy(
-                    novels = updatedNovels,
-                    currentNovel = if (isCurrent && target != null) target else it.currentNovel,
-                    inspectedNovel = if (isInspected && target != null) target else it.inspectedNovel
-                )
-            }
-        }
-    }
-
-    suspend fun getArchivedChapters(novelId: String): List<Chapter> {
-        return libraryRepository.getChapters(novelId)
-    }
-
-    suspend fun deleteArchivedChapter(novelId: String, chapter: Chapter, deleteFromDisk: Boolean = false): List<Chapter> {
-        val (_, updatedChapters) = libraryRepository.deleteChapter(
-            novelId = novelId,
-            chapterId = chapter.id,
-            deleteFromDisk = deleteFromDisk
-        )
-        refreshLibrary()
-        return updatedChapters
-    }
-
-    fun deleteChapter(chapter: Chapter, deleteFromDisk: Boolean = false) {
-        val targetNovelId = chapter.novelId
-        val wasPlaying = _uiState.value.isPlaying
-        val isDeletingCurrent = _uiState.value.currentChapter?.id == chapter.id && _uiState.value.currentNovel?.id == targetNovelId
-
-        if (isDeletingCurrent && wasPlaying) {
-            AudioPlaybackCoordinator.pause()
-        }
-
-        viewModelScope.launch {
-            val (updatedNovel, updatedChapters) = libraryRepository.deleteChapter(
-                novelId = targetNovelId,
-                chapterId = chapter.id,
-                deleteFromDisk = deleteFromDisk
-            )
-
-            val updatedNovels = _uiState.value.novels.map { nov ->
-                if (nov.id == targetNovelId && updatedNovel != null) updatedNovel else nov
-            }
-
-            val isTargetCurrentNovel = _uiState.value.currentNovel?.id == targetNovelId
-            val isTargetInspectedNovel = _uiState.value.inspectedNovel?.id == targetNovelId
-
-            if (isDeletingCurrent && isTargetCurrentNovel) {
-                if (updatedChapters.isNotEmpty()) {
-                    val nextIdx = chapter.orderIndex.coerceIn(0, updatedChapters.size - 1)
-                    val nextChapter = updatedChapters[nextIdx]
-                    _uiState.update {
-                        it.copy(
-                            novels = updatedNovels,
-                            currentNovel = updatedNovel ?: it.currentNovel,
-                            chapters = updatedChapters,
-                            currentChapter = nextChapter,
-                            inspectedNovel = if (isTargetInspectedNovel) updatedNovel ?: it.inspectedNovel else it.inspectedNovel,
-                            inspectedChapters = if (isTargetInspectedNovel) updatedChapters else it.inspectedChapters,
-                            toastMessage = "Deleted chapter: ${chapter.title}"
-                        )
-                    }
-                    loadChapterContent(nextChapter, restoreProgress = false)
-                    if (wasPlaying) {
-                        speakAtParagraph(0)
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            novels = updatedNovels,
-                            currentNovel = updatedNovel ?: it.currentNovel,
-                            chapters = emptyList(),
-                            currentChapter = null,
-                            paragraphs = emptyList(),
-                            isPlaying = false,
-                            inspectedNovel = if (isTargetInspectedNovel) updatedNovel ?: it.inspectedNovel else it.inspectedNovel,
-                            inspectedChapters = if (isTargetInspectedNovel) emptyList() else it.inspectedChapters,
-                            toastMessage = "Deleted last chapter of novel."
-                        )
-                    }
-                    AudioPlaybackCoordinator.stop()
-                }
-            } else {
-                val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = if (isTargetCurrentNovel) {
-                    updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
-                } else currentChap
-                _uiState.update {
-                    it.copy(
-                        novels = updatedNovels,
-                        currentNovel = if (isTargetCurrentNovel) updatedNovel ?: it.currentNovel else it.currentNovel,
-                        chapters = if (isTargetCurrentNovel) updatedChapters else it.chapters,
-                        currentChapter = refreshedCurrentChap,
-                        inspectedNovel = if (isTargetInspectedNovel) updatedNovel ?: it.inspectedNovel else it.inspectedNovel,
-                        inspectedChapters = if (isTargetInspectedNovel) updatedChapters else it.inspectedChapters,
-                        toastMessage = "Deleted chapter: ${chapter.title}"
-                    )
-                }
-                if (isTargetCurrentNovel) {
-                    updatePlaybackServiceNotification()
-                }
-            }
-        }
-    }
-
-    fun moveChapter(fromIndex: Int, toIndex: Int) {
-        val targetNovel = _uiState.value.inspectedNovel ?: _uiState.value.currentNovel ?: return
-        viewModelScope.launch {
-            val (updatedNovel, updatedChapters) = libraryRepository.reorderChapters(
-                novelId = targetNovel.id,
-                fromIndex = fromIndex,
-                toIndex = toIndex
-            )
-            if (updatedNovel != null) {
-                val updatedNovels = _uiState.value.novels.map { nov ->
-                    if (nov.id == targetNovel.id) updatedNovel else nov
-                }
-                val isCurrent = _uiState.value.currentNovel?.id == targetNovel.id
-                val isInspected = _uiState.value.inspectedNovel?.id == targetNovel.id
-                val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = if (isCurrent) {
-                    updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
-                } else currentChap
-                _uiState.update {
-                    it.copy(
-                        novels = updatedNovels,
-                        currentNovel = if (isCurrent) updatedNovel else it.currentNovel,
-                        chapters = if (isCurrent) updatedChapters else it.chapters,
-                        currentChapter = refreshedCurrentChap,
-                        inspectedNovel = if (isInspected) updatedNovel else it.inspectedNovel,
-                        inspectedChapters = if (isInspected) updatedChapters else it.inspectedChapters
-                    )
-                }
-                if (isCurrent) {
-                    updatePlaybackServiceNotification()
-                }
-            }
-        }
-    }
-
-    fun sortChapters(preset: ChapterSortPreset) {
-        val targetNovel = _uiState.value.inspectedNovel ?: _uiState.value.currentNovel ?: return
-        viewModelScope.launch {
-            val (updatedNovel, updatedChapters) = libraryRepository.sortChapters(
-                novelId = targetNovel.id,
-                preset = preset
-            )
-            if (updatedNovel != null) {
-                val updatedNovels = _uiState.value.novels.map { nov ->
-                    if (nov.id == targetNovel.id) updatedNovel else nov
-                }
-                val isCurrent = _uiState.value.currentNovel?.id == targetNovel.id
-                val isInspected = _uiState.value.inspectedNovel?.id == targetNovel.id
-                val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = if (isCurrent) {
-                    updatedChapters.firstOrNull { it.id == currentChap?.id }
-                        ?: updatedChapters.getOrNull(updatedNovel.currentChapterIndex)
-                        ?: updatedChapters.firstOrNull()
-                } else currentChap
-                _uiState.update {
-                    it.copy(
-                        novels = updatedNovels,
-                        currentNovel = if (isCurrent) updatedNovel else it.currentNovel,
-                        chapters = if (isCurrent) updatedChapters else it.chapters,
-                        currentChapter = refreshedCurrentChap,
-                        inspectedNovel = if (isInspected) updatedNovel else it.inspectedNovel,
-                        inspectedChapters = if (isInspected) updatedChapters else it.inspectedChapters
-                    )
-                }
-                if (isCurrent) {
-                    updatePlaybackServiceNotification()
-                }
-            }
-        }
-    }
-
-    fun toggleChapterReadStatus(chapter: Chapter) {
-        val targetNovelId = chapter.novelId
-        viewModelScope.launch {
-            val (updatedNovel, updatedChapters) = libraryRepository.toggleChapterReadStatus(
-                novelId = targetNovelId,
-                chapterId = chapter.id
-            )
-            if (updatedNovel != null) {
-                val updatedNovels = _uiState.value.novels.map { nov ->
-                    if (nov.id == targetNovelId) updatedNovel else nov
-                }
-                val isCurrent = _uiState.value.currentNovel?.id == targetNovelId
-                val isInspected = _uiState.value.inspectedNovel?.id == targetNovelId
-                val currentChap = _uiState.value.currentChapter
-                val refreshedCurrentChap = if (isCurrent) {
-                    updatedChapters.firstOrNull { it.id == currentChap?.id } ?: currentChap
-                } else currentChap
-                _uiState.update {
-                    it.copy(
-                        novels = updatedNovels,
-                        currentNovel = if (isCurrent) updatedNovel else it.currentNovel,
-                        chapters = if (isCurrent) updatedChapters else it.chapters,
-                        currentChapter = refreshedCurrentChap,
-                        inspectedNovel = if (isInspected) updatedNovel else it.inspectedNovel,
-                        inspectedChapters = if (isInspected) updatedChapters else it.inspectedChapters
-                    )
-                }
-            }
-        }
-    }
-
-    fun refreshLinkedFolders() {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isLibraryScanning = true,
-                    scanProgress = 0f,
-                    scanCurrentIndex = 0,
-                    scanTotalItems = 0,
-                    scanCurrentItem = "Discovering library files..."
-                )
-            }
-            val novels = libraryRepository.refreshEntireLibrary { current, total, name ->
-                val progress = if (total > 0) current.toFloat() / total.toFloat() else 0f
-                _uiState.update {
-                    it.copy(
-                        scanProgress = progress.coerceIn(0f, 1f),
-                        scanCurrentIndex = current,
-                        scanTotalItems = total,
-                        scanCurrentItem = name
-                    )
-                }
-            }
-            val archived = libraryRepository.getArchivedNovels()
-            _uiState.update {
-                it.copy(
-                    novels = novels,
-                    archivedNovels = archived,
-                    isLibraryScanning = false,
-                    toastMessage = "Refreshed ${novels.size} novels"
-                )
-            }
-            _uiState.value.currentNovel?.let { cur ->
-                val updated = novels.firstOrNull { it.id == cur.id }
-                if (updated != null) {
-                    refreshCurrentNovelState(updated)
-                }
-            }
-        }
-    }
-
-    fun clearAllData() {
-        viewModelScope.launch {
-            libraryRepository.clearAll()
-            _uiState.update {
-                ReaderUiState(settings = it.settings)
-            }
-        }
-    }
-
-    fun updateTheme(theme: ThemeMode) {
-        viewModelScope.launch { settingsRepository.setTheme(theme) }
-    }
-
-    fun updateFontSize(sizeSp: Float) {
-        viewModelScope.launch { settingsRepository.setFontSize(sizeSp) }
-    }
-
-    fun updateSpeechRate(rate: Float) {
-        viewModelScope.launch {
-            settingsRepository.setSpeechRate(rate)
-            AudioPlaybackCoordinator.updateTtsSettings(
-                rate = rate,
-                pitch = _uiState.value.settings.speechPitch,
-                voiceName = _uiState.value.settings.selectedVoiceName
-            )
-        }
-    }
-
-    fun cycleSpeechRate() {
-        AudioPlaybackCoordinator.cycleSpeechRate()
-    }
-
-    fun updateSpeechPitch(pitch: Float) {
-        viewModelScope.launch {
-            settingsRepository.setSpeechPitch(pitch)
-            AudioPlaybackCoordinator.updateTtsSettings(
-                rate = _uiState.value.settings.speechRate,
-                pitch = pitch,
-                voiceName = _uiState.value.settings.selectedVoiceName
-            )
-        }
-    }
-
-    fun updateVoice(voiceName: String?) {
-        viewModelScope.launch {
-            settingsRepository.setVoice(voiceName)
-            AudioPlaybackCoordinator.updateTtsSettings(
-                rate = _uiState.value.settings.speechRate,
-                pitch = _uiState.value.settings.speechPitch,
-                voiceName = voiceName
-            )
-        }
-    }
-
-    fun updateAutoScroll(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setAutoScroll(enabled) }
-    }
-
-    fun updateAutoNext(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setAutoNext(enabled) }
-    }
-
-    fun updateSoundCuesEnabled(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.setSoundCuesEnabled(enabled) }
-    }
-
-    fun updateQuickToolbarSettings(toolbarSettings: com.novelarrow.reader.data.model.QuickToolbarSettings) {
-        viewModelScope.launch {
-            settingsRepository.updateQuickToolbarSettings(toolbarSettings)
-            com.novelarrow.reader.playback.QuickToolbarNotificationManager.updateToolbar(getApplication())
-        }
-    }
-
-    fun updateHardwareButtonSettings(hardwareButtonSettings: com.novelarrow.reader.data.model.HardwareButtonSettings) {
-        viewModelScope.launch {
-            settingsRepository.updateHardwareButtonSettings(hardwareButtonSettings)
-        }
-    }
-
-    fun updateContentSelector(selector: String) {
-        viewModelScope.launch {
-            settingsRepository.setContentSelector(selector)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateContentSelectorEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setContentSelectorEnabled(enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateHeaderSkipString(headerStr: String) {
-        viewModelScope.launch {
-            settingsRepository.setHeaderSkipString(headerStr)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateHeaderSkipEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setHeaderSkipEnabled(enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateFooterSkipString(footerStr: String) {
-        viewModelScope.launch {
-            settingsRepository.setFooterSkipString(footerStr)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateFooterSkipEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setFooterSkipEnabled(enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateSkipWordsEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setSkipWordsEnabled(enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun setSkipWordsEnabled(enabled: Boolean) {
-        updateSkipWordsEnabled(enabled)
-    }
-
-    fun updateSkipWordsIgnoreSymbols(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setSkipWordsIgnoreSymbols(enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addSkipWord(word: String, exactMatch: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.addSkipWord(com.novelarrow.reader.data.model.SkipWord(text = word, exactMatch = exactMatch))
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addSkipWord(skipWord: com.novelarrow.reader.data.model.SkipWord) {
-        viewModelScope.launch {
-            settingsRepository.addSkipWord(skipWord)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateSkipWord(word: com.novelarrow.reader.data.model.SkipWord) {
-        viewModelScope.launch {
-            settingsRepository.updateSkipWord(word)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun toggleSkipWord(id: String, enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.toggleSkipWord(id, enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun deleteSkipWord(id: String) {
-        viewModelScope.launch {
-            settingsRepository.deleteSkipWord(id)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun removeSkipWord(index: Int) {
-        viewModelScope.launch {
-            settingsRepository.removeSkipWord(index)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun setPronunciationRulesEnabled(enabled: Boolean) {
-        updatePronunciationRulesEnabled(enabled)
-    }
-
-    fun updatePronunciationRulesEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setPronunciationRulesEnabled(enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addPronunciationRule(from: String, to: String, exactMatch: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.addPronunciationRule(com.novelarrow.reader.data.model.PronunciationRule(from = from, to = to, exactMatch = exactMatch))
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addPronunciationRule(rule: com.novelarrow.reader.data.model.PronunciationRule) {
-        viewModelScope.launch {
-            settingsRepository.addPronunciationRule(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updatePronunciationRule(rule: com.novelarrow.reader.data.model.PronunciationRule) {
-        viewModelScope.launch {
-            settingsRepository.updatePronunciationRule(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun togglePronunciationRule(id: String, enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.togglePronunciationRule(id, enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun deletePronunciationRule(id: String) {
-        viewModelScope.launch {
-            settingsRepository.deletePronunciationRule(id)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun removePronunciationRule(index: Int) {
-        viewModelScope.launch {
-            settingsRepository.removePronunciationRule(index)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addHeaderSkipRule(text: String, exact: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.addHeaderSkipRule(com.novelarrow.reader.data.model.SkipRule(text = text, exactMatch = exact))
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun removeHeaderSkipRule(index: Int) {
-        viewModelScope.launch {
-            settingsRepository.removeHeaderSkipRule(index)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addContentSelector(rule: com.novelarrow.reader.data.model.ContentSelectorRule) {
-        viewModelScope.launch {
-            settingsRepository.addContentSelector(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateContentSelector(rule: com.novelarrow.reader.data.model.ContentSelectorRule) {
-        viewModelScope.launch {
-            settingsRepository.updateContentSelector(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun toggleContentSelector(id: String, enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.toggleContentSelector(id, enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun deleteContentSelector(id: String) {
-        viewModelScope.launch {
-            settingsRepository.removeContentSelector(id)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addHeaderSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
-        viewModelScope.launch {
-            settingsRepository.addHeaderSkipRule(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateHeaderSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
-        viewModelScope.launch {
-            settingsRepository.updateHeaderSkipRule(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun toggleHeaderSkipRule(id: String, enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.toggleHeaderSkipRule(id, enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun deleteHeaderSkipRule(id: String) {
-        viewModelScope.launch {
-            settingsRepository.deleteHeaderSkipRule(id)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addFooterSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
-        viewModelScope.launch {
-            settingsRepository.addFooterSkipRule(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun updateFooterSkipRule(rule: com.novelarrow.reader.data.model.SkipRule) {
-        viewModelScope.launch {
-            settingsRepository.updateFooterSkipRule(rule)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun toggleFooterSkipRule(id: String, enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.toggleFooterSkipRule(id, enabled)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun deleteFooterSkipRule(id: String) {
-        viewModelScope.launch {
-            settingsRepository.deleteFooterSkipRule(id)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
-    fun addFooterSkipRule(text: String, exact: Boolean) {
-        addFooterSkipRule(com.novelarrow.reader.data.model.SkipRule(text = text, exactMatch = exact))
-    }
-
-    fun removeFooterSkipRule(index: Int) {
-        viewModelScope.launch {
-            settingsRepository.removeFooterSkipRule(index)
-            _uiState.value.currentChapter?.let { loadChapterContent(it, restoreProgress = true) }
-        }
-    }
-
+        contentLoader.selectChapter(index, forceStartAtBeginning)
+    }
+
+    fun saveCurrentChapterProgress() {
+        contentLoader.saveCurrentChapterProgress()
+    }
+
+    // Playback facade
+    fun playTts() = playbackDelegate.playTts()
+    fun pauseTts() = playbackDelegate.pauseTts()
+    fun togglePlayPause() = playbackDelegate.togglePlayPause()
+    fun stopTts() = playbackDelegate.stopTts()
+    fun setSleepTimer(minutes: Int) = playbackDelegate.setSleepTimer(minutes)
+    fun seekToParagraph(index: Int) = playbackDelegate.seekToParagraph(index)
+    fun speakAtParagraph(index: Int) = playbackDelegate.speakAtParagraph(index)
+    fun nextParagraph() = playbackDelegate.nextParagraph()
+    fun previousParagraph() = playbackDelegate.previousParagraph()
+    fun nextChapter() = playbackDelegate.nextChapter()
+    fun previousChapter() = playbackDelegate.previousChapter()
+    fun toggleAutoLoop() = playbackDelegate.toggleAutoLoop()
+    fun toggleTtsDock() = playbackDelegate.toggleTtsDock()
+    fun resetFlashHandleRed() = playbackDelegate.resetFlashHandleRed()
+    fun toggleActiveRule(rule: RuleImpact, enabled: Boolean) = playbackDelegate.toggleActiveRule(rule, enabled)
+    fun updatePlaybackServiceNotification() = playbackDelegate.updatePlaybackServiceNotification()
+
+    // Library Operations facade
+    fun scanRootFolder(treeUri: Uri) = novelOpsDelegate.scanRootFolder(treeUri)
+    fun loadSampleNovel() = novelOpsDelegate.loadSampleNovel()
+    fun inspectNovel(novel: Novel) = novelOpsDelegate.inspectNovel(novel)
+    fun selectChapterFromInspected(index: Int) = novelOpsDelegate.selectChapterFromInspected(index)
+    fun deleteNovel(novelId: String, deleteFilesFromDisk: Boolean = false) = novelOpsDelegate.deleteNovel(novelId, deleteFilesFromDisk)
+    fun archiveNovel(novel: Novel) = novelOpsDelegate.archiveNovel(novel)
+    fun restoreNovel(novel: Novel) = novelOpsDelegate.restoreNovel(novel)
+    fun updateNovelTitle(novelId: String, newTitle: String) = novelOpsDelegate.updateNovelTitle(novelId, newTitle)
+    fun refreshLinkedFolders() = novelOpsDelegate.refreshLinkedFolders()
+    fun clearAllData() = novelOpsDelegate.clearAllData()
+    fun refreshLibrary(targetNovelId: String? = null) = novelOpsDelegate.refreshLibrary(targetNovelId)
+
+    // Chapter Operations facade
+    fun openRawChapterEditor() = chapterOpsDelegate.openRawChapterEditor()
+    fun dismissRawEditor() = chapterOpsDelegate.dismissRawEditor()
+    fun saveRawChapterContent(newContent: String) = chapterOpsDelegate.saveRawChapterContent(newContent)
+    suspend fun getArchivedChapters(novelId: String): List<Chapter> = chapterOpsDelegate.getArchivedChapters(novelId)
+    suspend fun deleteArchivedChapter(novelId: String, chapter: Chapter, deleteFromDisk: Boolean = false): List<Chapter> = chapterOpsDelegate.deleteArchivedChapter(novelId, chapter, deleteFromDisk)
+    fun deleteChapter(chapter: Chapter, deleteFromDisk: Boolean = false) = chapterOpsDelegate.deleteChapter(chapter, deleteFromDisk)
+    fun moveChapter(fromIndex: Int, toIndex: Int) = chapterOpsDelegate.moveChapter(fromIndex, toIndex)
+    fun sortChapters(preset: ChapterSortPreset) = chapterOpsDelegate.sortChapters(preset)
+    fun toggleChapterReadStatus(chapter: Chapter) = chapterOpsDelegate.toggleChapterReadStatus(chapter)
+
+    // Config & Backup facade
+    fun checkForExistingConfigs(force: Boolean = false, onComplete: (Boolean) -> Unit = {}) = backupDelegate.checkForExistingConfigs(force, onComplete)
+    fun restoreExistingConfigs(report: ExistingConfigsReport) = backupDelegate.restoreExistingConfigs(report)
+    fun refuseAndDeleteExistingConfigs(report: ExistingConfigsReport) = backupDelegate.refuseAndDeleteExistingConfigs(report)
+    fun skipExistingConfigs() = backupDelegate.skipExistingConfigs()
+    fun checkAndImportDefaultDownloadFolderOnFirstLaunch() = backupDelegate.checkAndImportDefaultDownloadFolderOnFirstLaunch()
+
+    // Settings facade
+    fun updateTheme(theme: ThemeMode) = settingsDelegate.updateTheme(theme)
+    fun updateFontSize(sizeSp: Float) = settingsDelegate.updateFontSize(sizeSp)
+    fun updateSpeechRate(rate: Float) = settingsDelegate.updateSpeechRate(rate)
+    fun cycleSpeechRate() = settingsDelegate.cycleSpeechRate()
+    fun updateSpeechPitch(pitch: Float) = settingsDelegate.updateSpeechPitch(pitch)
+    fun updateVoice(voiceName: String?) = settingsDelegate.updateVoice(voiceName)
+    fun updateAutoScroll(enabled: Boolean) = settingsDelegate.updateAutoScroll(enabled)
+    fun updateAutoNext(enabled: Boolean) = settingsDelegate.updateAutoNext(enabled)
+    fun updateSoundCuesEnabled(enabled: Boolean) = settingsDelegate.updateSoundCuesEnabled(enabled)
+    fun updateQuickToolbarSettings(toolbarSettings: QuickToolbarSettings) = settingsDelegate.updateQuickToolbarSettings(toolbarSettings)
+    fun updateHardwareButtonSettings(hardwareButtonSettings: HardwareButtonSettings) = settingsDelegate.updateHardwareButtonSettings(hardwareButtonSettings)
+    fun updateContentSelector(selector: String) = settingsDelegate.updateContentSelector(selector)
+    fun updateContentSelectorEnabled(enabled: Boolean) = settingsDelegate.updateContentSelectorEnabled(enabled)
+    fun updateHeaderSkipString(headerStr: String) = settingsDelegate.updateHeaderSkipString(headerStr)
+    fun updateHeaderSkipEnabled(enabled: Boolean) = settingsDelegate.updateHeaderSkipEnabled(enabled)
+    fun updateFooterSkipString(footerStr: String) = settingsDelegate.updateFooterSkipString(footerStr)
+    fun updateFooterSkipEnabled(enabled: Boolean) = settingsDelegate.updateFooterSkipEnabled(enabled)
+    fun updateSkipWordsEnabled(enabled: Boolean) = settingsDelegate.updateSkipWordsEnabled(enabled)
+    fun setSkipWordsEnabled(enabled: Boolean) = settingsDelegate.setSkipWordsEnabled(enabled)
+    fun updateSkipWordsIgnoreSymbols(enabled: Boolean) = settingsDelegate.updateSkipWordsIgnoreSymbols(enabled)
+    fun addSkipWord(word: String, exactMatch: Boolean) = settingsDelegate.addSkipWord(word, exactMatch)
+    fun addSkipWord(skipWord: SkipWord) = settingsDelegate.addSkipWord(skipWord)
+    fun updateSkipWord(word: SkipWord) = settingsDelegate.updateSkipWord(word)
+    fun toggleSkipWord(id: String, enabled: Boolean) = settingsDelegate.toggleSkipWord(id, enabled)
+    fun deleteSkipWord(id: String) = settingsDelegate.deleteSkipWord(id)
+    fun removeSkipWord(index: Int) = settingsDelegate.removeSkipWord(index)
+    fun setPronunciationRulesEnabled(enabled: Boolean) = settingsDelegate.setPronunciationRulesEnabled(enabled)
+    fun updatePronunciationRulesEnabled(enabled: Boolean) = settingsDelegate.updatePronunciationRulesEnabled(enabled)
+    fun addPronunciationRule(from: String, to: String, exactMatch: Boolean) = settingsDelegate.addPronunciationRule(from, to, exactMatch)
+    fun addPronunciationRule(rule: PronunciationRule) = settingsDelegate.addPronunciationRule(rule)
+    fun updatePronunciationRule(rule: PronunciationRule) = settingsDelegate.updatePronunciationRule(rule)
+    fun togglePronunciationRule(id: String, enabled: Boolean) = settingsDelegate.togglePronunciationRule(id, enabled)
+    fun deletePronunciationRule(id: String) = settingsDelegate.deletePronunciationRule(id)
+    fun removePronunciationRule(index: Int) = settingsDelegate.removePronunciationRule(index)
+    fun addHeaderSkipRule(text: String, exact: Boolean) = settingsDelegate.addHeaderSkipRule(text, exact)
+    fun removeHeaderSkipRule(index: Int) = settingsDelegate.removeHeaderSkipRule(index)
+    fun addContentSelector(rule: ContentSelectorRule) = settingsDelegate.addContentSelector(rule)
+    fun updateContentSelector(rule: ContentSelectorRule) = settingsDelegate.updateContentSelector(rule)
+    fun toggleContentSelector(id: String, enabled: Boolean) = settingsDelegate.toggleContentSelector(id, enabled)
+    fun deleteContentSelector(id: String) = settingsDelegate.deleteContentSelector(id)
+    fun addHeaderSkipRule(rule: SkipRule) = settingsDelegate.addHeaderSkipRule(rule)
+    fun updateHeaderSkipRule(rule: SkipRule) = settingsDelegate.updateHeaderSkipRule(rule)
+    fun toggleHeaderSkipRule(id: String, enabled: Boolean) = settingsDelegate.toggleHeaderSkipRule(id, enabled)
+    fun deleteHeaderSkipRule(id: String) = settingsDelegate.deleteHeaderSkipRule(id)
+    fun addFooterSkipRule(rule: SkipRule) = settingsDelegate.addFooterSkipRule(rule)
+    fun updateFooterSkipRule(rule: SkipRule) = settingsDelegate.updateFooterSkipRule(rule)
+    fun toggleFooterSkipRule(id: String, enabled: Boolean) = settingsDelegate.toggleFooterSkipRule(id, enabled)
+    fun deleteFooterSkipRule(id: String) = settingsDelegate.deleteFooterSkipRule(id)
+    fun addFooterSkipRule(text: String, exact: Boolean) = settingsDelegate.addFooterSkipRule(text, exact)
+    fun removeFooterSkipRule(index: Int) = settingsDelegate.removeFooterSkipRule(index)
+
+    // Update facade
     fun clearToast() {
         _uiState.update { it.copy(toastMessage = null) }
     }
-
-    fun checkForUpdate(silent: Boolean = false) {
-        viewModelScope.launch {
-            if (_uiState.value.isCheckingUpdate) return@launch
-            _uiState.update { it.copy(isCheckingUpdate = true) }
-            val currentVer = _uiState.value.installedVersionName
-            when (val result = AppUpdateManager.checkForUpdate(currentVer)) {
-                is CheckUpdateResult.UpdateAvailable -> {
-                    _uiState.update {
-                        it.copy(
-                            isCheckingUpdate = false,
-                            updateInfo = result.updateInfo,
-                            showUpdateDialog = true
-                        )
-                    }
-                }
-                is CheckUpdateResult.UpToDate -> {
-                    _uiState.update { it.copy(isCheckingUpdate = false) }
-                    if (!silent) {
-                        _uiState.update {
-                            it.copy(toastMessage = "You're on the latest version (${result.currentVersion}).")
-                        }
-                    }
-                }
-                is CheckUpdateResult.Error -> {
-                    _uiState.update { it.copy(isCheckingUpdate = false) }
-                    if (!silent) {
-                        _uiState.update {
-                            it.copy(toastMessage = "Update check failed: ${result.message}")
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fun dismissUpdateDialog() {
-        _uiState.update { it.copy(showUpdateDialog = false) }
-    }
-
-    fun startUpdateDownload() {
-        val info = _uiState.value.updateInfo ?: return
-        val context = getApplication<Application>()
-        downloadJob?.cancel()
-        downloadJob = viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isDownloadingUpdate = true,
-                    updateProgress = 0f,
-                    updateDownloadedBytes = 0L,
-                    updateTotalBytes = info.apkSize
-                )
-            }
-            try {
-                val apkFile = AppUpdateManager.downloadApk(
-                    downloadUrl = info.downloadUrl,
-                    expectedSize = info.apkSize,
-                    context = context,
-                    onProgress = { bytesRead, totalBytes ->
-                        val progress = if (totalBytes > 0) (bytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
-                        _uiState.update {
-                            it.copy(
-                                updateProgress = progress,
-                                updateDownloadedBytes = bytesRead,
-                                updateTotalBytes = totalBytes
-                            )
-                        }
-                    }
-                )
-                _uiState.update {
-                    it.copy(
-                        isDownloadingUpdate = false,
-                        downloadedApk = apkFile
-                    )
-                }
-                // Automatically prompt installation
-                installDownloadedApk(context)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                _uiState.update {
-                    it.copy(
-                        isDownloadingUpdate = false,
-                        toastMessage = "Update download was cancelled."
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        isDownloadingUpdate = false,
-                        toastMessage = "Download failed: ${e.message}"
-                    )
-                }
-            }
-        }
-    }
-
-    fun cancelUpdateDownload() {
-        downloadJob?.cancel()
-        downloadJob = null
-        _uiState.update { it.copy(isDownloadingUpdate = false) }
-    }
-
-    fun installDownloadedApk(context: Context, force: Boolean = false) {
-        val apkFile = _uiState.value.downloadedApk ?: return
-        try {
-            if (!force) {
-                val compatibility = AppUpdateManager.checkSignatureCompatibility(context, apkFile)
-                if (compatibility is SignatureCompatibility.Mismatch) {
-                    _uiState.update {
-                        it.copy(
-                            showSignatureMismatchDialog = true,
-                            signatureMismatchInfo = compatibility
-                        )
-                    }
-                    return
-                }
-            }
-
-            if (!AppUpdateManager.canRequestPackageInstalls(context)) {
-                _uiState.update {
-                    it.copy(toastMessage = "Please allow installing unknown apps from this source.")
-                }
-                AppUpdateManager.openInstallPermissionSettings(context)
-            } else {
-                AppUpdateManager.installApk(context, apkFile)
-            }
-        } catch (e: Exception) {
-            _uiState.update {
-                it.copy(toastMessage = "Failed to launch installer: ${e.message}")
-            }
-        }
-    }
-
-    fun dismissSignatureMismatchDialog() {
-        _uiState.update {
-            it.copy(
-                showSignatureMismatchDialog = false,
-                signatureMismatchInfo = null
-            )
-        }
-    }
-
-    fun saveApkToCustomUri(destinationUri: Uri, context: Context) {
-        viewModelScope.launch {
-            val apkFile = _uiState.value.downloadedApk
-            if (apkFile != null && apkFile.exists()) {
-                val success = AppUpdateManager.copyApkToUri(context, apkFile, destinationUri)
-                _uiState.update {
-                    it.copy(
-                        toastMessage = if (success) "Saved update-latest.apk to selected path" else "Failed to save APK to selected path"
-                    )
-                }
-            } else {
-                val info = _uiState.value.updateInfo
-                val downloadUrl = info?.downloadUrl ?: "https://github.com/faycalrafa/free-novel-reader-tts-android/releases/latest/download/update-latest.apk"
-                val apkSize = info?.apkSize ?: 0L
-                _uiState.update {
-                    it.copy(
-                        isDownloadingUpdate = true,
-                        updateProgress = 0f,
-                        updateDownloadedBytes = 0L,
-                        updateTotalBytes = apkSize
-                    )
-                }
-                try {
-                    val tempApk = AppUpdateManager.downloadApk(
-                        downloadUrl = downloadUrl,
-                        expectedSize = apkSize,
-                        context = context,
-                        onProgress = { bytesRead, totalBytes ->
-                            val progress = if (totalBytes > 0) (bytesRead.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
-                            _uiState.update {
-                                it.copy(
-                                    updateProgress = progress,
-                                    updateDownloadedBytes = bytesRead,
-                                    updateTotalBytes = totalBytes
-                                )
-                            }
-                        }
-                    )
-                    _uiState.update {
-                        it.copy(
-                            isDownloadingUpdate = false,
-                            downloadedApk = tempApk
-                        )
-                    }
-                    val success = AppUpdateManager.copyApkToUri(context, tempApk, destinationUri)
-                    _uiState.update {
-                        it.copy(
-                            toastMessage = if (success) "Saved update-latest.apk to selected path" else "Failed to save APK to selected path"
-                        )
-                    }
-                } catch (e: Exception) {
-                    _uiState.update {
-                        it.copy(
-                            isDownloadingUpdate = false,
-                            toastMessage = "Download failed: ${e.message}"
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private fun updatePlaybackServiceNotification() {
-        val state = _uiState.value
-        val novel = state.currentNovel?.title ?: "BookReader"
-        val chapter = state.currentChapter?.title ?: "No chapter loaded"
-        val total = state.paragraphs.size
-        val currentChapIdx = state.currentChapter?.orderIndex ?: 0
-        val totalChaps = state.chapters.size
-
-        AudioPlaybackCoordinator.updateMetadata(
-            novelTitle = novel,
-            chapterTitle = chapter,
-            chapterIndex = currentChapIdx,
-            totalChapters = totalChaps,
-            currentParagraph = state.currentParagraphIndex,
-            totalParagraphs = total
-        )
-    }
+    fun checkForUpdate(silent: Boolean = false) = updateDelegate.checkForUpdate(silent)
+    fun dismissUpdateDialog() = updateDelegate.dismissUpdateDialog()
+    fun startUpdateDownload() = updateDelegate.startUpdateDownload()
+    fun cancelUpdateDownload() = updateDelegate.cancelUpdateDownload()
+    fun installDownloadedApk(context: Context, force: Boolean = false) = updateDelegate.installDownloadedApk(context, force)
+    fun dismissSignatureMismatchDialog() = updateDelegate.dismissSignatureMismatchDialog()
+    fun saveApkToCustomUri(destinationUri: Uri, context: Context) = updateDelegate.saveApkToCustomUri(destinationUri, context)
 
     override fun onCleared() {
-        sleepTimerJob?.cancel()
-        downloadJob?.cancel()
+        updateDelegate.onCleared()
         super.onCleared()
     }
 }

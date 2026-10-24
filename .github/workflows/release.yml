@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.17.3"
+          DATE_TAG="v3.18.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.17.3"
-        run: ./gradlew assembleRelease -PappVersionName=3.17.3 --no-daemon
+          APP_VERSION_NAME: "3.18.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.18.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.17.3 (Stable)
+          name: BookReader v3.18.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.17.3 (Stable) 📚🎙️⚡
+            ### BookReader v3.18.0 (Stable) 📚🎙️⚡
+
+            #### 🏗️ Complete Legacy Architecture Decoupling (Max 500 Lines per File)
+            - **16 Massive Legacy Classes Decoupled**: Comprehensive refactoring of all legacy files exceeding 700 lines down into lean, modular, single-responsibility components and delegates strictly conforming to the 500-line limit:
+              - **Chapter Parser (`ChapterParser.kt`)**: Decoupled parsing logic into `SentenceSplitter`, `PronunciationFilterEngine`, `HeaderFooterTrimmer`, `HtmlContentExtractor`, and `ContentFilterRules`.
+              - **Repositories & Storage (`SettingsRepository.kt`, `UserscriptRepository.kt`, `LibraryRepository.kt`)**: Extracted persistence managers, atomic write delegates, root scanners, SAF tree scanners, mutation handlers, and deduplication modules.
+              - **Playback Service & Coordinator (`NovelAudioPlaybackService.kt`, `AudioPlaybackCoordinator.kt`)**: Isolated media session handling, sleep timers, notification builders, speech queue coordination, audio file playback, and session restoration.
+              - **Massive UI Screens & Dialogs (`PronunciationRulesScreen.kt`, `VoiceEngineScreen.kt`, `ReaderDrawerContent.kt`, `MonacoCodeEditorDialog.kt`, `AudioStudioScreen.kt`)**: Decomposed card layouts, tabs, HTML generation, search panels, and deletion confirmation dialogs.
+              - **ViewModels & App Shell (`ReaderViewModel.kt`, `BrowserViewModel.kt`, `ReaderScreen.kt`, `BrowserScreen.kt`, `MainActivity.kt`)**: Modularized navigation hosts, update dialogs, content loaders, download delegates, share handlers, topbars, webview containers, and reader mode rendering.
+            - **Zero Caller Breakage**: 100% backward-compatible facades and public API contracts preserved across all repositories, services, viewmodels, and screens.
+            - **Near Logging & Error Capture**: Fortified all failure points and boundaries with contextual `AppLogger` diagnostics and stack trace capture.
 
             #### 📁 Folder Removal & Chapter Deletion / Mutation Architecture
             - **Target Novel ID Resolution in Drawer**: Fixed chapter deletion, reordering (`moveChapter`), sorting (`sortChapters`), and read-status toggling (`toggleChapterReadStatus`) targeting `currentNovel` rather than the active/inspected novel (`chapter.novelId` / `inspectedNovel.id`).
