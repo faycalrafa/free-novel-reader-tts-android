@@ -334,6 +334,7 @@ fun BrowserScreen(
                         currentIndex = if (uiState.isLiveReading) uiState.liveCurrentParagraphIndex else uiState.readerModeCurrentParagraphIndex,
                         isLoadingNext = uiState.readerModeIsLoadingNext,
                         autoScroll = uiState.settings.ttsAutoScroll,
+                        autoNextOnScroll = uiState.settings.autoClickOnScroll,
                         onParagraphClick = { index ->
                             viewModel.onReaderModeParagraphClicked(index)
                         },
@@ -389,8 +390,8 @@ fun BrowserScreen(
         ) {
             if (uiState.isLiveReading || (uiState.flashHandleRed && !isReaderActive)) {
                 TtsDock(
-                    currentParagraph = uiState.liveCurrentParagraphIndex,
-                    totalParagraphs = uiState.liveParagraphs.size,
+                    currentParagraph = if (uiState.isLiveReading) uiState.liveCurrentParagraphIndex else uiState.readerModeCurrentParagraphIndex,
+                    totalParagraphs = if (uiState.readerModeParagraphs.isNotEmpty()) uiState.readerModeParagraphs.size else uiState.liveParagraphs.size,
                     currentChapterIndex = 0,
                     totalChapters = 0,
                     isPlaying = uiState.isLivePlaying,
@@ -402,7 +403,13 @@ fun BrowserScreen(
                     onNextChapterClick = { viewModel.clickNextChapter() },
                     onSleepTimerClick = { viewModel.openSleepTimerDialog() },
                     onSpeedClick = { viewModel.cycleSpeechRate() },
-                    onSeekParagraph = { viewModel.seekToParagraph(it) },
+                    onSeekParagraph = { para ->
+                        if (uiState.isReaderMode) {
+                            viewModel.onReaderModeParagraphClicked(para)
+                        } else {
+                            viewModel.seekToParagraph(para)
+                        }
+                    },
                     isBrowserMode = true,
                     onOpenAudioSettings = { showAudioSettingsDialog = true },
                     onCloseClick = {
@@ -1414,6 +1421,7 @@ private fun BrowserReaderView(
     currentIndex: Int,
     isLoadingNext: Boolean,
     autoScroll: Boolean,
+    autoNextOnScroll: Boolean = false,
     onParagraphClick: (Int) -> Unit,
     onNextChapterClick: () -> Unit,
     onEndReached: () -> Unit,
@@ -1431,14 +1439,14 @@ private fun BrowserReaderView(
         }
     }
 
-    LaunchedEffect(listState, paragraphs.size) {
+    LaunchedEffect(listState, paragraphs.size, autoNextOnScroll) {
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val totalItems = layoutInfo.totalItemsCount
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             totalItems > 1 && lastVisible >= totalItems - 1
         }.collect { isAtBottom ->
-            if (isAtBottom && !isLoadingNext && paragraphs.isNotEmpty()) {
+            if (isAtBottom && !isLoadingNext && paragraphs.isNotEmpty() && autoNextOnScroll) {
                 onEndReached()
             }
         }
@@ -1512,8 +1520,23 @@ private fun BrowserReaderView(
                                     .height(20.dp)
                                     .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                         }
+
+                        // Small paragraph number displayed to the left of each paragraph
+                        Text(
+                            text = "${index + 1}",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                            ),
+                            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                            modifier = Modifier
+                                .width(28.dp)
+                                .padding(top = if (paragraph.isHeading) 4.dp else 3.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(6.dp))
 
                         val textToDisplay = paragraph.spokenText.ifBlank { paragraph.rawText }
                         Text(
@@ -1530,7 +1553,8 @@ private fun BrowserReaderView(
                                     lineHeight = 26.sp
                                 )
                             },
-                            color = MaterialTheme.colorScheme.onBackground
+                            color = MaterialTheme.colorScheme.onBackground,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }

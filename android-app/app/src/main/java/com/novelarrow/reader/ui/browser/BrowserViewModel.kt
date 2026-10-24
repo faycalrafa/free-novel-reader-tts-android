@@ -1328,20 +1328,29 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onReaderModeParagraphClicked(index: Int) {
-        val paras = _uiState.value.readerModeParagraphs
+        val paras = _uiState.value.readerModeParagraphs.ifEmpty { _uiState.value.liveParagraphs }
         if (index in paras.indices) {
-            _uiState.update { it.copy(readerModeCurrentParagraphIndex = index) }
+            _uiState.update {
+                it.copy(
+                    readerModeCurrentParagraphIndex = index,
+                    liveCurrentParagraphIndex = index
+                )
+            }
+            val currentUrl = _uiState.value.currentUrl
+            if (currentUrl.isNotBlank()) {
+                savedReadingPositions[currentUrl] = index
+            }
             if (_uiState.value.isLiveReading) {
                 seekToParagraph(index)
             } else {
-                startLiveReadingInternal(forceStartAtBeginning = false)
+                startLiveReadingInternal(forceStartAtBeginning = false, initialIndex = index)
             }
         }
     }
 
     fun onReaderModeEndReached() {
         if (_uiState.value.readerModeIsLoadingNext) return
-        val autoNext = _uiState.value.settings.autoClickOnScroll || _uiState.value.isLiveReading || _uiState.value.settings.autoReadNextChapter
+        val autoNext = _uiState.value.settings.autoClickOnScroll
         if (autoNext) {
             _uiState.update { it.copy(readerModeIsLoadingNext = true, toastMessage = "Loading next chapter...") }
             clickNextChapter()
@@ -1355,7 +1364,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         startLiveReadingInternal(forceStartAtBeginning = false)
     }
 
-    private fun startLiveReadingInternal(forceStartAtBeginning: Boolean = false, retryCount: Int = 0) {
+    private fun startLiveReadingInternal(
+        forceStartAtBeginning: Boolean = false,
+        initialIndex: Int? = null,
+        retryCount: Int = 0
+    ) {
         val settings = _uiState.value.settings
         val currentUrl = _uiState.value.currentUrl
         val script = WebContentExtractor.buildContentExtractionScript(
@@ -1425,21 +1438,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 )
 
                 val paragraphs = parseResult.paragraphs
-                val rawReadable = paragraphs.filter { it.spokenText.isNotBlank() }
-                val readableParagraphs = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(rawReadable)
+                val readableParagraphs = paragraphs
 
                 if (readableParagraphs.isNotEmpty()) {
-                    val targetIndex = if (forceStartAtBeginning) {
+                    val targetIndex = (initialIndex ?: if (forceStartAtBeginning) {
                         0
                     } else {
-                        (savedReadingPositions[currentUrl] ?: _uiState.value.liveCurrentParagraphIndex)
-                            .coerceIn(0, (readableParagraphs.size - 1).coerceAtLeast(0))
-                    }
+                        (savedReadingPositions[currentUrl] ?: _uiState.value.readerModeCurrentParagraphIndex.takeIf { it > 0 } ?: _uiState.value.liveCurrentParagraphIndex)
+                    }).coerceIn(0, (readableParagraphs.size - 1).coerceAtLeast(0))
                     _uiState.update {
                         it.copy(
                             liveParagraphs = readableParagraphs,
+                            readerModeParagraphs = if (it.readerModeParagraphs.isEmpty()) readableParagraphs else it.readerModeParagraphs,
                             liveChapterTitle = title,
                             liveCurrentParagraphIndex = targetIndex,
+                            readerModeCurrentParagraphIndex = targetIndex,
                             isLiveReading = true,
                             isLivePlaying = true,
                             flashHandleRed = false,
@@ -1498,7 +1511,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private fun handleLiveChapterEnd() {
         if (_uiState.value.liveParagraphs.isEmpty()) return
 
-        val autoNext = _uiState.value.settings.autoClickOnScroll || _uiState.value.isLiveReading
+        val autoNext = _uiState.value.settings.autoReadNextChapter
         if (autoNext) {
             _uiState.update {
                 it.copy(toastMessage = "End of chapter reached. Loading next chapter...")
@@ -1538,16 +1551,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun seekToParagraph(index: Int) {
-        val paras = _uiState.value.liveParagraphs
+        val paras = _uiState.value.liveParagraphs.ifEmpty { _uiState.value.readerModeParagraphs }
         if (paras.isEmpty()) return
-        val resolvedIndex = paras.indexOfFirst { index in it.sourceIndices }.let { if (it >= 0) it else index }
-        val target = resolvedIndex.coerceIn(0, paras.size - 1)
+        val target = index.coerceIn(0, paras.size - 1)
         val curUrl = _uiState.value.currentUrl
         if (curUrl.isNotBlank()) {
             savedReadingPositions[curUrl] = target
         }
         AudioPlaybackCoordinator.seekToParagraph(target)
-        _uiState.update { it.copy(liveCurrentParagraphIndex = target, isLivePlaying = true, isLiveReading = true) }
+        _uiState.update {
+            it.copy(
+                liveCurrentParagraphIndex = target,
+                readerModeCurrentParagraphIndex = target,
+                isLivePlaying = true,
+                isLiveReading = true
+            )
+        }
+        highlightWebParagraph(target)
     }
 
     fun nextLiveParagraph() {

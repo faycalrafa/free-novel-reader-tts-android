@@ -12,6 +12,7 @@ import java.util.regex.Pattern
 
 import com.novelarrow.reader.data.model.RuleImpact
 import com.novelarrow.reader.data.model.RuleType
+import com.novelarrow.reader.util.AppLogger
 
 data class ParseResult(
     val paragraphs: List<Paragraph>,
@@ -296,16 +297,20 @@ object ChapterParser {
                 var minSub = -1
                 var ruleForMin: SkipRule? = null
                 for (rule in activeHeaderRules) {
-                    val sub = if (rule.exactMatch) {
-                        val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
-                        val matcher = pattern.matcher(text)
-                        if (matcher.find()) matcher.start() else -1
-                    } else {
-                        text.indexOf(rule.text, ignoreCase = true)
-                    }
-                    if (sub != -1 && (minSub == -1 || sub < minSub)) {
-                        minSub = sub
-                        ruleForMin = rule
+                    try {
+                        val sub = if (rule.exactMatch) {
+                            val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
+                            val matcher = pattern.matcher(text)
+                            if (matcher.find()) matcher.start() else -1
+                        } else {
+                            text.indexOf(rule.text, ignoreCase = true)
+                        }
+                        if (sub != -1 && (minSub == -1 || sub < minSub)) {
+                            minSub = sub
+                            ruleForMin = rule
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w("ChapterParser", "Error evaluating header skip rule '${rule.text}': ${e.message}", e)
                     }
                 }
                 if (minSub != -1) {
@@ -370,16 +375,20 @@ object ChapterParser {
                 var minSub = -1
                 var ruleForMin: SkipRule? = null
                 for (rule in activeFooterRules) {
-                    val sub = if (rule.exactMatch) {
-                        val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
-                        val matcher = pattern.matcher(text)
-                        if (matcher.find()) matcher.start() else -1
-                    } else {
-                        text.indexOf(rule.text, ignoreCase = true)
-                    }
-                    if (sub != -1 && (minSub == -1 || sub < minSub)) {
-                        minSub = sub
-                        ruleForMin = rule
+                    try {
+                        val sub = if (rule.exactMatch) {
+                            val pattern = Pattern.compile("\\b" + Pattern.quote(rule.text) + "\\b", Pattern.CASE_INSENSITIVE)
+                            val matcher = pattern.matcher(text)
+                            if (matcher.find()) matcher.start() else -1
+                        } else {
+                            text.indexOf(rule.text, ignoreCase = true)
+                        }
+                        if (sub != -1 && (minSub == -1 || sub < minSub)) {
+                            minSub = sub
+                            ruleForMin = rule
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w("ChapterParser", "Error evaluating footer skip rule '${rule.text}': ${e.message}", e)
                     }
                 }
                 if (minSub != -1) {
@@ -455,9 +464,12 @@ object ChapterParser {
                         selectedElement = cand
                         matchedRuleId = rule.id
                         matchedSelectorName = rule.selector
+                        AppLogger.d("ChapterParser", "Content container matched rule '${rule.selector}' (id=${rule.id})")
                         break
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.w("ChapterParser", "Failed evaluating content selector '${rule.selector}': ${e.message}", e)
+                }
             }
         }
 
@@ -468,8 +480,11 @@ object ChapterParser {
                 if (selectedElement != null) {
                     matchedRuleId = "legacy_content_selector"
                     matchedSelectorName = contentSelector
+                    AppLogger.d("ChapterParser", "Content container matched legacy selector '$contentSelector'")
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                AppLogger.w("ChapterParser", "Failed evaluating legacy selector '$contentSelector': ${e.message}", e)
+            }
         }
 
         // 1c. Fallback to well-known novel container candidates if no explicit rule matched
@@ -487,9 +502,12 @@ object ChapterParser {
                         selectedElement = cand
                         matchedRuleId = "candidate_$candidate"
                         matchedSelectorName = candidate
+                        AppLogger.d("ChapterParser", "Content container fallback matched '$candidate'")
                         break
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.w("ChapterParser", "Failed candidate selector '$candidate': ${e.message}", e)
+                }
             }
         }
 
@@ -528,8 +546,11 @@ object ChapterParser {
                             details = "$strippedChars characters removed by selector"
                         )
                     }
+                    AppLogger.d("ChapterParser", "Custom ignored selector '$trimmed' removed ${matched.size} elements ($strippedChars chars)")
                     matched.forEach { it.remove() }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.w("ChapterParser", "Failed applying custom ignored selector '$trimmed': ${e.message}", e)
+                }
             }
         }
 
@@ -538,7 +559,9 @@ object ChapterParser {
             try {
                 val matched = rootElement.select(selector).filter { it != rootElement }
                 matched.forEach { it.remove() }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                AppLogger.w("ChapterParser", "Failed applying default ignored selector '$selector': ${e.message}", e)
+            }
         }
 
         val elements = rootElement.select("p, h1, h2, h3, h4, h5, h6, li, blockquote, div")
@@ -648,7 +671,8 @@ object ChapterParser {
         return try {
             val regexString = "^" + trimmedPattern.split("*").joinToString(".*") { Regex.escape(it) } + "$"
             Regex(regexString, RegexOption.IGNORE_CASE).matches(target)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            AppLogger.w("ChapterParser", "Error compiling scope pattern regex '$pattern' against '$target': ${e.message}", e)
             false
         }
     }
@@ -688,43 +712,52 @@ object ChapterParser {
 
         for (rule in activeRules) {
             if (rule.from.isBlank()) continue
-            val escaped = Regex.escape(rule.from)
-            val beforeLen = processed.length
-            processed = if (rule.exactMatch) {
-                val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
-                processed.replace(Regex(pattern), rule.to)
-            } else {
-                processed.replace(rule.from, rule.to, ignoreCase = true)
-            }
-            if (pronunCharImpacts != null && processed != text) {
-                val diff = kotlin.math.abs(processed.length - beforeLen) + rule.from.length
-                pronunCharImpacts[rule.id] = (pronunCharImpacts[rule.id] ?: 0) + diff
+            try {
+                val escaped = Regex.escape(rule.from)
+                val beforeLen = processed.length
+                processed = if (rule.exactMatch) {
+                    val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
+                    val safeReplacement = java.util.regex.Matcher.quoteReplacement(rule.to)
+                    processed.replace(Regex(pattern), safeReplacement)
+                } else {
+                    processed.replace(rule.from, rule.to, ignoreCase = true)
+                }
+                if (pronunCharImpacts != null && processed.length != beforeLen) {
+                    val diff = kotlin.math.abs(processed.length - beforeLen) + rule.from.length
+                    pronunCharImpacts[rule.id] = (pronunCharImpacts[rule.id] ?: 0) + diff
+                }
+            } catch (e: Exception) {
+                AppLogger.w("ChapterParser", "Failed applying pronunciation rule '${rule.from}' ➔ '${rule.to}': ${e.message}", e)
             }
         }
 
         for (skip in activeSkips) {
             if (skip.text.isBlank()) continue
-            val escaped = Regex.escape(skip.text)
-            val beforeLen = processed.length
-            processed = if (skipWordsIgnoreSymbols) {
-                if (skip.exactMatch) {
-                    val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])(?:[\\p{P}\\p{S}]*)${escaped}(?:[\\p{P}\\p{S}]*)(?=[^\\p{L}\\p{N}]|$)"
-                    processed.replace(Regex(pattern), "")
+            try {
+                val escaped = Regex.escape(skip.text)
+                val beforeLen = processed.length
+                processed = if (skipWordsIgnoreSymbols) {
+                    if (skip.exactMatch) {
+                        val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])(?:[\\p{P}\\p{S}]*)${escaped}(?:[\\p{P}\\p{S}]*)(?=[^\\p{L}\\p{N}]|$)"
+                        processed.replace(Regex(pattern), "")
+                    } else {
+                        val pattern = "(?i)(?:[\\p{P}\\p{S}]*)${escaped}(?:[\\p{P}\\p{S}]*)"
+                        processed.replace(Regex(pattern), "")
+                    }
                 } else {
-                    val pattern = "(?i)(?:[\\p{P}\\p{S}]*)${escaped}(?:[\\p{P}\\p{S}]*)"
-                    processed.replace(Regex(pattern), "")
+                    if (skip.exactMatch) {
+                        val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
+                        processed.replace(Regex(pattern), "")
+                    } else {
+                        processed.replace(skip.text, "", ignoreCase = true)
+                    }
                 }
-            } else {
-                if (skip.exactMatch) {
-                    val pattern = "(?i)(?<=^|[^\\p{L}\\p{N}])${escaped}(?=[^\\p{L}\\p{N}]|$)"
-                    processed.replace(Regex(pattern), "")
-                } else {
-                    processed.replace(skip.text, "", ignoreCase = true)
+                val removed = (beforeLen - processed.length).coerceAtLeast(0)
+                if (skipCharImpacts != null && removed > 0) {
+                    skipCharImpacts[skip.id] = (skipCharImpacts[skip.id] ?: 0) + removed
                 }
-            }
-            val removed = (beforeLen - processed.length).coerceAtLeast(0)
-            if (skipCharImpacts != null && removed > 0) {
-                skipCharImpacts[skip.id] = (skipCharImpacts[skip.id] ?: 0) + removed
+            } catch (e: Exception) {
+                AppLogger.w("ChapterParser", "Failed applying skip word '${skip.text}': ${e.message}", e)
             }
         }
 

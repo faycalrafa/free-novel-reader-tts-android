@@ -2,6 +2,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.ksp)
 }
 
 android {
@@ -9,13 +10,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("3.16.0")
+        .getOrElse("3.17.0")
 
     defaultConfig {
         applicationId = "com.novelarrow.reader"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
+        versionCode = 46
         versionName = appVersionName
 
         ndk {
@@ -114,6 +115,8 @@ dependencies {
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   testImplementation("org.json:json:20240303")
+  testImplementation(libs.androidx.test.core)
+  testImplementation("org.robolectric:robolectric:4.14.1")
 
   // Instrumented tests: jUnit rules and runners
   androidTestImplementation(libs.androidx.test.core)
@@ -139,4 +142,9 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.markwon.core)
   implementation(libs.jump3r)
+
+  // AndroidX Room
+  implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.room.ktx)
+  ksp(libs.androidx.room.compiler)
 }

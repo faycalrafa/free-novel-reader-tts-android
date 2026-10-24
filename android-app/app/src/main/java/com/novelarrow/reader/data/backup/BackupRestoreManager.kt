@@ -325,10 +325,14 @@ object BackupRestoreManager {
                             try {
                                 it.delete()
                                 Log.i(TAG, "Cleaned hidden file in folder: ${it.absolutePath}")
-                            } catch (_: Exception) {}
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed cleaning hidden file ${it.absolutePath}: ${e.message}", e)
+                            }
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error listing files in folder $folderPath: ${e.message}", e)
+                }
             }
 
             // 5. Sweep roots
@@ -343,10 +347,14 @@ object BackupRestoreManager {
                             try {
                                 it.delete()
                                 Log.i(TAG, "Cleaned hidden file in root: ${it.absolutePath}")
-                            } catch (_: Exception) {}
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed cleaning hidden file in root ${it.absolutePath}: ${e.message}", e)
+                            }
                         }
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error sweeping root ${root.absolutePath}: ${e.message}", e)
+                }
             }
         } catch (e: Exception) {
             allDeleted = false

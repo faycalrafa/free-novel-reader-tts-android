@@ -1,6 +1,6 @@
 package com.novelarrow.reader.browser.engine
 
-import android.util.Log
+import com.novelarrow.reader.util.AppLogger
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -74,7 +74,9 @@ object WebContentExtractor {
                                     matchedSelector = sel;
                                     break;
                                 }
-                            } catch(e) {}
+                            } catch(e) {
+                                console.warn('[WebContentExtractor] Content selector failed: ' + sel, e);
+                            }
                         }
                     }
                     if (!container) {
@@ -85,11 +87,15 @@ object WebContentExtractor {
                             'main', '.chapter-container', '#read-area'
                         ];
                         for (var c = 0; c < candidates.length; c++) {
-                            var cand = document.querySelector(candidates[c]);
-                            if (cand && cand.querySelectorAll('p').length >= 2) {
-                                container = cand;
-                                matchedSelector = candidates[c];
-                                break;
+                            try {
+                                var cand = document.querySelector(candidates[c]);
+                                if (cand && cand.querySelectorAll('p').length >= 2) {
+                                    container = cand;
+                                    matchedSelector = candidates[c];
+                                    break;
+                                }
+                            } catch(candErr) {
+                                console.warn('[WebContentExtractor] Fallback candidate selector failed: ' + candidates[c], candErr);
                             }
                         }
                     }
@@ -98,10 +104,10 @@ object WebContentExtractor {
                     var ignoredStats = {};
                     function isIgnored(el) {
                         if (!el || el === container) return false;
-                        try {
-                            for (var i = 0; i < ignored.length; i++) {
-                                var sel = ignored[i];
-                                if (!sel) continue;
+                        for (var i = 0; i < ignored.length; i++) {
+                            var sel = ignored[i];
+                            if (!sel) continue;
+                            try {
                                 if (el.matches(sel)) {
                                     var len = (el.textContent || '').length;
                                     ignoredStats[sel] = (ignoredStats[sel] || 0) + len;
@@ -113,8 +119,10 @@ object WebContentExtractor {
                                     ignoredStats[sel] = (ignoredStats[sel] || 0) + len;
                                     return true;
                                 }
+                            } catch(selErr) {
+                                console.warn('[WebContentExtractor] Ignored selector check failed: ' + sel, selErr);
                             }
-                        } catch(e) {}
+                        }
                         return false;
                     }
 
@@ -256,13 +264,17 @@ object WebContentExtractor {
                 else -> JSONObject(result)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error decoding JS result: $e, raw: $result")
+            AppLogger.e(TAG, "Error decoding JS result: ${e.message}, raw: $result", e)
             null
         }
     }
 
     fun extractChapterContent(result: String?, fallbackTitle: String): ExtractedContent {
         val json = parseJavascriptResultToJson(result)
+        val jsError = json?.optString("error")
+        if (!jsError.isNullOrBlank()) {
+            AppLogger.w(TAG, "JavaScript DOM extraction reported error: $jsError")
+        }
         val title = json?.optString("title", fallbackTitle)?.ifBlank { fallbackTitle } ?: fallbackTitle
         val paragraphsArray = json?.optJSONArray("paragraphs") ?: JSONArray()
         val paragraphs = mutableListOf<String>()

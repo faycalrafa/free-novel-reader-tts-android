@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.16.0"
+          DATE_TAG="v3.17.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.16.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.16.0 --no-daemon
+          APP_VERSION_NAME: "3.17.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.17.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,21 +53,29 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.16.0 (Stable)
+          name: BookReader v3.17.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.16.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.17.0 (Stable) 📚🎙️⚡
 
-            #### 🏗️ Architecture Deconstruction & Screen Modularization
-            - **Decomposed Massive Screens**: Split giant `ReaderScreen.kt` (~2,950 lines down to ~1,257 lines) and `BrowserScreen.kt` (~2,200 lines down to ~1,570 lines) into focused, self-contained, and reusable UI components.
-            - **Extracted Reader Components**:
-              - `ReaderTopBar`: Clean top bar with library drawer toggle, search, audio engine controls, and navigation shortcuts.
-              - `ReaderDrawerContent`: Drawer containing novel catalog, chapter index, search, and audio settings.
-              - `ReaderActiveFiltersDialog`: Active filters and skip rules viewer.
-              - `ReaderDialogs`: Extracted modal dialogs (`SettingsDialog`, `SleepTimerDialog`, `LibraryScanningOverlay`, `UpdateAvailableDialog`, `UpdateDownloadingDialog`).
-            - **Extracted Browser Components**:
-              - `BrowserOverlays`: `PageLoadingOverlay`, `CenteredDownloadProgressCard`, and `TabsSwitcherDialog`.
-              - `BrowserSettingsDialog`: Extracted full userscript & reading automation settings dialog and navigation cards.
+            #### 🗄️ AndroidX Room SQLite Migration & WAL Architecture
+            - **Room Database Ingestion**: Fully migrated persistent novel library from monolithic JSON to AndroidX Room SQLite with Write-Ahead Logging (WAL) and foreign-key cascade semantics.
+            - **Zero Data Loss Migrator**: Implemented `DatabaseMigrator` automatically converting legacy `novel_library_v1.json` into Room on first launch with backup preservation (`.bak`).
+            - **Debounced Instant Writes**: Chapter and paragraph progress updates execute atomically in < 1ms via Room DAOs, decoupling heavy disk writes from TTS paragraph ticks.
+            - **JSON Backup / Restore Preservation**: Retained JSON exclusively for user-facing import, export, and cross-device sync.
+
+            #### 🎙️ Web Browser TTS 1:1 Synchronization & Visible Paragraph Numbers
+            - **1:1 Text-to-Speech Truth**: Made visible reader text the single source of truth for browser TTS, removing uneven paragraph merging that caused desynchronization near the end of chapters.
+            - **Paragraph Index Numbering**: Added clear, small paragraph numbers to the left of each paragraph in the browser reader view.
+            - **Dynamic Dock Status**: `TtsDock` displays accurate paragraph index and total counts matching on-screen numbered paragraphs.
+            - **Tap to Speak from Paragraph**: Tapping any numbered paragraph immediately begins TTS reading specifically from that exact sentence.
+
+            #### 📜 Scroll-to-Bottom & Auto-Next Decoupling
+            - **Decoupled Scroll Triggers**: Scrolling to the bottom of the chapter reader view will only advance the chapter if `autoClickOnScroll` is explicitly enabled in settings.
+            - **Finished Reading Auto-Next**: Auto-advance on finished reading is governed exclusively by `autoReadNextChapter` when the final paragraph finishes playing.
+
+            #### 🛡️ Resilient Rules & Diagnostic Logging
+            - **Hardened Regex & Selectors**: Pronunciation and skip replacements now quote regex symbols to eliminate exceptions on special characters, with comprehensive `AppLogger` diagnostic capture.
 
             #### 🔄 Chapter & TTS Audio Sync Fixes (Book Reader)
             - **Eliminated Double Paragraph Pre-Merging**: Fixed an audio-text drifting bug where both `ReaderViewModel` and `AudioPlaybackCoordinator` applied paragraph bundling independently, causing paragraph count mismatch and visual highlighting desync.

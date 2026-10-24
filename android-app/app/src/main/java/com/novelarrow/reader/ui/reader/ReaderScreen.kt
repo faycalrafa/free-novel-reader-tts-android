@@ -950,7 +950,11 @@ fun TtsDock(
                     ) {
                         Column(modifier = Modifier.weight(1f, fill = false)) {
                             Text(
-                                text = if (isBrowserMode) "Live Web TTS" else if (totalChapters > 0) "Ch. ${currentChapterIndex + 1} / $totalChapters" else "",
+                                text = if (isBrowserMode) {
+                                    if (totalParagraphs > 0) "Para ${displayPara + 1} / $totalParagraphs" else "Live Web TTS"
+                                } else if (totalChapters > 0) {
+                                    "Ch. ${currentChapterIndex + 1} / $totalChapters"
+                                } else "",
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
