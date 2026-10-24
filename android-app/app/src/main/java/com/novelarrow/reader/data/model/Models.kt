@@ -59,7 +59,8 @@ data class Paragraph(
     val index: Int,
     val rawText: String,
     val spokenText: String,
-    val isHeading: Boolean = false
+    val isHeading: Boolean = false,
+    val sourceIndices: List<Int> = listOf(index)
 )
 
 enum class ThemeMode {
@@ -227,7 +228,8 @@ data class ReaderSettings(
     val sleepTimerMinutes: Int = 0,
     val quickToolbarSettings: QuickToolbarSettings = QuickToolbarSettings(),
     val hardwareButtonSettings: HardwareButtonSettings = HardwareButtonSettings(),
-    val ignoredSelectors: List<String> = emptyList()
+    val ignoredSelectors: List<String> = emptyList(),
+    val soundCuesEnabled: Boolean = true
 )
 
 @Serializable

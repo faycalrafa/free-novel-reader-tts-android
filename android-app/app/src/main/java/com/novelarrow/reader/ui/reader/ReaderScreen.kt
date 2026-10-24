@@ -72,6 +72,7 @@ import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -453,10 +454,12 @@ fun ReaderScreen(
             footerSkipRules = uiState.settings.footerSkipRules,
             contentSelectorEnabled = uiState.settings.contentSelectorEnabled,
             contentSelector = uiState.settings.contentSelector,
+            soundCuesEnabled = uiState.settings.soundCuesEnabled,
             onSpeechRateChange = { viewModel.updateSpeechRate(it) },
             onSpeechPitchChange = { viewModel.updateSpeechPitch(it) },
             onVoiceChange = { viewModel.updateVoice(it) },
             onSleepTimerChange = { viewModel.setSleepTimer(it) },
+            onSoundCuesEnabledChange = { viewModel.updateSoundCuesEnabled(it) },
             onPronunciationRulesEnabledChange = { viewModel.updatePronunciationRulesEnabled(it) },
             onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
             onRemovePronunciationRule = { viewModel.removePronunciationRule(it) },
@@ -1501,6 +1504,7 @@ fun LibraryDrawerContent(
     onSelectTab: (String) -> Unit = {},
     onNewTab: () -> Unit = {},
     onCloseTab: (String) -> Unit = {},
+    onOpenHistory: (() -> Unit)? = null,
     onOpenSettings: () -> Unit = {},
     onOpenAbout: () -> Unit,
     onOpenDevLogs: () -> Unit = {},
@@ -1755,16 +1759,31 @@ fun LibraryDrawerContent(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                            IconButton(
-                                onClick = onNewTab,
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Add,
-                                    contentDescription = "New Tab",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (onOpenHistory != null) {
+                                    IconButton(
+                                        onClick = onOpenHistory,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.History,
+                                            contentDescription = "Browsing History",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = onNewTab,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = "New Tab",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }

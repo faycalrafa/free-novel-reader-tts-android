@@ -109,6 +109,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.zIndex
 import com.novelarrow.reader.ui.browser.BrowserReorderButtonsScreen
+import com.novelarrow.reader.ui.browser.BrowserHistoryScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -127,6 +128,7 @@ enum class AppScreen {
     SETTINGS_BROWSER_IGNORED_SELECTORS,
     SETTINGS_BROWSER_NEXT_SELECTOR,
     BROWSER_REORDER_BUTTONS,
+    BROWSER_HISTORY,
     VOICE_ENGINE,
     DEV_LOGS,
     ARCHIVE,
@@ -306,7 +308,7 @@ class MainActivity : ComponentActivity() {
                 currentScreen = AppScreen.ABOUT
             }
 
-            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS || currentScreen == AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR || currentScreen == AppScreen.BROWSER_REORDER_BUTTONS)) {
+            BackHandler(enabled = !drawerState.isOpen && (currentScreen == AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS || currentScreen == AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR || currentScreen == AppScreen.BROWSER_REORDER_BUTTONS || currentScreen == AppScreen.BROWSER_HISTORY)) {
                 currentScreen = subScreenSourceScreen
             }
 
@@ -421,6 +423,10 @@ class MainActivity : ComponentActivity() {
                                 onCloseTab = { tabId ->
                                     browserViewModel.closeTab(tabId)
                                 },
+                                onOpenHistory = {
+                                    navigateToSubScreen(AppScreen.BROWSER_HISTORY)
+                                    scope.launch { drawerState.close() }
+                                },
                                 onOpenSettings = {
                                     currentScreen = AppScreen.SETTINGS
                                     scope.launch { drawerState.close() }
@@ -481,6 +487,7 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToNextSelector = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR) },
                                         onNavigateToIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) },
                                         onNavigateToReorderButtons = { navigateToSubScreen(AppScreen.BROWSER_REORDER_BUTTONS) },
+                                        onNavigateToHistory = { navigateToSubScreen(AppScreen.BROWSER_HISTORY) },
                                         onNavigateToDevLogs = { currentScreen = AppScreen.DEV_LOGS }
                                     )
                                 }
@@ -671,6 +678,22 @@ class MainActivity : ComponentActivity() {
                                     onNavigateBack = { currentScreen = subScreenSourceScreen }
                                 )
                             }
+                            AppScreen.BROWSER_HISTORY -> {
+                                BrowserHistoryScreen(
+                                    history = browserUiState.historyEntries,
+                                    onSelectUrl = { url ->
+                                        browserViewModel.navigateTo(url)
+                                        currentScreen = AppScreen.BROWSER
+                                    },
+                                    onOpenInNewTab = { url ->
+                                        browserViewModel.openNewTab(url)
+                                        currentScreen = AppScreen.BROWSER
+                                    },
+                                    onDeleteEntry = { id -> browserViewModel.deleteHistoryEntry(id) },
+                                    onClearHistory = { browserViewModel.clearHistory() },
+                                    onNavigateBack = { currentScreen = subScreenSourceScreen }
+                                )
+                            }
                             AppScreen.ARCHIVE -> {
                                 ArchiveScreen(
                                     archivedNovels = uiState.archivedNovels,
@@ -788,10 +811,12 @@ class MainActivity : ComponentActivity() {
                                 footerSkipRules = uiState.settings.footerSkipRules,
                                 contentSelectorEnabled = uiState.settings.contentSelectorEnabled,
                                 contentSelector = uiState.settings.contentSelector,
+                                soundCuesEnabled = uiState.settings.soundCuesEnabled,
                                 onSpeechRateChange = { viewModel.updateSpeechRate(it) },
                                 onSpeechPitchChange = { viewModel.updateSpeechPitch(it) },
                                 onVoiceChange = { viewModel.updateVoice(it) },
                                 onSleepTimerChange = { viewModel.setSleepTimer(it) },
+                                onSoundCuesEnabledChange = { viewModel.updateSoundCuesEnabled(it) },
                                 onPronunciationRulesEnabledChange = { viewModel.updatePronunciationRulesEnabled(it) },
                                 onAddPronunciationRule = { from, to, exact -> viewModel.addPronunciationRule(from, to, exact) },
                                 onRemovePronunciationRule = { viewModel.removePronunciationRule(it) },

@@ -631,7 +631,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun highlightWebParagraph(index: Int) {
         val autoScroll = _uiState.value.settings.ttsAutoScroll
-        dispatchEvaluateJs(WebScriptInjector.buildHighlightScript(index, autoScroll))
+        val paras = _uiState.value.liveParagraphs
+        val currentPara = paras.getOrNull(index)
+        val sourceIndices = currentPara?.sourceIndices ?: listOf(index)
+        dispatchEvaluateJs(WebScriptInjector.buildHighlightScript(sourceIndices, autoScroll))
     }
 
     private fun clearWebHighlight() {
@@ -640,6 +643,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun clickNextChapter() {
         playClickSound()
+        com.novelarrow.reader.playback.AudioCueManager.playChapterChange()
         if (_uiState.value.isLiveReading) {
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
@@ -1525,7 +1529,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun seekToParagraph(index: Int) {
         val paras = _uiState.value.liveParagraphs
         if (paras.isEmpty()) return
-        val target = index.coerceIn(0, paras.size - 1)
+        val resolvedIndex = paras.indexOfFirst { index in it.sourceIndices }.let { if (it >= 0) it else index }
+        val target = resolvedIndex.coerceIn(0, paras.size - 1)
         val curUrl = _uiState.value.currentUrl
         if (curUrl.isNotBlank()) {
             savedReadingPositions[curUrl] = target

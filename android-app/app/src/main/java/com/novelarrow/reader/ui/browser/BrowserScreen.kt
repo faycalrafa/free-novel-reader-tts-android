@@ -178,6 +178,7 @@ fun BrowserScreen(
     onNavigateToNextSelector: (() -> Unit)? = null,
     onNavigateToIgnoredSelectors: (() -> Unit)? = null,
     onNavigateToReorderButtons: (() -> Unit)? = null,
+    onNavigateToHistory: (() -> Unit)? = null,
     onNavigateToDevLogs: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -282,7 +283,7 @@ fun BrowserScreen(
                 customButtons = uiState.customToolbarButtons,
                 onCustomButtonClicked = { viewModel.onCustomToolbarButtonClicked(it) },
                 onReorderButtonsClicked = { onNavigateToReorderButtons?.invoke() },
-                onHistoryClicked = { viewModel.openHistoryDialog() }
+                onHistoryClicked = { onNavigateToHistory?.invoke() ?: viewModel.openHistoryDialog() }
             )
 
             // Linear Progress Indicator

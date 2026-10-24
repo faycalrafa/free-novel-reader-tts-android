@@ -305,13 +305,17 @@ object WebScriptInjector {
         """.trimIndent()
     }
 
-    fun buildHighlightScript(index: Int, autoScroll: Boolean): String {
+    fun buildHighlightScript(index: Int, autoScroll: Boolean): String =
+        buildHighlightScript(listOf(index), autoScroll)
+
+    fun buildHighlightScript(indices: List<Int>, autoScroll: Boolean): String {
+        val jsonIndices = indices.joinToString(prefix = "[", postfix = "]")
         val scrollSnippet = if (autoScroll) {
             """
                     try {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        targets[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
                     } catch(e) {
-                        target.scrollIntoView(true);
+                        targets[0].scrollIntoView(true);
                     }
             """.trimIndent()
         } else ""
@@ -332,8 +336,13 @@ object WebScriptInjector {
                 for (var i = 0; i < prev.length; i++) {
                     prev[i].classList.remove('na-tts-highlight');
                 }
-                var target = document.querySelector('[data-novel-para-idx="' + $index + '"]');
-                if (!target) {
+                var indices = $jsonIndices;
+                var targets = [];
+                for (var idx = 0; idx < indices.length; idx++) {
+                    var el = document.querySelector('[data-novel-para-idx="' + indices[idx] + '"]');
+                    if (el) targets.push(el);
+                }
+                if (targets.length === 0 && indices.length > 0) {
                     var allTagged = document.querySelectorAll('[data-novel-para-idx]');
                     if (allTagged.length === 0) {
                         var pElements = Array.from(document.querySelectorAll('p')).filter(function(p) {
@@ -342,13 +351,17 @@ object WebScriptInjector {
                         for (var k = 0; k < pElements.length; k++) {
                             pElements[k].setAttribute('data-novel-para-idx', String(k));
                         }
-                        if ($index < pElements.length) {
-                            target = pElements[$index];
+                        for (var idx = 0; idx < indices.length; idx++) {
+                            if (indices[idx] < pElements.length) {
+                                targets.push(pElements[indices[idx]]);
+                            }
                         }
                     }
                 }
-                if (target) {
-                    target.classList.add('na-tts-highlight');
+                for (var t = 0; t < targets.length; t++) {
+                    targets[t].classList.add('na-tts-highlight');
+                }
+                if (targets.length > 0) {
                     $scrollSnippet
                 }
             })();

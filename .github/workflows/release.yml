@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.14.0"
+          DATE_TAG="v3.15.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.14.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.14.0 --no-daemon
+          APP_VERSION_NAME: "3.15.0"
+        run: ./gradlew assembleRelease -PappVersionName=3.15.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.14.0 (Stable)
+          name: BookReader v3.15.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.14.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.15.0 (Stable) 📚🎙️⚡
+
+            #### 🔔 Audio Playback Sound Cues & Notifications
+            - **Chapter Change Bip**: Plays a crisp, subtle bip sound whenever navigating or auto-advancing to a new chapter.
+            - **Sleep Timer Chime**: Plays a soothing descending two-tone chime when the sleep timer reaches zero before pausing.
+            - **Folder / Novel Completion Chime**: Plays an ascending 3-note major chord chime when all chapters in a folder/novel or all tracks in an audio folder have finished.
+            - **Sound Cues Toggle**: Configurable in Unified Audio Settings dialog with zero AudioTrack native leakage using low-latency `SoundPool`.
+
+            #### ⚡ Text-Audio Sync & Reading Mode Paragraph Bundling
+            - **Mathematical Highlighting Sync**: Fixed desynchronization where text highlighting drifted behind audio during playback due to unmerged UI paragraphs vs merged TTS chunks.
+            - **Reading Mode Bundled Paragraphs**: Short paragraphs with fewer than 10 words (dialogue lines, short phrases) are now bundled together in reading mode (separated by `\n\n`) exactly matching what is synthesized and read.
+            - **Aligned Click-to-Seek**: Tapping any paragraph seeks to the exact audio segment with 1-to-1 index fidelity.
+            - **Browser Multi-Element Highlighting**: Highlighting in the web browser now supports highlighting all DOM elements in a bundled paragraph.
+
+            #### 🌐 Full-Screen Browsing History Route & New Tab Support
+            - **Dedicated History Route**: Migrated Browsing History from a modal dialog to a full-featured screen route (`AppScreen.BROWSER_HISTORY`).
+            - **Open in New Tab**: Users can now choose to open history items in the current tab or in a brand new tab directly from the history list.
+            - **Integrated Navigation Drawer**: Easily access Browsing History from the Library Drawer under Browser Tabs.
 
             **BookReader v3.14.0** brings essential background playback continuity, a responsive native Monaco search experience, full browsing history, centered multi-chapter download progress, language detection accuracy improvements, and short paragraph synthesis merging:
 

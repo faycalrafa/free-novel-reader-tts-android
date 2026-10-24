@@ -718,6 +718,20 @@ class ChapterParserTest {
         assertTrue(merged[0].spokenText.contains("opened it quietly."))
         assertTrue(merged[0].spokenText.contains("To be continued."))
         assertEquals(0, merged[0].index)
+        assertEquals(listOf(0, 1, 2), merged[0].sourceIndices)
+    }
+
+    @Test
+    fun testMergeShortParagraphs_preservesSourceIndicesWhenSeparate() {
+        val paras = listOf(
+            Paragraph(index = 0, rawText = "This is a sufficiently long first paragraph containing more than ten words for sure.", spokenText = "This is a sufficiently long first paragraph containing more than ten words for sure."),
+            Paragraph(index = 1, rawText = "This is another completely separate long second paragraph that also contains plenty of words.", spokenText = "This is another completely separate long second paragraph that also contains plenty of words.")
+        )
+
+        val merged = ChapterParser.mergeShortParagraphs(paras, minWordThreshold = 10)
+        assertEquals(2, merged.size)
+        assertEquals(listOf(0), merged[0].sourceIndices)
+        assertEquals(listOf(1), merged[1].sourceIndices)
     }
 
     @Test

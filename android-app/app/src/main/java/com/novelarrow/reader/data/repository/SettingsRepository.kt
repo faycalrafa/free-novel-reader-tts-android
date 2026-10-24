@@ -184,6 +184,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAutoNext(enabled: Boolean) = updateSettings { it.copy(autoNextChapter = enabled) }
 
+    suspend fun setSoundCuesEnabled(enabled: Boolean) = updateSettings { it.copy(soundCuesEnabled = enabled) }
+
     suspend fun setContentSelector(selector: String) = updateSettings { it.copy(contentSelector = selector) }
 
     suspend fun setContentSelectorEnabled(enabled: Boolean) = updateSettings { it.copy(contentSelectorEnabled = enabled) }

@@ -838,7 +838,8 @@ object ChapterParser {
                     index = 0,
                     rawText = combinedRaw,
                     spokenText = combinedSpoken,
-                    isHeading = combinedHeading
+                    isHeading = combinedHeading,
+                    sourceIndices = accumulator.sourceIndices + p.sourceIndices
                 )
                 if (countWords(combinedSpoken) <= minWordThreshold) {
                     accumulator = newPara
@@ -857,7 +858,8 @@ object ChapterParser {
                         index = 0,
                         rawText = last.rawText + "\n\n" + accumulator.rawText,
                         spokenText = last.spokenText + " " + accumulator.spokenText,
-                        isHeading = last.isHeading || accumulator.isHeading
+                        isHeading = last.isHeading || accumulator.isHeading,
+                        sourceIndices = last.sourceIndices + accumulator.sourceIndices
                     )
                 )
             } else {

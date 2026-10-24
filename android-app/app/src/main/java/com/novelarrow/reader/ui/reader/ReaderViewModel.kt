@@ -277,7 +277,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                                 ignoredSelectors = settings.ignoredSelectors
                             )
                         }
-                        val newParagraphs = parseResult.paragraphs
+                        val rawParagraphs = parseResult.paragraphs
+                        val newParagraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
                         val safeIndex = _uiState.value.currentParagraphIndex.coerceIn(0, (newParagraphs.size - 1).coerceAtLeast(0))
                         _uiState.update {
                             it.copy(
@@ -867,7 +868,8 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
                     ignoredSelectors = settings.ignoredSelectors
                 )
             }
-            val paragraphs = parseResult.paragraphs
+            val rawParagraphs = parseResult.paragraphs
+            val paragraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
 
             val targetIndex = if (restoreProgress) {
                 chapter.lastReadParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
@@ -1434,6 +1436,10 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateAutoNext(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setAutoNext(enabled) }
+    }
+
+    fun updateSoundCuesEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setSoundCuesEnabled(enabled) }
     }
 
     fun updateQuickToolbarSettings(toolbarSettings: com.novelarrow.reader.data.model.QuickToolbarSettings) {

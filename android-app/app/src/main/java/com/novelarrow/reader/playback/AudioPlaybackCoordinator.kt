@@ -137,6 +137,8 @@ object AudioPlaybackCoordinator {
 
         val initialEngine = settingsRepository?.getSettings()?.selectedTtsEnginePackage
 
+        AudioCueManager.initialize(application, settingsRepository)
+
         // Initialize TtsManager owned strictly by the coordinator
         ttsManager = TtsManager(application, initialEngine) { success ->
             if (success) {
@@ -251,6 +253,11 @@ object AudioPlaybackCoordinator {
             attachedService?.stopAudioFile()
         }
 
+        val isChapterTransition = currentChapterId != null && currentChapterId != chapterId
+        if (isChapterTransition) {
+            AudioCueManager.playChapterChange()
+        }
+
         currentSource = PlaybackSource.READER
         lastActiveSource = PlaybackSource.READER
         currentNovelId = novelId
@@ -281,13 +288,13 @@ object AudioPlaybackCoordinator {
                 chapterIndex = chapterIndex,
                 totalChapters = totalChapters,
                 currentParagraphIndex = currentParagraphIndex,
-                totalParagraphs = paragraphs.size,
-                currentParagraphText = paragraphs.getOrNull(currentParagraphIndex)?.spokenText ?: ""
+                totalParagraphs = mergedParas.size,
+                currentParagraphText = mergedParas.getOrNull(currentParagraphIndex)?.spokenText ?: ""
             )
         }
 
         currentProgressText = if (totalChapters > 0) {
-            "Ch. ${chapterIndex + 1}/$totalChapters • ¶ ${currentParagraphIndex + 1}/${paragraphs.size}"
+            "Ch. ${chapterIndex + 1}/$totalChapters • ¶ ${currentParagraphIndex + 1}/${mergedParas.size}"
         } else {
             "Ready"
         }
@@ -530,7 +537,8 @@ object AudioPlaybackCoordinator {
                 AppLogger.i(TAG, "Track completed, advancing to track ${nextIndex + 1}/${currentPlaylist.size}")
                 playAudioFile(currentPlaylist[nextIndex], currentPlaylist, nextIndex)
             } else {
-                AppLogger.i(TAG, "Playlist finished")
+                AppLogger.i(TAG, "Playlist finished in audio folder, playing folder done sound cue")
+                AudioCueManager.playFolderDone()
                 pause()
             }
         }
@@ -585,6 +593,8 @@ object AudioPlaybackCoordinator {
                 _sleepTimerRemainingSecondsState.value = remaining
             }
             if (remaining <= 0 && _isPlayingState.value) {
+                AppLogger.i(TAG, "Sleep timer reached zero, playing timer stop sound cue and pausing playback")
+                AudioCueManager.playTimerStop()
                 pause()
                 _sleepTimerRemainingSecondsState.value = 0
             }
@@ -1354,6 +1364,7 @@ object AudioPlaybackCoordinator {
             val chapters = repo.getChapters(novelId)
             val nextIdx = currentChapterIndex + 1
             if (nextIdx in chapters.indices) {
+                AudioCueManager.playChapterChange()
                 val nextChap = chapters[nextIdx]
                 val content = repo.readChapterContent(nextChap)
                 val settings = settingsRepo.getSettings()
@@ -1393,6 +1404,8 @@ object AudioPlaybackCoordinator {
                     }
                 }
             } else {
+                AppLogger.i(TAG, "All chapters in novel completed, playing folder done sound cue")
+                AudioCueManager.playFolderDone()
                 withContext(Dispatchers.Main) {
                     pause()
                 }
@@ -1408,6 +1421,7 @@ object AudioPlaybackCoordinator {
             val chapters = repo.getChapters(novelId)
             val prevIdx = currentChapterIndex - 1
             if (prevIdx in chapters.indices) {
+                AudioCueManager.playChapterChange()
                 val prevChap = chapters[prevIdx]
                 val content = repo.readChapterContent(prevChap)
                 val settings = settingsRepo.getSettings()

@@ -116,13 +116,17 @@ class WebScriptInjectorTest {
     fun testBuildHighlightScript() {
         val scriptWithScroll = WebScriptInjector.buildHighlightScript(5, autoScroll = true)
         assertTrue(scriptWithScroll.contains("data-novel-para-idx"))
-        assertTrue(scriptWithScroll.contains("+ 5 +"))
+        assertTrue(scriptWithScroll.contains("[5]"))
         assertTrue(scriptWithScroll.contains("scrollIntoView"))
 
         val scriptWithoutScroll = WebScriptInjector.buildHighlightScript(10, autoScroll = false)
         assertTrue(scriptWithoutScroll.contains("data-novel-para-idx"))
-        assertTrue(scriptWithoutScroll.contains("+ 10 +"))
+        assertTrue(scriptWithoutScroll.contains("[10]"))
         assertFalse(scriptWithoutScroll.contains("scrollIntoView"))
+
+        val multiScript = WebScriptInjector.buildHighlightScript(listOf(2, 3), autoScroll = true)
+        assertTrue(multiScript.contains("[2, 3]"))
+        assertTrue(multiScript.contains("scrollIntoView"))
     }
 
     @Test

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Translate
@@ -49,10 +50,12 @@ fun UnifiedAudioSettingsDialog(
     footerSkipRules: List<SkipRule> = emptyList(),
     contentSelectorEnabled: Boolean = true,
     contentSelector: String = "",
+    soundCuesEnabled: Boolean = true,
     onSpeechRateChange: (Float) -> Unit,
     onSpeechPitchChange: (Float) -> Unit,
     onVoiceChange: (String?) -> Unit = {},
     onSleepTimerChange: (Int) -> Unit,
+    onSoundCuesEnabledChange: ((Boolean) -> Unit)? = null,
     onPronunciationRulesEnabledChange: ((Boolean) -> Unit)? = null,
     onAddPronunciationRule: ((String, String, Boolean) -> Unit)? = null,
     onRemovePronunciationRule: ((Int) -> Unit)? = null,
@@ -226,6 +229,38 @@ fun UnifiedAudioSettingsDialog(
                                 )
                             }
                         }
+                    }
+                }
+
+                // Audio Cues / Sound Feedback
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSoundCuesEnabledChange?.invoke(!soundCuesEnabled) }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    "Sound Cues & Alerts",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                Text(
+                                    "Bip on chapter change, chimes on timer stop & completion",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = soundCuesEnabled,
+                            onCheckedChange = { onSoundCuesEnabledChange?.invoke(it) }
+                        )
                     }
                 }
 
