@@ -87,6 +87,8 @@ object AudioPlaybackCoordinator {
     private var currentPlaylist: List<File> = emptyList()
     private var currentAudioFile: File? = null
     private var pendingAudioFile: File? = null
+    private var lastBrowserPlayTimestamp: Long = 0L
+    private var lastBrowserPlayTitle: String? = null
 
     var currentSpeechRate: Float = 1.0f
         private set
@@ -341,6 +343,19 @@ object AudioPlaybackCoordinator {
     ) {
         initialize(context)
         ensureServiceRunning(context)
+
+        val now = System.currentTimeMillis()
+        if (currentSource == PlaybackSource.BROWSER &&
+            _isPlayingState.value &&
+            startParagraphIndex == 0 &&
+            chapterTitle == lastBrowserPlayTitle &&
+            (now - lastBrowserPlayTimestamp) < 400L
+        ) {
+            AppLogger.d(TAG, "Suppressed duplicate playBrowserParagraphs invocation for '$chapterTitle' within ${now - lastBrowserPlayTimestamp}ms")
+            return
+        }
+        lastBrowserPlayTimestamp = now
+        lastBrowserPlayTitle = chapterTitle
 
         if (currentSource == PlaybackSource.AUDIO_FILE) {
             attachedService?.stopAudioFile()

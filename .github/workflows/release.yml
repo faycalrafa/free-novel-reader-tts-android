@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.17.1"
+          DATE_TAG="v3.17.2"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.17.1"
-        run: ./gradlew assembleRelease -PappVersionName=3.17.1 --no-daemon
+          APP_VERSION_NAME: "3.17.2"
+        run: ./gradlew assembleRelease -PappVersionName=3.17.2 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.17.1 (Stable)
+          name: BookReader v3.17.2 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.17.1 (Stable) 📚🎙️⚡
+            ### BookReader v3.17.2 (Stable) 📚🎙️⚡
+
+            #### 🎙️ Eliminate Next-Chapter Triple-Read TTS Stutter
+            - **Debounced Auto-Read Pipeline**: Replaced uncoordinated coroutine launches with a tracked, single-flight `pageAutoReadJob` in `BrowserViewModel`, cancelling any pending auto-read extraction whenever a new page starts or user triggers next/prev navigation.
+            - **Decoupled Page Title Reception**: Separated `WebChromeClient.onReceivedTitle` from `onPageFinished`. Dynamic `<title>` tag evaluations no longer re-fire the full page finish pipeline, eliminating multi-stage race conditions during page loads.
+            - **Eliminated Duplicate Reading Mode Invocations**: Streamlined `startLiveReadingInternal(forceStartAtBeginning = true)` to avoid duplicate extraction passes and redundant `enterReadingMode()` re-entries on auto-advance.
+            - **Audio Coordinator Rapid Play Suppression**: Added rapid identical invocation suppression in `AudioPlaybackCoordinator.playBrowserParagraphs()` to safeguard against duplicate paragraph 0 playback calls arriving within < 400ms.
 
             #### 🎙️ Web Browser Reading Mode TTS Synchronization Fix
             - **Short Paragraph Merging Synchronization**: Fixed paragraph index and audio desynchronization where short paragraphs ($\le 10$ words) were merged in the audio coordinator while remaining separate in `BrowserReaderView`.

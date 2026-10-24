@@ -1385,13 +1385,7 @@ private fun createConfiguredWebView(
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
-                val currentUrl = view?.url ?: ""
-                viewModel.onPageFinished(
-                    url = currentUrl,
-                    title = title,
-                    canGoBack = view?.canGoBack() == true,
-                    canGoForward = view?.canGoForward() == true
-                )
+                viewModel.onReceivedTitle(title)
             }
 
             override fun onCreateWindow(

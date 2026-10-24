@@ -181,6 +181,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private var autoLoopJob: Job? = null
     private var sleepTimerJob: Job? = null
     private var retryExtractionJob: Job? = null
+    private var pageAutoReadJob: Job? = null
+    private var lastAutoReadUrl: String? = null
     private var preExtractedNextChapterUrl: String? = null
 
     private var lastBatchDownloadedUrl: String = ""
@@ -503,7 +505,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun onReceivedTitle(title: String?) {
+        val safeTitle = title.orEmpty().ifBlank { if (_uiState.value.currentUrl.contains("google")) "Google" else "Web Page" }
+        _uiState.update { it.copy(pageTitle = safeTitle) }
+        updateCurrentTabUrl(_uiState.value.currentUrl, safeTitle)
+    }
+
     fun onPageStarted(url: String, canGoBack: Boolean = false, canGoForward: Boolean = false) {
+        pageAutoReadJob?.cancel()
+        retryExtractionJob?.cancel()
+        lastAutoReadUrl = null
         if (_uiState.value.isLiveReading) {
             AudioPlaybackCoordinator.pause()
             clearWebHighlight()
@@ -578,19 +589,25 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             return
         }
 
-        // 2. If in Reading Mode, automatically re-extract the new chapter content for distraction-free reading
-        if (_uiState.value.isReaderMode) {
-            viewModelScope.launch {
-                delay(500)
-                enterReadingMode()
-                if (_uiState.value.isLiveReading || _uiState.value.settings.autoReadNextChapter) {
-                    startLiveReadingInternal(forceStartAtBeginning = true)
+        // 2. Debounce and serialize content extraction for Reading Mode and Live Reading
+        pageAutoReadJob?.cancel()
+        pageAutoReadJob = viewModelScope.launch {
+            delay(500)
+            if (!isActive) return@launch
+
+            val shouldAutoRead = _uiState.value.isLiveReading ||
+                    _uiState.value.settings.autoReadNextChapter ||
+                    _uiState.value.settings.ttsAutoStart
+
+            if (shouldAutoRead) {
+                if (lastAutoReadUrl == url && _uiState.value.isLivePlaying) {
+                    AppLogger.d(TAG, "Page $url is already actively playing, skipping duplicate auto-read")
+                    return@launch
                 }
-            }
-        } else if (_uiState.value.settings.autoReadNextChapter && (_uiState.value.isLiveReading || _uiState.value.settings.ttsAutoStart)) {
-            viewModelScope.launch {
-                delay(700)
+                lastAutoReadUrl = url
                 startLiveReadingInternal(forceStartAtBeginning = true)
+            } else if (_uiState.value.isReaderMode) {
+                enterReadingMode()
             }
         }
     }
@@ -644,6 +661,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun clickNextChapter() {
         playClickSound()
         com.novelarrow.reader.playback.AudioCueManager.playChapterChange()
+        pageAutoReadJob?.cancel()
+        retryExtractionJob?.cancel()
+        lastAutoReadUrl = null
         if (_uiState.value.isLiveReading) {
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
@@ -671,6 +691,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun clickPrevChapter() {
         playClickSound()
+        pageAutoReadJob?.cancel()
+        retryExtractionJob?.cancel()
+        lastAutoReadUrl = null
         if (_uiState.value.isLiveReading) {
             clearWebHighlight()
             _uiState.update { it.copy(liveParagraphs = emptyList(), liveCurrentParagraphIndex = 0) }
@@ -2188,5 +2211,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         autoLoopJob?.cancel()
         sleepTimerJob?.cancel()
         retryExtractionJob?.cancel()
+        pageAutoReadJob?.cancel()
     }
 }
