@@ -890,7 +890,7 @@ object ChapterParser {
                 }
             } else {
                 val combinedRaw = accumulator.rawText + "\n\n" + p.rawText
-                val combinedSpoken = accumulator.spokenText + " " + p.spokenText
+                val combinedSpoken = accumulator.spokenText + "\n\n" + p.spokenText
                 val combinedHeading = accumulator.isHeading || p.isHeading
                 val newPara = Paragraph(
                     index = 0,
@@ -915,7 +915,7 @@ object ChapterParser {
                     Paragraph(
                         index = 0,
                         rawText = last.rawText + "\n\n" + accumulator.rawText,
-                        spokenText = last.spokenText + " " + accumulator.spokenText,
+                        spokenText = last.spokenText + "\n\n" + accumulator.spokenText,
                         isHeading = last.isHeading || accumulator.isHeading,
                         sourceIndices = last.sourceIndices + accumulator.sourceIndices
                     )

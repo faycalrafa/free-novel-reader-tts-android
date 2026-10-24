@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v3.17.0"
+          DATE_TAG="v3.17.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "3.17.0"
-        run: ./gradlew assembleRelease -PappVersionName=3.17.0 --no-daemon
+          APP_VERSION_NAME: "3.17.1"
+        run: ./gradlew assembleRelease -PappVersionName=3.17.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v3.17.0 (Stable)
+          name: BookReader v3.17.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v3.17.0 (Stable) 📚🎙️⚡
+            ### BookReader v3.17.1 (Stable) 📚🎙️⚡
+
+            #### 🎙️ Web Browser Reading Mode TTS Synchronization Fix
+            - **Short Paragraph Merging Synchronization**: Fixed paragraph index and audio desynchronization where short paragraphs ($\le 10$ words) were merged in the audio coordinator while remaining separate in `BrowserReaderView`.
+            - **Unified Paragraph Numbering**: Constituent short paragraphs and their following paragraph are now unified under the same paragraph number across UI, dock counters, and TTS playback.
+            - **Preserved Dialogue Formatting**: Maintained paragraph breaks (`\n\n`) within merged paragraphs so dialogue formatting remains clear and legible in reader mode and local reader views.
+            - **Accurate Web Click-to-Seek**: Added DOM source index resolution via `seekToWebParagraph` ensuring web element taps cleanly map to their parent merged paragraph.
 
             #### 🗄️ AndroidX Room SQLite Migration & WAL Architecture
             - **Room Database Ingestion**: Fully migrated persistent novel library from monolithic JSON to AndroidX Room SQLite with Write-Ahead Logging (WAL) and foreign-key cascade semantics.

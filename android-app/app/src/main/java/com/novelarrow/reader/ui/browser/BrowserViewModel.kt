@@ -1307,8 +1307,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 ignoredSelectorImpacts = ignoredImpacts
             )
 
-            val paragraphs = parseResult.paragraphs
-            val curPos = (savedReadingPositions[currentUrl] ?: 0).coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+            val rawParagraphs = parseResult.paragraphs
+            val paragraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
+            val curPos = (if (_uiState.value.isLiveReading) _uiState.value.liveCurrentParagraphIndex else (savedReadingPositions[currentUrl] ?: 0)).coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
             _uiState.update {
                 it.copy(
                     isReaderMode = true,
@@ -1437,8 +1438,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     ignoredSelectorImpacts = ignoredImpacts
                 )
 
-                val paragraphs = parseResult.paragraphs
-                val readableParagraphs = paragraphs
+                val rawParagraphs = parseResult.paragraphs
+                val readableParagraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
 
                 if (readableParagraphs.isNotEmpty()) {
                     val targetIndex = (initialIndex ?: if (forceStartAtBeginning) {
@@ -1466,7 +1467,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         startParagraphIndex = targetIndex,
                         rate = settings.ttsRate,
                         pitch = settings.ttsPitch,
-                        voiceName = settings.ttsVoice
+                        voiceName = settings.ttsVoice,
+                        isPreMerged = true
                     )
                 } else {
                     if (retryCount < 2 && rawList.isEmpty()) {
@@ -1548,6 +1550,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 liveParagraphs = emptyList()
             )
         }
+    }
+
+    fun seekToWebParagraph(domIndex: Int) {
+        val paras = _uiState.value.liveParagraphs.ifEmpty { _uiState.value.readerModeParagraphs }
+        if (paras.isEmpty()) return
+        val resolvedIndex = paras.indexOfFirst { domIndex in it.sourceIndices }.takeIf { it >= 0 }
+            ?: domIndex.coerceIn(0, paras.size - 1)
+        seekToParagraph(resolvedIndex)
     }
 
     fun seekToParagraph(index: Int) {

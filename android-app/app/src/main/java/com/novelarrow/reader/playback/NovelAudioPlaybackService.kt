@@ -217,7 +217,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
             startParagraphIndex: Int,
             rate: Float = 1.0f,
             pitch: Float = 1.0f,
-            voiceName: String? = null
+            voiceName: String? = null,
+            isPreMerged: Boolean = false
         ) {
             AudioPlaybackCoordinator.playBrowserParagraphs(
                 context = context,
@@ -226,7 +227,8 @@ class NovelAudioPlaybackService : MediaSessionService() {
                 startParagraphIndex = startParagraphIndex,
                 rate = rate,
                 pitch = pitch,
-                voiceName = voiceName
+                voiceName = voiceName,
+                isPreMerged = isPreMerged
             )
         }
 

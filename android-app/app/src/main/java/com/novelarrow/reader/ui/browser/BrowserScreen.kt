@@ -1339,7 +1339,7 @@ private fun createConfiguredWebView(
 
         val bridge = com.novelarrow.reader.browser.engine.BrowserBridge(
             context = context,
-            onParagraphClickedCallback = { index -> viewModel.seekToParagraph(index) },
+            onParagraphClickedCallback = { index -> viewModel.seekToWebParagraph(index) },
             onScrolledToBottomCallback = {
                 if (viewModel.uiState.value.settings.autoClickOnScroll) {
                     viewModel.clickNextChapter()

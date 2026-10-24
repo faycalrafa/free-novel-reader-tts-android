@@ -749,6 +749,66 @@ class ChapterParserTest {
     }
 
     @Test
+    fun testMergeShortParagraphs_preservesLineBreaksAndSourceIndicesForDialoguePairs() {
+        // Simulates the exact user scenario:
+        // Paragraph 12 (<= 10 words) merges into Paragraph 13 (> 10 words)
+        // Paragraph 14 (<= 10 words) merges into Paragraph 15 (> 10 words)
+        val paras = listOf(
+            Paragraph(
+                index = 12,
+                rawText = "Long Chen's gaze sharpened. \"You mean...?\"",
+                spokenText = "Long Chen's gaze sharpened. \"You mean...?\"",
+                sourceIndices = listOf(12)
+            ),
+            Paragraph(
+                index = 13,
+                rawText = "\"Whether it is the devil race's experts or the disciples of the violet blood race, when they die, over ninety percent of their power returns to heaven and earth.\"",
+                spokenText = "\"Whether it is the devil race's experts or the disciples of the violet blood race, when they die, over ninety percent of their power returns to heaven and earth.\"",
+                sourceIndices = listOf(13)
+            ),
+            Paragraph(
+                index = 14,
+                rawText = "Long Chen sucked in a breath.",
+                spokenText = "Long Chen sucked in a breath.",
+                sourceIndices = listOf(14)
+            ),
+            Paragraph(
+                index = 15,
+                rawText = "\"Battles like this are playing out across the nine heavens and ten lands. Each fallen cultivator has their essence reclaimed by heaven and earth.\"",
+                spokenText = "\"Battles like this are playing out across the nine heavens and ten lands. Each fallen cultivator has their essence reclaimed by heaven and earth.\"",
+                sourceIndices = listOf(15)
+            )
+        )
+
+        val merged = ChapterParser.mergeShortParagraphs(paras, minWordThreshold = 10)
+        assertEquals(2, merged.size)
+
+        // Both constituent paragraphs are combined with \n\n in rawText and spokenText
+        assertTrue(merged[0].rawText.contains("Long Chen's gaze sharpened. \"You mean...?\"\n\n\"Whether it is"))
+        assertTrue(merged[0].spokenText.contains("Long Chen's gaze sharpened. \"You mean...?\"\n\n\"Whether it is"))
+        assertEquals(listOf(12, 13), merged[0].sourceIndices)
+        assertEquals(0, merged[0].index)
+
+        assertTrue(merged[1].rawText.contains("Long Chen sucked in a breath.\n\n\"Battles like this"))
+        assertTrue(merged[1].spokenText.contains("Long Chen sucked in a breath.\n\n\"Battles like this"))
+        assertEquals(listOf(14, 15), merged[1].sourceIndices)
+        assertEquals(1, merged[1].index)
+
+        // Verify web DOM click resolution logic
+        // Clicking DOM element 12 or 13 should both resolve to merged paragraph index 0
+        val resolvedFromDom12 = merged.indexOfFirst { 12 in it.sourceIndices }
+        val resolvedFromDom13 = merged.indexOfFirst { 13 in it.sourceIndices }
+        assertEquals(0, resolvedFromDom12)
+        assertEquals(0, resolvedFromDom13)
+
+        // Clicking DOM element 14 or 15 should both resolve to merged paragraph index 1
+        val resolvedFromDom14 = merged.indexOfFirst { 14 in it.sourceIndices }
+        val resolvedFromDom15 = merged.indexOfFirst { 15 in it.sourceIndices }
+        assertEquals(1, resolvedFromDom14)
+        assertEquals(1, resolvedFromDom15)
+    }
+
+    @Test
     fun testCssContentSelectorFirst_preservesFirstParagraphWithInlineNavButtons() {
         // Simulates web novel chapters where the first <p> contains inline prev/next buttons
         val html = """

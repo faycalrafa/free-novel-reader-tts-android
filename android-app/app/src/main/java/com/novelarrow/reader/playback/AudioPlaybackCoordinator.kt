@@ -336,7 +336,8 @@ object AudioPlaybackCoordinator {
         startParagraphIndex: Int,
         rate: Float = currentSpeechRate,
         pitch: Float = currentSpeechPitch,
-        voiceName: String? = currentVoiceName
+        voiceName: String? = currentVoiceName,
+        isPreMerged: Boolean = false
     ) {
         initialize(context)
         ensureServiceRunning(context)
@@ -353,18 +354,21 @@ object AudioPlaybackCoordinator {
         currentSource = PlaybackSource.BROWSER
         lastActiveSource = PlaybackSource.BROWSER
         lastActiveBrowserChapterTitle = chapterTitle
-        lastActiveBrowserParagraphs = paragraphs
-        lastActiveBrowserParagraphIndex = startParagraphIndex.coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
         currentNovelId = null
         currentNovelTitle = "Web Reading"
         currentChapterId = null
         currentChapterTitle = chapterTitle
         currentChapterIndex = 0
-        val mergedParas = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(paragraphs)
+        val mergedParas = if (isPreMerged) {
+            paragraphs
+        } else {
+            com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(paragraphs, minWordThreshold = 10)
+        }
         lastActiveBrowserParagraphs = mergedParas
         currentParagraphs = mergedParas
         totalParagraphsCount = mergedParas.size
         currentParagraphIndex = startParagraphIndex.coerceIn(0, (mergedParas.size - 1).coerceAtLeast(0))
+        lastActiveBrowserParagraphIndex = currentParagraphIndex
         autoNextChapterEnabled = false
         currentSpeechRate = rate
         currentSpeechPitch = pitch
@@ -402,8 +406,8 @@ object AudioPlaybackCoordinator {
         speakCurrentParagraph()
     }
 
-    fun updateActiveParagraphs(newParas: List<Paragraph>) {
-        val mergedParas = com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(newParas)
+    fun updateActiveParagraphs(newParas: List<Paragraph>, isPreMerged: Boolean = false) {
+        val mergedParas = if (isPreMerged) newParas else com.novelarrow.reader.data.parser.ChapterParser.mergeShortParagraphs(newParas, minWordThreshold = 10)
         currentParagraphs = mergedParas
         totalParagraphsCount = mergedParas.size
         _playbackProgressState.update {
