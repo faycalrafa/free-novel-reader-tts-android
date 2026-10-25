@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.0.1"
+          DATE_TAG="v4.1.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.0.1"
-        run: ./gradlew assembleRelease -PappVersionName=4.0.1 --no-daemon
+          APP_VERSION_NAME: "4.1.0"
+        run: ./gradlew assembleRelease -PappVersionName=4.1.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,24 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.0.1 (Stable)
+          name: BookReader v4.1.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.0.1 (Regression Fixes & Playback Isolation) 📚🎙️⚡
+            ### BookReader v4.1.0 (Browser TTS Persistence, Docked Bottom Bar & Multi-Download Fixes) 📚🎙️⚡
+
+            #### 🔄 Browser TTS Progress Persistence & Offline Resume Prompt
+            - **Startup Resume Prompt**: When opening the app, if the last playback source was browser TTS, BookReader now detects the unfinished reading session and offers an immediate option to resume from where you left off.
+            - **Offline Reading Memory**: Resuming opens the cached clean chapter HTML from local storage memory regardless of internet connectivity, automatically scrolling to the exact paragraph and resuming TTS speech.
+            - **Seamless Progress Tracking**: Browser paragraph playback progress is continually persisted via `BrowserPlaybackSessionManager` with atomic file persistence.
+
+            #### ⚓ Docked Bottom Media Bar
+            - **Flush Bottom Attachment**: Re-anchored the bottom media dock (`TtsDock`) so its surface background extends flush behind the system navigation bar, eliminating the floating transparent gap above Android system buttons/gestures.
+
+            #### 📥 Overhauled Multi-Chapter Downloader Userscript (v3.0.0)
+            - **Native Bridge Integration**: Replaced broken WebView Blob download triggers with direct native bridge integration via `BrowserBridge.saveDownloadedChapter` / `AndroidBridge.saveDownloadedChapter`, properly registering downloaded chapters in the user library and saving to disk.
+            - **Clean Reading Mode HTML**: Scrapes and stores only clean filtered chapter text wrapped in lightweight styling (`#chapter-content`), matching Reading Mode without saving bloated or frozen pages.
+            - **Automated Next-Chapter Navigation**: Features intelligent candidate selector resolution, button text matching, SPA navigation detection, and visual countdown timer between chapters.
+
 
             #### 🎨 Restored Original Reader TTS Dock
             - **Docked Bottom Sheet Design**: Restored the original full-width docked bottom bar (`TtsDock`) with rounded top corners, replacing the detached floating island card.

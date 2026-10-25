@@ -94,7 +94,7 @@ class UserscriptMetadataParserTest {
     fun testParseDefaultMultiDownloadScript() {
         val parsed = UserscriptMetadataParser.parse(UserscriptRepository.DEFAULT_MULTI_DOWNLOAD_SCRIPT)
         assertEquals("Multi-Download", parsed.name)
-        assertEquals("2.1.0", parsed.version)
+        assertEquals("3.0.0", parsed.version)
         assertEquals(listOf("*://*/*", "file://*/*"), parsed.matchPatterns)
         assertEquals("document-end", parsed.runAt)
         assertTrue(parsed.grantList.contains("GM_registerToolbarButton"))

@@ -38,6 +38,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.novelarrow.reader.data.export.FileFusionManager
+import com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager
 import com.novelarrow.reader.playback.AudioExportService
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.playback.HardwareButtonCoordinator
@@ -177,6 +178,13 @@ class MainActivity : ComponentActivity() {
             val shouldOpenCssSelector by openCssSelectorEvent
             var showCssSelectorDialog by remember { mutableStateOf(false) }
             var showGlobalAudioSettings by remember { mutableStateOf(false) }
+            var pendingResumeBrowserSession by remember {
+                mutableStateOf(
+                    if (BrowserPlaybackSessionManager.shouldProposeResume(context)) {
+                        BrowserPlaybackSessionManager.getLastSession(context)
+                    } else null
+                )
+            }
 
             LaunchedEffect(shouldOpenCssSelector) {
                 if (shouldOpenCssSelector) {
@@ -380,7 +388,17 @@ class MainActivity : ComponentActivity() {
                                 showGlobalAudioSettings = showGlobalAudioSettings,
                                 onDismissGlobalAudioSettings = { showGlobalAudioSettings = false },
                                 navigateToSubScreen = navigateToSubScreen,
-                                onOpenDevLogs = { currentScreen = AppScreen.DEV_LOGS }
+                                onOpenDevLogs = { currentScreen = AppScreen.DEV_LOGS },
+                                resumeBrowserSession = pendingResumeBrowserSession,
+                                onResumeBrowserSession = { session ->
+                                    pendingResumeBrowserSession = null
+                                    currentScreen = AppScreen.BROWSER
+                                    browserViewModel.resumeSavedSession(session)
+                                },
+                                onDismissResumeBrowserSession = { session ->
+                                    BrowserPlaybackSessionManager.dismissPrompt(context, session)
+                                    pendingResumeBrowserSession = null
+                                }
                             )
 
                             IncomingShareDialogs(

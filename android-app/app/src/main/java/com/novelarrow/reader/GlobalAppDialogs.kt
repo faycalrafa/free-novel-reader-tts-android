@@ -20,8 +20,10 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import com.novelarrow.reader.data.repository.BrowserPlaybackSession
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -62,8 +64,19 @@ fun GlobalAppDialogs(
     showGlobalAudioSettings: Boolean,
     onDismissGlobalAudioSettings: () -> Unit,
     navigateToSubScreen: (AppScreen) -> Unit,
-    onOpenDevLogs: () -> Unit
+    onOpenDevLogs: () -> Unit,
+    resumeBrowserSession: BrowserPlaybackSession? = null,
+    onResumeBrowserSession: ((BrowserPlaybackSession) -> Unit)? = null,
+    onDismissResumeBrowserSession: ((BrowserPlaybackSession) -> Unit)? = null
 ) {
+    if (resumeBrowserSession != null && onResumeBrowserSession != null && onDismissResumeBrowserSession != null) {
+        ResumeBrowserPlaybackDialog(
+            session = resumeBrowserSession,
+            onConfirm = { onResumeBrowserSession(resumeBrowserSession) },
+            onDismiss = { onDismissResumeBrowserSession(resumeBrowserSession) }
+        )
+    }
+
     if (showCssSelectorDialog) {
         NotificationCssSelectorDialog(
             initialSelector = uiState.settings.contentSelector,
@@ -405,3 +418,53 @@ fun NotificationCssSelectorDialog(
         }
     )
 }
+
+@Composable
+fun ResumeBrowserPlaybackDialog(
+    session: BrowserPlaybackSession,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
+        icon = {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp)
+            )
+        },
+        title = {
+            Text("Resume Web Reading?", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "You were listening to \"${session.chapterTitle.ifBlank { "Web Chapter" }}\" at Paragraph ${session.paragraphIndex + 1}${if (session.totalParagraphs > 0) " of ${session.totalParagraphs}" else ""}.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Would you like to continue from where you left off offline?",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Continue")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Stay in Library")
+            }
+        }
+    )
+}
+

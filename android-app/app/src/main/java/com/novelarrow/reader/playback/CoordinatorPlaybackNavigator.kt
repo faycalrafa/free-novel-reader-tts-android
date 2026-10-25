@@ -86,6 +86,7 @@ internal class CoordinatorPlaybackNavigator(
         currentParagraphs = effectiveParas
         totalParagraphsCount = effectiveParas.size
         autoNextChapterEnabled = autoNext
+        com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.setLastPlaybackSource(context, com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.SOURCE_READER)
 
         val clampedStart = startParagraphIndex.coerceIn(0, (effectiveParas.size - 1).coerceAtLeast(0))
         currentParagraphIndex = clampedStart
@@ -132,6 +133,7 @@ internal class CoordinatorPlaybackNavigator(
 
         currentSource = PlaybackSource.BROWSER
         lastActiveSource = PlaybackSource.BROWSER
+        com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.setLastPlaybackSource(context, com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.SOURCE_BROWSER)
         currentNovelId = null
         currentNovelTitle = "Web Reading"
         currentChapterId = null

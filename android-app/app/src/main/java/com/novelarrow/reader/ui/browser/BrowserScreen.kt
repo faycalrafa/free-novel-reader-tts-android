@@ -103,6 +103,7 @@ fun BrowserScreen(
         viewModel.browserActions.collect { action ->
             when (action) {
                 is BrowserAction.LoadUrl -> wv.loadUrl(action.url)
+                is BrowserAction.LoadDataWithBaseUrl -> wv.loadDataWithBaseURL(action.baseUrl, action.data, action.mimeType, action.encoding, action.historyUrl)
                 is BrowserAction.GoBack -> if (wv.canGoBack()) wv.goBack()
                 is BrowserAction.GoForward -> if (wv.canGoForward()) wv.goForward()
                 is BrowserAction.Reload -> wv.reload()

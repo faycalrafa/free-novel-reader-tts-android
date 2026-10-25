@@ -12,6 +12,13 @@ import com.novelarrow.reader.data.userscript.UserscriptEntity
 
 sealed interface BrowserAction {
     data class LoadUrl(val url: String) : BrowserAction
+    data class LoadDataWithBaseUrl(
+        val baseUrl: String?,
+        val data: String,
+        val mimeType: String = "text/html",
+        val encoding: String = "UTF-8",
+        val historyUrl: String? = null
+    ) : BrowserAction
     object GoBack : BrowserAction
     object GoForward : BrowserAction
     object Reload : BrowserAction

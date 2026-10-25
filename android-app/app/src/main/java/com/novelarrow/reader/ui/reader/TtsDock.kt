@@ -149,14 +149,13 @@ fun TtsDock(
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.98f),
         shadowElevation = 8.dp,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             // Slider row with Active Filters, Settings gear & Close button

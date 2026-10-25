@@ -5,6 +5,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelarrow.reader.data.model.*
 import com.novelarrow.reader.data.repository.BrowserHistoryRepository
+import com.novelarrow.reader.data.repository.BrowserPlaybackSession
+import com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager
 import com.novelarrow.reader.data.repository.LibraryRepository
 import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.data.userscript.UserscriptEntity
@@ -16,6 +18,7 @@ import com.novelarrow.reader.ui.browser.delegate.*
 import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -238,6 +241,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     val curUrl = _uiState.value.currentUrl
                     if (curUrl.isNotBlank()) {
                         savedReadingPositions[curUrl] = idx
+                        val currentTitle = _uiState.value.pageTitle.ifBlank { progress.chapterTitle }
+                        val paras = _uiState.value.liveParagraphs
+                        BrowserPlaybackSessionManager.saveProgress(
+                            context = getApplication<Application>(),
+                            url = curUrl,
+                            chapterTitle = currentTitle,
+                            paragraphIndex = idx,
+                            totalParagraphs = paras.size,
+                            isReaderMode = _uiState.value.isReaderMode
+                        )
                     }
                     _uiState.update {
                         it.copy(
@@ -420,6 +433,39 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun registerCustomToolbarButton(payload: String) = userscriptDelegate.registerCustomToolbarButton(payload)
     fun onCustomToolbarButtonClicked(buttonId: String) = userscriptDelegate.onCustomToolbarButtonClicked(buttonId)
     fun updateToolbarButtonOrder(order: List<String>) = userscriptDelegate.updateToolbarButtonOrder(order)
+
+    fun resumeSavedSession(session: BrowserPlaybackSession) {
+        viewModelScope.launch {
+            val offlineHtml = BrowserPlaybackSessionManager.getOfflineHtml(getApplication<Application>())
+            _uiState.update {
+                it.copy(
+                    currentUrl = session.url,
+                    pageTitle = session.chapterTitle,
+                    liveCurrentParagraphIndex = session.paragraphIndex,
+                    isReaderMode = session.isReaderMode
+                )
+            }
+            if (!offlineHtml.isNullOrBlank()) {
+                AppLogger.i(TAG, "Resuming browser session from offline memory: ${session.chapterTitle} at paragraph ${session.paragraphIndex}")
+                _browserActions.send(
+                    BrowserAction.LoadDataWithBaseUrl(
+                        baseUrl = session.url,
+                        data = offlineHtml,
+                        mimeType = "text/html",
+                        encoding = "UTF-8",
+                        historyUrl = session.url
+                    )
+                )
+            } else {
+                AppLogger.i(TAG, "Resuming browser session from URL: ${session.url} at paragraph ${session.paragraphIndex}")
+                _browserActions.send(BrowserAction.LoadUrl(session.url))
+            }
+
+            delay(800)
+            savedReadingPositions[session.url] = session.paragraphIndex
+            playbackDelegate.startLiveReadingInternal(forceStartAtBeginning = false, initialIndex = session.paragraphIndex)
+        }
+    }
 
     override fun onCleared() {
         super.onCleared()

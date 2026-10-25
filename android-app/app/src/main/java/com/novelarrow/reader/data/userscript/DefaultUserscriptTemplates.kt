@@ -40,7 +40,7 @@ internal object DefaultUserscriptTemplates {
     val DEFAULT_MULTI_DOWNLOAD_SCRIPT = """
         // ==UserScript==
         // @name         Multi-Download
-        // @version      2.1.0
+        // @version      3.0.0
         // @description  Batch download loop for web novel chapters with centered progress dialog, clean text extraction, and auto-navigation.
         // @match        *://*/*
         // @match        file://*/*
@@ -69,7 +69,9 @@ internal object DefaultUserscriptTemplates {
                 'form', 'input', 'textarea', 'select',
                 '#custom-floating-bar', '#na-root', '#na-floating-next',
                 '#na-player-bar', '#na-modal-backdrop-el',
-                '#nd-modal-overlay', '#nd-countdown-pill'
+                '#nd-modal-overlay', '#nd-countdown-pill',
+                '.comments', '#comments', '.sidebar', '#sidebar',
+                '.na-tts-highlight'
             ];
 
             function isIgnored(el) {
@@ -109,6 +111,9 @@ internal object DefaultUserscriptTemplates {
                         if (cand.length > 2 && !/^\d+${'$'}/.test(cand)) {
                             title = cand;
                         }
+                        if (chNum === 1 && titleMatch[2]) {
+                            chNum = parseInt(titleMatch[2], 10) || 1;
+                        }
                     }
                     if (!title) {
                         var cleanTitle = pageTitle.replace(/[-–—|:].*${'$'}/i, '').trim();
@@ -120,7 +125,11 @@ internal object DefaultUserscriptTemplates {
             }
 
             function extractFilteredText() {
-                var candidates = ['#chapter-content', '.chapter-content', '#readcontent', '.read-content', '.entry-content', '.text-content', 'article', '.content'];
+                var candidates = [
+                    '#chapter-content', '.chapter-content', '#readcontent', '.read-content',
+                    '.entry-content', '.text-content', '.reading-content', 'article',
+                    '.content', '#chapter_content', '.novel-content', 'main', '#read-area'
+                ];
                 var container = null;
                 for (var i = 0; i < candidates.length; i++) {
                     var el = document.querySelector(candidates[i]);
@@ -136,15 +145,16 @@ internal object DefaultUserscriptTemplates {
                 for (var j = 0; j < allNodes.length; j++) {
                     var node = allNodes[j];
                     if (isIgnored(node)) continue;
+                    // Skip parent containers that contain nested paragraphs or divs
                     if (node.tagName.toLowerCase() === 'div' && node.querySelector('p, div')) continue;
                     var tag = node.tagName.toLowerCase();
                     var cs = window.getComputedStyle(node);
-                    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+                    if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) continue;
                     var rect = node.getBoundingClientRect();
                     if (rect.width === 0 && rect.height === 0) continue;
 
                     var text = (node.textContent || '').replace(/\s+/g, ' ').trim();
-                    if (text.length >= 2 && !/^(prev|next|table of contents|index|share|bookmark)/i.test(text)) {
+                    if (text.length >= 2 && !/^(prev|next|table of contents|index|share|bookmark|chapter list)/i.test(text)) {
                         paras.push({ text: text, isHeading: tag.indexOf('h') === 0 });
                     }
                 }
@@ -154,23 +164,28 @@ internal object DefaultUserscriptTemplates {
             function buildCleanChapterHtml(novelTitle, chapterTitle, chNum, paragraphs) {
                 var parasHtml = paragraphs.map(function(p) {
                     if (p.isHeading) {
-                        return '  <h2 style="font-size:1.4rem;font-weight:700;margin:1.5em 0 0.8em 0;color:#1e293b;">' + escapeHtml(p.text) + '</h2>';
+                        return '    <h2>' + escapeHtml(p.text) + '</h2>';
                     }
-                    return '  <p style="margin:0 0 1.2em 0;line-height:1.75;font-size:1.05rem;color:#334155;">' + escapeHtml(p.text) + '</p>';
+                    return '    <p>' + escapeHtml(p.text) + '</p>';
                 }).join('\n');
 
-                return '<!DOCTYPE html>\n<html>\n<head>\n' +
+                return '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
                     '  <meta charset="utf-8">\n' +
+                    '  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
                     '  <title>' + escapeHtml(chapterTitle) + '</title>\n' +
                     '  <style>\n' +
-                    '    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 760px; margin: 0 auto; padding: 24px 16px; background: #fff; }\n' +
-                    '    h1 { font-size: 1.8rem; margin-bottom: 0.4em; color: #0f172a; }\n' +
-                    '    .meta { font-size: 0.9rem; color: #64748b; margin-bottom: 2em; border-bottom: 1px solid #e2e8f0; padding-bottom: 1em; }\n' +
+                    '    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.8; padding: 24px 16px; max-width: 800px; margin: 0 auto; color: #1e293b; background: #ffffff; }\n' +
+                    '    h1 { font-size: 1.55rem; font-weight: 700; margin: 0 0 0.5em 0; color: #0f172a; line-height: 1.35; }\n' +
+                    '    h2 { font-size: 1.35rem; font-weight: 700; margin: 1.2em 0 0.6em 0; color: #0f172a; line-height: 1.35; }\n' +
+                    '    .chapter-meta { font-size: 0.85rem; color: #64748b; margin-bottom: 1.8em; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.8em; }\n' +
+                    '    p { margin: 0 0 1.2em 0; text-indent: 1.25em; font-size: 1.05rem; }\n' +
                     '  </style>\n' +
                     '</head>\n<body>\n' +
                     '  <h1>' + escapeHtml(chapterTitle) + '</h1>\n' +
-                    '  <div class="meta">Novel: ' + escapeHtml(novelTitle) + ' | Chapter: ' + chNum + '</div>\n' +
+                    '  <div class="chapter-meta">Novel: ' + escapeHtml(novelTitle) + ' | Chapter: ' + chNum + '</div>\n' +
+                    '  <div id="chapter-content">\n' +
                     parasHtml + '\n' +
+                    '  </div>\n' +
                     '</body>\n</html>';
             }
 
@@ -179,42 +194,85 @@ internal object DefaultUserscriptTemplates {
             }
 
             function saveChapter(novelTitle, chapterTitle, chNum, cleanHtml) {
-                var safeNovel = novelTitle.replace(/[\\/:*?"<>|\r\n]+/g, '_').trim() || 'Web Novel';
-                var safeChap = String(chNum).padStart(4, '0') + '_' + chapterTitle.replace(/[\\/:*?"<>|\r\n]+/g, '_').trim();
-                var fileName = safeNovel + '/' + safeChap + '.html';
+                // Primary path: save directly through BookReader safe Android bridge
+                if (window.BrowserBridge && typeof window.BrowserBridge.saveDownloadedChapter === 'function') {
+                    window.BrowserBridge.saveDownloadedChapter(novelTitle, chapterTitle, chNum, cleanHtml);
+                    return;
+                }
+                if (window.AndroidBridge && typeof window.AndroidBridge.saveDownloadedChapter === 'function') {
+                    window.AndroidBridge.saveDownloadedChapter(novelTitle, chapterTitle, chNum, cleanHtml);
+                    return;
+                }
 
-                var blob = new Blob([cleanHtml], { type: 'text/html;charset=utf-8' });
-                var url = URL.createObjectURL(blob);
-                var a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(function() {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }, 500);
+                // Fallback for standalone desktop userscript runners
+                try {
+                    var safeNovel = novelTitle.replace(/[\\/:*?"<>|\r\n]+/g, '_').trim() || 'Web Novel';
+                    var safeChap = String(chNum).padStart(4, '0') + '_' + chapterTitle.replace(/[\\/:*?"<>|\r\n]+/g, '_').trim();
+                    var fileName = safeNovel + '/' + safeChap + '.html';
+                    var blob = new Blob([cleanHtml], { type: 'text/html;charset=utf-8' });
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(function() {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }, 500);
+                } catch(e) {
+                    console.error('[Multi-Download] Fallback blob download failed:', e);
+                }
             }
 
             function getNextChapterElement() {
                 var selectors = [
-                    'a.next_page', 'a#next_chap', 'a#next_chapter', 'a.next-chapter',
-                    '.nav-next a', '.next a', 'a[rel="next"]', '.btn-next', '#next_button'
+                    'button[title*="Next Chapter"]', 'a[title*="Next Chapter"]',
+                    'button[title="Next chapter"]', 'a[title="Next chapter"]',
+                    '#next_chap', '.next-chap', '.next-chapter', '.btn-next', 'a.next',
+                    'a.next_page', 'a#next_chapter', '.nav-next a', '.next a',
+                    'a[rel="next"]', '#next_button'
                 ];
                 for (var i = 0; i < selectors.length; i++) {
-                    var el = document.querySelector(selectors[i]);
-                    if (el && el.offsetParent !== null) return el;
+                    try {
+                        var el = document.querySelector(selectors[i]);
+                        if (el && el.offsetParent !== null) return el;
+                    } catch(e) {}
                 }
 
-                var clickables = Array.from(document.querySelectorAll('a, button'));
-                for (var j = 0; j < clickables.length; j++) {
-                    var item = clickables[j];
-                    var txt = (item.textContent || '').trim().toLowerCase();
-                    if (/^(next(\s*(chapter|chap|page|part)?)?|\s*»|\s*>)\s*${'$'}/i.test(txt) || txt === 'next chapter' || txt === 'next') {
-                        if (item.offsetParent !== null) return item;
+                try {
+                    var clickables = Array.from(document.querySelectorAll('a, button'));
+                    for (var j = 0; j < clickables.length; j++) {
+                        var item = clickables[j];
+                        var txt = (item.innerText || item.title || item.textContent || '').trim().toLowerCase();
+                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next' || txt.indexOf('next chapter') !== -1 || /^(next(\s*(chapter|chap|page|part)?)?|\s*»|\s*>)\s*${'$'}/i.test(txt)) {
+                            if (item.offsetParent !== null) return item;
+                        }
                     }
-                }
+                } catch(e) {}
                 return null;
+            }
+
+            function incrementUrlNext() {
+                var urlObj;
+                try { urlObj = new URL(window.location.href); } catch(e) { return false; }
+                var pathname = urlObj.pathname;
+                var regex = /(\d+)(?=\.html?${'$'})/i;
+                if (!regex.test(pathname)) {
+                    regex = /(\d+)(?!.*\d)/;
+                }
+                if (regex.test(pathname)) {
+                    urlObj.pathname = pathname.replace(regex, function(match) {
+                        var len = match.length;
+                        var nextNum = parseInt(match, 10) + 1;
+                        var nextStr = nextNum.toString();
+                        while (nextStr.length < len) nextStr = '0' + nextStr;
+                        return nextStr;
+                    });
+                    window.location.href = urlObj.href;
+                    return true;
+                }
+                return false;
             }
 
             function showCountdownPill(novelTitle, currentCh, remaining, totalSecs) {
@@ -227,7 +285,7 @@ internal object DefaultUserscriptTemplates {
 
                 var pill = document.createElement('div');
                 pill.id = 'nd-countdown-pill';
-                pill.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#f8fafc;padding:12px 20px;border-radius:30px;box-shadow:0 10px 25px rgba(0,0,0,0.4);display:flex;align-items:center;gap:14px;z-index:2147483647;font-family:system-ui,sans-serif;font-size:0.9rem;font-weight:600;border:1px solid #334155;';
+                pill.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1e293b;color:#f8fafc;padding:12px 20px;border-radius:30px;box-shadow:0 10px 25px rgba(0,0,0,0.45);display:flex;align-items:center;gap:14px;z-index:2147483647;font-family:system-ui,sans-serif;font-size:0.9rem;font-weight:600;border:1px solid #334155;';
 
                 pill.innerHTML = 
                     '<span>📥 ' + escapeHtml(novelTitle) + ' #' + currentCh + ' (' + percent + '%)</span>' +
@@ -255,12 +313,16 @@ internal object DefaultUserscriptTemplates {
                 if (countdownInterval) clearInterval(countdownInterval);
                 var container = document.getElementById('nd-countdown-pill');
                 if (container) container.remove();
+                isStepRunning = false;
             }
 
             var countdownInterval = null;
+            var isStepRunning = false;
 
             function runBatchStep() {
                 if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') return;
+                if (isStepRunning) return;
+                isStepRunning = true;
 
                 var novelTitle = sessionStorage.getItem(NOVEL_KEY) || 'Web Novel';
                 var currentCh = parseInt(sessionStorage.getItem(CHAPTER_KEY), 10) || 1;
@@ -294,6 +356,7 @@ internal object DefaultUserscriptTemplates {
                 countdownInterval = setInterval(function() {
                     if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') {
                         clearInterval(countdownInterval);
+                        isStepRunning = false;
                         return;
                     }
                     timeLeftMs -= tickMs;
@@ -303,6 +366,7 @@ internal object DefaultUserscriptTemplates {
                     if (timeLeftMs <= 0) {
                         clearInterval(countdownInterval);
                         var nextEl = getNextChapterElement();
+                        var isLocalFile = (location.protocol === 'file:' || /\.html?${'$'}/i.test(location.pathname));
                         if (nextEl) {
                             var oldUrl = window.location.href;
                             try { nextEl.click(); } catch(e) {}
@@ -310,11 +374,14 @@ internal object DefaultUserscriptTemplates {
                                 if (window.location.href === oldUrl && nextEl.href) {
                                     window.location.href = nextEl.href;
                                 }
-                            }, 1000);
+                            }, 1200);
+                        } else if (isLocalFile || incrementUrlNext()) {
+                            // URL digit increment handled
                         } else {
                             stopBatchLoop();
                             alert('Next chapter button not found. Stopped batch download.');
                         }
+                        isStepRunning = false;
                     }
                 }, tickMs);
             }
@@ -398,11 +465,26 @@ internal object DefaultUserscriptTemplates {
                 });
             }
 
+            // SPA URL change watcher
+            var lastProcessedUrl = sessionStorage.getItem(LAST_URL_KEY) || window.location.href;
+            setInterval(function() {
+                var isActive = sessionStorage.getItem(ACTIVE_KEY) === 'true';
+                if (!isActive) return;
+                var currentUrl = window.location.href;
+                if (currentUrl !== lastProcessedUrl) {
+                    lastProcessedUrl = currentUrl;
+                    sessionStorage.setItem(LAST_URL_KEY, currentUrl);
+                    setTimeout(function() {
+                        runBatchStep();
+                    }, 1500);
+                }
+            }, 500);
+
             // Auto-resume across page navigations if loop active
             if (sessionStorage.getItem(ACTIVE_KEY) === 'true') {
                 setTimeout(function() {
                     runBatchStep();
-                }, 800);
+                }, 1000);
             }
         })();
     """.trimIndent()

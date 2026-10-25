@@ -126,6 +126,18 @@ class BrowserReadingPlaybackDelegate(
             val rawParagraphs = parseResult.paragraphs
             val paragraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
             val curPos = (if (uiState.value.isLiveReading) uiState.value.liveCurrentParagraphIndex else (savedReadingPositions[currentUrl] ?: 0)).coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+            if (paragraphs.isNotEmpty()) {
+                val cleanHtml = com.novelarrow.reader.data.browser.WebNovelDownloader.generateCleanChapterHtml(
+                    novelTitle = uiState.value.detectedTitle.ifBlank { "Web Novel" },
+                    chapterTitle = title,
+                    chapterNumber = 1,
+                    paragraphs = paragraphs.map { it.rawText },
+                    sourceUrl = currentUrl
+                )
+                scope.launch(Dispatchers.IO) {
+                    com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.saveOfflineHtml(application, cleanHtml)
+                }
+            }
             uiState.update {
                 it.copy(
                     isReaderMode = true,
@@ -258,6 +270,17 @@ class BrowserReadingPlaybackDelegate(
                 val readableParagraphs = ChapterParser.mergeShortParagraphs(rawParagraphs, minWordThreshold = 10)
 
                 if (readableParagraphs.isNotEmpty()) {
+                    val cleanHtml = com.novelarrow.reader.data.browser.WebNovelDownloader.generateCleanChapterHtml(
+                        novelTitle = uiState.value.detectedTitle.ifBlank { "Web Novel" },
+                        chapterTitle = title,
+                        chapterNumber = 1,
+                        paragraphs = readableParagraphs.map { it.rawText },
+                        sourceUrl = currentUrl
+                    )
+                    scope.launch(Dispatchers.IO) {
+                        com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.saveOfflineHtml(application, cleanHtml)
+                    }
+
                     val targetIndex = (initialIndex ?: if (forceStartAtBeginning) {
                         0
                     } else {
