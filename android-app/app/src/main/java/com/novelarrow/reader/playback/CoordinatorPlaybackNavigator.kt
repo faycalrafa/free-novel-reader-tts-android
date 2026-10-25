@@ -355,6 +355,15 @@ internal class CoordinatorPlaybackNavigator(
         }
     }
 
+    private fun updateProgressTextAndService(paraIdx: Int) {
+        currentProgressText = if (currentSource == PlaybackSource.READER && totalChaptersCount > 0) {
+            "Ch. ${currentChapterIndex + 1}/$totalChaptersCount • ¶ ${paraIdx + 1}/$totalParagraphsCount"
+        } else {
+            "¶ ${paraIdx + 1}/$totalParagraphsCount"
+        }
+        updateServiceState()
+    }
+
     fun nextParagraph() {
         if (currentSource == PlaybackSource.AUDIO_FILE) {
             audioFileDelegate.onAudioFileCompleted()
@@ -364,6 +373,7 @@ internal class CoordinatorPlaybackNavigator(
         if (next < currentParagraphs.size) {
             currentParagraphIndex = next
             playbackProgressFlow.update { it.copy(currentParagraphIndex = next, currentParagraphText = currentParagraphs.getOrNull(next)?.spokenText ?: "") }
+            updateProgressTextAndService(next)
             onSpeakParagraph()
         } else {
             if (currentSource == PlaybackSource.READER) advanceToNextChapter()
@@ -385,6 +395,7 @@ internal class CoordinatorPlaybackNavigator(
         if (prev >= 0) {
             currentParagraphIndex = prev
             playbackProgressFlow.update { it.copy(currentParagraphIndex = prev, currentParagraphText = currentParagraphs.getOrNull(prev)?.spokenText ?: "") }
+            updateProgressTextAndService(prev)
             onSpeakParagraph()
         } else {
             if (currentSource == PlaybackSource.READER) advanceToPreviousChapter()
@@ -409,12 +420,7 @@ internal class CoordinatorPlaybackNavigator(
                 currentParagraphText = currentParagraphs.getOrNull(target)?.spokenText ?: ""
             )
         }
-        currentProgressText = if (currentSource == PlaybackSource.READER && totalChaptersCount > 0) {
-            "Ch. ${currentChapterIndex + 1}/$totalChaptersCount • ¶ ${target + 1}/$totalParagraphsCount"
-        } else {
-            "¶ ${target + 1}/$totalParagraphsCount"
-        }
-        updateServiceState()
+        updateProgressTextAndService(target)
         if (isPlayingFlow.value) {
             onSpeakParagraph()
         }
@@ -467,12 +473,7 @@ internal class CoordinatorPlaybackNavigator(
                 currentParagraphText = para?.spokenText ?: ""
             )
         }
-        currentProgressText = if (currentSource == PlaybackSource.READER && totalChaptersCount > 0) {
-            "Ch. ${currentChapterIndex + 1}/$totalChaptersCount • ¶ ${idx + 1}/$totalParagraphsCount"
-        } else {
-            "¶ ${idx + 1}/$totalParagraphsCount"
-        }
-        updateServiceState()
+        updateProgressTextAndService(idx)
     }
 
     fun saveChapterProgress(novelId: String, chapIdx: Int, paraIdx: Int, isCompleted: Boolean) {

@@ -328,6 +328,10 @@ class BrowserReadingPlaybackDelegate(
     }
 
     fun pauseLiveReading() {
+        val curUrl = uiState.value.currentUrl
+        if (curUrl.isNotBlank()) {
+            savedReadingPositions[curUrl] = uiState.value.liveCurrentParagraphIndex
+        }
         AudioPlaybackCoordinator.pause()
         uiState.update { it.copy(isLivePlaying = false) }
     }

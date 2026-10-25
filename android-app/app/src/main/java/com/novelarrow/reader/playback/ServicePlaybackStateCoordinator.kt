@@ -97,18 +97,12 @@ internal class ServicePlaybackStateCoordinator(
             .build()
         onMetadataUpdated(metadata)
 
-        val mediaItem = MediaItem.Builder()
-            .setMediaId("novel_tts_${novelTitle.hashCode()}_${chapterTitle.hashCode()}")
-            .setMediaMetadata(metadata)
-            .build()
-
         val exoPlayer = playerProvider()
         try {
-            if (AudioPlaybackCoordinator.playbackProgressState.value.source != PlaybackSource.AUDIO_FILE) {
-                exoPlayer?.setMediaItem(mediaItem, false)
-            }
             exoPlayer?.setPlaylistMetadata(metadata)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to update playlist metadata on exoPlayer: ${e.message}", e)
+        }
 
         val notification = PlaybackNotificationBuilder.buildForegroundNotification(
             context = service,
@@ -127,7 +121,7 @@ internal class ServicePlaybackStateCoordinator(
             acquireWakeLock()
 
             if (exoPlayer?.playbackState == Player.STATE_IDLE) {
-                exoPlayer?.prepare()
+                exoPlayer.prepare()
             }
             if (AudioPlaybackCoordinator.playbackProgressState.value.source != PlaybackSource.AUDIO_FILE) {
                 try {
@@ -171,7 +165,7 @@ internal class ServicePlaybackStateCoordinator(
                 exoPlayer?.playWhenReady = false
             }
             if (exoPlayer?.isPlaying == true) {
-                exoPlayer?.pause()
+                exoPlayer.pause()
             }
 
             if (!isForegroundServiceStarted) {
@@ -195,7 +189,7 @@ internal class ServicePlaybackStateCoordinator(
         releaseWakeLock()
         val exoPlayer = playerProvider()
         if (exoPlayer?.isPlaying == true) {
-            exoPlayer?.pause()
+            exoPlayer.pause()
         }
         if (isForegroundServiceStarted) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

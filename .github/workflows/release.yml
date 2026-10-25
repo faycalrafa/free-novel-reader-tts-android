@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.0.0"
+          DATE_TAG="v4.0.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.0.0"
-        run: ./gradlew assembleRelease -PappVersionName=4.0.0 --no-daemon
+          APP_VERSION_NAME: "4.0.1"
+        run: ./gradlew assembleRelease -PappVersionName=4.0.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,35 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.0.0 (Stable)
+          name: BookReader v4.0.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.0.0 (Clean Slate) 📚🎙️⚡
+            ### BookReader v4.0.1 (Regression Fixes & Playback Isolation) 📚🎙️⚡
+
+            #### 🎨 Restored Original Reader TTS Dock
+            - **Docked Bottom Sheet Design**: Restored the original full-width docked bottom bar (`TtsDock`) with rounded top corners, replacing the detached floating island card.
+            - **Original Control Layout**: Restored top row with glowing heartbeat Active Filters indicator, Settings gear, and Close button; restored middle release-to-jump paragraph preview; restored bottom controls with Sleep Timer pill, Prev, circular gradient Play/Pause button (`#3B82F6` to `#8B5CF6`), Next, and Speed pill.
+
+            #### 🎧 Cross-Screen Audio Playback Isolation
+            - **Library Reader Protection**: Browser page finish hooks now check audio state and will never interrupt or auto-start reading when Library TTS playback is actively running.
+            - **Preserved Browser Playback**: Toggling the Reader TTS dock no longer stops ongoing Browser audio playback; playback source only shifts when a chapter or playback command is explicitly triggered.
+
+            #### 📱 Native Media Notification Progress & Scrubber Sync
+            - **Preserved Silence Media Source**: Removed `exoPlayer.setMediaItem` without URI which previously wiped out ExoPlayer's `SilenceMediaSource`, eliminating player error states and unseekable timelines.
+            - **Real-Time Notification Synchronization**: Connected paragraph navigation (`nextParagraph()`, `previousParagraph()`, `seekToParagraph()`, and `onParagraphChanged()`) directly to service state updates, ensuring the native lock screen / notification media scrubber tracks paragraph progress accurately.
+
+            #### 📥 Multi-Page Batch Download Smoothing
+            - **Direct Next-URL Routing**: Connected `setPreExtractedNextChapterUrl` from `WebContentExtractor` through `BrowserChapterExtractor`, allowing the batch downloader to transition directly via next-page URLs instead of falling back to delayed DOM selector clicks.
+
+            #### 🗑️ Robust Folder & Chapter Deletion
+            - **Accurate Web Novel Flags**: Ensured `isWebNovel = true` on downloaded chapters so disk deletion candidate paths are recognized and cleaned.
+            - **Comprehensive Disk & Duplicate Purge**: Updated `deleteNovelFilesFromDisk` and `deleteSingleChapterFile` to clean primary files, fallback duplicates in app-specific storage, and MediaStore entries.
+            - **Safe Archival on Library Removal**: Novels removed from library without deleting files on disk are safely moved into `NovelReader/archive/`, preventing automatic re-import during library refresh.
+            - **Default Storage Deletion**: Defaulted deletion dialog checkboxes to delete files from device storage with clear, consistent wording.
+
+            #### ⏸️ Browser TTS Pause & Resume UX
+            - **Saved Paragraph Progress on Pause**: Browser paragraph index is saved immediately into `savedReadingPositions` on pause.
+            - **Resilient Resume**: Returning from Settings or backgrounding the browser preserves the paused paragraph position rather than restarting from paragraph 0.
 
             #### 🛡️ App-Route Chapter Import (Permanent SAF Permission Fix)
             - **App-Private Storage Migration**: Folder imports copy chapter files directly into the app's internal sandbox (`context.filesDir/imported_novels/<novelTitle>/`).

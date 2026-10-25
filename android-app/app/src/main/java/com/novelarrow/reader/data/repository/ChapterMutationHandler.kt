@@ -423,6 +423,8 @@ internal class ChapterMutationHandler(
 
             if (deleteFilesFromDisk) {
                 ChapterFileOperations.deleteNovelFilesFromDisk(context, targetNovel, chapters)
+            } else {
+                ChapterFileOperations.archiveNovelFiles(context, targetNovel)
             }
 
             val updatedNovels = db.novels.filterNot { it.id == novelId }

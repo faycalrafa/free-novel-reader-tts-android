@@ -374,10 +374,10 @@ object AppUpdateManager {
                 @Suppress("DEPRECATION")
                 context.packageManager.getPackageInfo(context.packageName, 0)
             }
-            pInfo.versionName ?: "4.0.0"
+            pInfo.versionName ?: "4.0.1"
         } catch (e: Exception) {
             Log.w(TAG, "Failed retrieving package info for version: ${e.message}", e)
-            "4.0.0"
+            "4.0.1"
         }
     }
 

@@ -17,7 +17,7 @@ internal fun NovelDeleteDialog(
     onConfirm: (deleteFromDisk: Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var deleteFilesFromDisk by remember { mutableStateOf(false) }
+    var deleteFilesFromDisk by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -46,7 +46,7 @@ internal fun NovelDeleteDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Delete files in memory as well",
+                        text = "Delete files from device storage as well",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (deleteFilesFromDisk) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
@@ -77,7 +77,7 @@ internal fun ChapterDeleteDialog(
     onConfirm: (deleteFromDisk: Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var deleteChapterFromDisk by remember { mutableStateOf(false) }
+    var deleteChapterFromDisk by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = onDismiss,

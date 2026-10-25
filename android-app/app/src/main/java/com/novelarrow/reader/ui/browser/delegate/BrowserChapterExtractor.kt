@@ -29,7 +29,8 @@ class BrowserChapterExtractor(
     private val getLastExtractedHeading: () -> String,
     private val setLastExtractedHeading: (String) -> Unit,
     private val getLastExtractedSample: () -> String,
-    private val setLastExtractedSample: (String) -> Unit
+    private val setLastExtractedSample: (String) -> Unit,
+    private val setPreExtractedNextChapterUrl: ((String?) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "BrowserChapterExtractor"
@@ -114,6 +115,10 @@ class BrowserChapterExtractor(
         val extracted = WebContentExtractor.extractChapterContent(result, pageTitle)
         val title = extracted.title
         val paragraphs = extracted.paragraphs
+        if (!extracted.nextUrl.isNullOrBlank()) {
+            setPreExtractedNextChapterUrl?.invoke(extracted.nextUrl)
+            AppLogger.d(TAG, "Cached pre-extracted next chapter URL in chapter extractor: ${extracted.nextUrl}")
+        }
 
         if (!isBatch) {
             val detected = WebNovelDownloader.detectNovelInfo(currentUrl, title)

@@ -82,10 +82,6 @@ fun ReaderScreen(
                 onSeekParagraph = { viewModel.seekToParagraph(it) },
                 onMenuClick = onOpenDrawer,
                 onTtsToggleClick = {
-                    val playbackProgress = AudioPlaybackCoordinator.playbackProgressState.value
-                    if (playbackProgress.source == PlaybackSource.BROWSER && playbackProgress.isPlaying) {
-                        AudioPlaybackCoordinator.stop()
-                    }
                     viewModel.toggleTtsDock()
                 },
                 onRawCodeClick = { viewModel.openRawChapterEditor() },

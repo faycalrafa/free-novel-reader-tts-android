@@ -88,6 +88,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         playClickSound = { playClickSound() },
         onClearLiveHighlight = { playbackDelegate.clearWebHighlight() },
         preExtractedNextChapterUrlProvider = { preExtractedNextChapterUrl },
+        setPreExtractedNextChapterUrl = { preExtractedNextChapterUrl = it },
         clearPreExtractedNextChapterUrl = { preExtractedNextChapterUrl = null }
     )
 
@@ -142,16 +143,26 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             playbackDelegate.pageAutoReadJob = viewModelScope.launch {
                 kotlinx.coroutines.delay(500)
                 if (!isActive) return@launch
+                val currentAudio = AudioPlaybackCoordinator.playbackProgressState.value
+                if (currentAudio.isPlaying && currentAudio.source == PlaybackSource.READER) {
+                    AppLogger.d(TAG, "Audio is actively playing from Reader (Library), skipping browser auto-read on page finish for $url")
+                    return@launch
+                }
+                val isSameUrl = (playbackDelegate.lastAutoReadUrl == url)
+                if (isSameUrl && !_uiState.value.isLivePlaying && _uiState.value.isLiveReading) {
+                    AppLogger.d(TAG, "Browser live reading is currently paused on $url, preserving paused position")
+                    return@launch
+                }
                 val shouldAutoRead = _uiState.value.isLiveReading ||
                         _uiState.value.settings.autoReadNextChapter ||
                         _uiState.value.settings.ttsAutoStart
                 if (shouldAutoRead) {
-                    if (playbackDelegate.lastAutoReadUrl == url && _uiState.value.isLivePlaying) {
+                    if (isSameUrl && _uiState.value.isLivePlaying) {
                         AppLogger.d(TAG, "Page $url is already actively playing, skipping duplicate auto-read")
                         return@launch
                     }
                     playbackDelegate.lastAutoReadUrl = url
-                    playbackDelegate.startLiveReadingInternal(forceStartAtBeginning = true)
+                    playbackDelegate.startLiveReadingInternal(forceStartAtBeginning = !isSameUrl)
                 } else if (_uiState.value.isReaderMode) {
                     playbackDelegate.enterReadingMode()
                 }

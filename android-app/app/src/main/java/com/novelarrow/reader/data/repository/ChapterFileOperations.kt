@@ -67,7 +67,36 @@ internal object ChapterFileOperations {
         try {
             if (chapter.fileUri.startsWith("/") || chapter.fileUri.startsWith("file://")) {
                 val f = File(chapter.fileUri.removePrefix("file://"))
-                if (f.exists()) f.delete()
+                if (f.exists()) {
+                    val deleted = f.delete()
+                    AppLogger.d(TAG, "Deleted local file ${f.absolutePath}: success=$deleted")
+                }
+                val fileName = f.name
+                val safeParentName = f.parentFile?.name
+                if (safeParentName != null && safeParentName.isNotBlank()) {
+                    try {
+                        val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                        if (extDir != null) {
+                            val fallbackF = File(File(File(extDir, "NovelReader"), safeParentName), fileName)
+                            if (fallbackF.exists()) {
+                                fallbackF.delete()
+                                AppLogger.d(TAG, "Deleted fallback file ${fallbackF.absolutePath}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Failed deleting fallback file: ${e.message}", e)
+                    }
+                    try {
+                        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        val pubF = File(File(File(publicDownloads, "NovelReader"), safeParentName), fileName)
+                        if (pubF.exists()) {
+                            pubF.delete()
+                            AppLogger.d(TAG, "Deleted public downloads file ${pubF.absolutePath}")
+                        }
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Failed deleting public downloads file: ${e.message}", e)
+                    }
+                }
             } else if (chapter.fileUri.startsWith("content://")) {
                 val uri = Uri.parse(chapter.fileUri)
                 var deleted = false
@@ -159,8 +188,11 @@ internal object ChapterFileOperations {
                 }
             }
 
-            // 3. Delete web novel downloaded directory if this is a web novel
-            if (novel.isWebNovel) {
+            // 3. Delete web novel downloaded directory if this is a web novel or downloaded into NovelReader
+            val isWebOrDownloaded = novel.isWebNovel ||
+                novel.rootTreeUri.contains("NovelReader") ||
+                (novel.subfolderPath?.contains("NovelReader") == true)
+            if (isWebOrDownloaded) {
                 val safeTitle = WebNovelDownloader.sanitizeFileName(novel.title)
                 val dirCandidates = mutableListOf<File>()
                 try {
@@ -184,6 +216,7 @@ internal object ChapterFileOperations {
                 for (dir in dirCandidates) {
                     if (dir.exists()) {
                         dir.deleteRecursively()
+                        AppLogger.i(TAG, "Deleted candidate directory: ${dir.absolutePath}")
                     }
                 }
             }
@@ -196,6 +229,35 @@ internal object ChapterFileOperations {
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed during deleteNovelFilesFromDisk for ${novel.title}", e)
+        }
+    }
+
+    fun archiveNovelFiles(context: Context, novel: Novel) {
+        try {
+            val safeTitle = WebNovelDownloader.sanitizeFileName(novel.title)
+            val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val pubNovelDir = File(File(publicDownloads, "NovelReader"), safeTitle)
+            val pubArchiveDir = File(File(publicDownloads, "NovelReader"), "archive")
+            if (pubNovelDir.exists() && pubNovelDir.isDirectory) {
+                if (!pubArchiveDir.exists()) pubArchiveDir.mkdirs()
+                val dest = File(pubArchiveDir, safeTitle)
+                val moved = pubNovelDir.renameTo(dest)
+                AppLogger.i(TAG, "Archived public novel directory to ${dest.absolutePath}: success=$moved")
+            }
+
+            val extDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            if (extDir != null) {
+                val extNovelDir = File(File(extDir, "NovelReader"), safeTitle)
+                val extArchiveDir = File(File(extDir, "NovelReader"), "archive")
+                if (extNovelDir.exists() && extNovelDir.isDirectory) {
+                    if (!extArchiveDir.exists()) extArchiveDir.mkdirs()
+                    val dest = File(extArchiveDir, safeTitle)
+                    val moved = extNovelDir.renameTo(dest)
+                    AppLogger.i(TAG, "Archived external novel directory to ${dest.absolutePath}: success=$moved")
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed archiving novel files for ${novel.title}: ${e.message}", e)
         }
     }
 }

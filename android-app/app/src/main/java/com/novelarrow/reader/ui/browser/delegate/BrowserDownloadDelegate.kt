@@ -30,6 +30,7 @@ class BrowserDownloadDelegate(
     private val playClickSound: () -> Unit,
     private val onClearLiveHighlight: () -> Unit,
     private val preExtractedNextChapterUrlProvider: () -> String?,
+    private val setPreExtractedNextChapterUrl: (String?) -> Unit,
     private val clearPreExtractedNextChapterUrl: () -> Unit
 ) {
     companion object {
@@ -61,7 +62,8 @@ class BrowserDownloadDelegate(
         getLastExtractedHeading = { lastExtractedHeading },
         setLastExtractedHeading = { lastExtractedHeading = it },
         getLastExtractedSample = { lastExtractedSample },
-        setLastExtractedSample = { lastExtractedSample = it }
+        setLastExtractedSample = { lastExtractedSample = it },
+        setPreExtractedNextChapterUrl = setPreExtractedNextChapterUrl
     )
 
     fun clickNextChapter() {
