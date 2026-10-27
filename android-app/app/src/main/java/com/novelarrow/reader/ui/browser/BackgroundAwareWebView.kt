@@ -79,6 +79,15 @@ fun createConfiguredWebView(
             },
             onSaveDownloadedChapterCallback = { novelTitle, chTitle, chNum, html ->
                 viewModel.saveDownloadedChapterFromScript(novelTitle, chTitle, chNum, html)
+            },
+            onSyncFolderCallback = { novelTitle ->
+                viewModel.syncFolder(novelTitle)
+            },
+            onBase64DownloadCallback = { dataUri, fileName, mimeType ->
+                viewModel.handleBase64Download(dataUri, fileName, mimeType)
+            },
+            onAutoLoopStateChangedCallback = { active, remaining, status ->
+                viewModel.onAutoLoopStateChanged(active, remaining, status)
             }
         )
         addJavascriptInterface(bridge, BrowserBridge.INTERFACE_NAME)

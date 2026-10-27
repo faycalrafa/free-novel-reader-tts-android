@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.2.0"
+          DATE_TAG="v4.3.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.2.0"
-        run: ./gradlew assembleRelease -PappVersionName=4.2.0 --no-daemon
+          APP_VERSION_NAME: "4.3.0"
+        run: ./gradlew assembleRelease -PappVersionName=4.3.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,26 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.2.0 (Stable)
+          name: BookReader v4.3.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.2.0 (Seamless Browser TTS Resume, Tab Audio Isolation, Pure JS Batch Downloader & Universal Download History) 📚🎙️⚡
+            ### BookReader v4.3.0 (Tab-Scoped Browsing History, Multi-Chapter Downloader Pro Integration & Blob Downloads) 📚🚀✨
+
+            #### 📑 Tab-Scoped Browsing History
+            - **Per-Tab Isolation**: Browsing history dialogs and history screens now display only visits associated with the active tab instead of mixing pages across tabs.
+            - **Tab Cleanup**: Closing a tab automatically purges its associated history records. Clearing history within a tab only clears visits for that tab.
+
+            #### ⚡ Multi-Chapter Downloader Pro Integration & Library Auto-Sync
+            - **Integrated Script Control**: Clicking the `multi_download` action button in the browser navigation bar directly triggers the upgraded "Novel Multi-Chapter Downloader Pro" (v4.0.0) modal and execution loop.
+            - **Structured Storage**: Downloaded chapters are saved into structured novel folders under `Downloads/NovelReader/<NovelTitle>/`.
+            - **Automatic Library Sync**: When the download loop completes or is stopped, automatic folder synchronization is immediately triggered so the new novel folder instantly appears in the Library sidebar.
+
+            #### 🛡️ Robust Blob & Data URI Download Handler
+            - **Blob Interception & Bridge**: Fixed crashes when clicking `blob:` links by routing blob objects through a client-side JavaScript `fetch` and Base64 bridge rather than passing invalid URIs to Android's `DownloadManager`.
+            - **Data URIs**: Direct decode and disk write for `data:` URI payloads.
+
+            #### 🎨 UI Decluttering
+            - **Library Sidebar**: Removed redundant downloads button from the library drawer sidebar for a cleaner navigation experience.
 
             #### 🔄 Seamless Browser TTS Resume Card
             - **Native Library Resume Integration**: Replaced the startup popup dialog with the Library screen's "CONTINUE READING" card. When the last playback session was Browser TTS (or when the library has no local novels), the card prompts you to resume your web novel directly.

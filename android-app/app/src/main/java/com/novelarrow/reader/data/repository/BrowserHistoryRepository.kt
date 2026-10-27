@@ -41,6 +41,12 @@ class BrowserHistoryRepository(private val context: Context) {
         private const val MAX_HISTORY_ENTRIES = 500
         private val repoMutex = Mutex()
         private var sharedHistoryFlow: MutableStateFlow<List<BrowserHistoryEntry>>? = null
+
+        fun resetInMemoryCacheForTesting() {
+            synchronized(BrowserHistoryRepository::class.java) {
+                sharedHistoryFlow = null
+            }
+        }
     }
 
     private val _historyFlow: MutableStateFlow<List<BrowserHistoryEntry>>
@@ -73,7 +79,7 @@ class BrowserHistoryRepository(private val context: Context) {
         }
     }
 
-    suspend fun recordVisit(url: String, title: String) = withContext(Dispatchers.IO) {
+    suspend fun recordVisit(url: String, title: String, tabId: String = "") = withContext(Dispatchers.IO) {
         val trimmedUrl = url.trim()
         if (trimmedUrl.isBlank() || trimmedUrl == "about:blank") return@withContext
         val cleanTitle = title.trim().ifBlank {
@@ -83,13 +89,13 @@ class BrowserHistoryRepository(private val context: Context) {
         repoMutex.withLock {
             try {
                 val current = _historyFlow.value.toMutableList()
-                // Remove immediate previous visit to the exact same URL to prevent spamming
+                // Remove immediate previous visit to the exact same URL in the same tab to prevent spamming
                 val first = current.firstOrNull()
-                if (first != null && first.url == trimmedUrl) {
+                if (first != null && first.url == trimmedUrl && first.tabId == tabId) {
                     // Update timestamp & title of the latest entry
                     current[0] = first.copy(title = cleanTitle, timestamp = System.currentTimeMillis())
                 } else {
-                    current.add(0, BrowserHistoryEntry(url = trimmedUrl, title = cleanTitle))
+                    current.add(0, BrowserHistoryEntry(tabId = tabId, url = trimmedUrl, title = cleanTitle))
                 }
 
                 val trimmed = if (current.size > MAX_HISTORY_ENTRIES) {
@@ -114,6 +120,20 @@ class BrowserHistoryRepository(private val context: Context) {
                 _historyFlow.value = updated
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to delete browser history entry $id: ${e.message}", e)
+            }
+        }
+    }
+
+    suspend fun clearHistoryForTab(tabId: String) = withContext(Dispatchers.IO) {
+        if (tabId.isBlank()) return@withContext
+        repoMutex.withLock {
+            try {
+                val updated = _historyFlow.value.filterNot { it.tabId == tabId }
+                saveHistoryToDisk(updated)
+                _historyFlow.value = updated
+                AppLogger.i(TAG, "Cleared browsing history for tab: $tabId")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to clear history for tab $tabId: ${e.message}", e)
             }
         }
     }

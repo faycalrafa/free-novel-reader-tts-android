@@ -93,12 +93,12 @@ class UserscriptMetadataParserTest {
     @Test
     fun testParseDefaultMultiDownloadScript() {
         val parsed = UserscriptMetadataParser.parse(UserscriptRepository.DEFAULT_MULTI_DOWNLOAD_SCRIPT)
-        assertEquals("Multi-Download", parsed.name)
-        assertEquals("3.0.0", parsed.version)
+        assertEquals("Novel Multi-Chapter Downloader Pro", parsed.name)
+        assertEquals("4.0.0", parsed.version)
         assertEquals(listOf("*://*/*", "file://*/*"), parsed.matchPatterns)
-        assertEquals("document-end", parsed.runAt)
+        assertEquals("document-idle", parsed.runAt)
         assertTrue(parsed.grantList.contains("GM_registerToolbarButton"))
         assertTrue(parsed.grantList.contains("GM_notification"))
-        assertTrue(parsed.description.contains("Batch download loop"))
+        assertTrue(parsed.description.contains("auto-download novel chapters"))
     }
 }

@@ -71,7 +71,7 @@ class UserscriptRepository(private val context: Context) {
 
     private fun seedDefaultScripts() {
         seedScriptFile("Clean_Novel_Reader.user.js", DEFAULT_DEMO_SCRIPT, "Clean Novel Reader (Ad & Clutter Remover)")
-        seedScriptFile("Multi-Download.user.js", DEFAULT_MULTI_DOWNLOAD_SCRIPT, "Multi-Download")
+        seedScriptFile("Multi-Download.user.js", DEFAULT_MULTI_DOWNLOAD_SCRIPT, "Novel Multi-Chapter Downloader Pro")
     }
 
     private fun seedScriptFile(fileName: String, scriptCode: String, fallbackName: String) {
@@ -79,12 +79,14 @@ class UserscriptRepository(private val context: Context) {
             val scriptsDir = UserscriptFileManager.ensureScriptsDirectory(context)
             val targetFile = File(scriptsDir, fileName)
             val parsed = UserscriptMetadataParser.parse(scriptCode.trimIndent(), fallbackName = fallbackName)
-            if (!targetFile.exists() || (fileName == "Multi-Download.user.js" && !targetFile.readText().contains("@version      3.0.0"))) {
+            if (!targetFile.exists() || (fileName == "Multi-Download.user.js" && !targetFile.readText().contains("@version      4.0.0"))) {
                 targetFile.writeText(scriptCode.trimIndent(), Charsets.UTF_8)
             }
 
             val current = _scriptsFlow.value.toMutableList()
-            val existingIndex = current.indexOfFirst { it.name == parsed.name || it.name == fallbackName }
+            val existingIndex = current.indexOfFirst {
+                it.name == parsed.name || it.name == fallbackName || (fileName == "Multi-Download.user.js" && (it.name == "Multi-Download" || it.name.startsWith("Novel Multi-Chapter Downloader")))
+            }
             if (existingIndex == -1) {
                 val entity = UserscriptEntity(
                     id = UUID.randomUUID().toString(),
@@ -105,6 +107,7 @@ class UserscriptRepository(private val context: Context) {
                 AppLogger.i(TAG, "Successfully seeded default userscript: ${entity.name}")
             } else if (fileName == "Multi-Download.user.js" && current[existingIndex].version != parsed.version) {
                 current[existingIndex] = current[existingIndex].copy(
+                    name = parsed.name,
                     version = parsed.version,
                     description = parsed.description,
                     grantList = parsed.grantList,

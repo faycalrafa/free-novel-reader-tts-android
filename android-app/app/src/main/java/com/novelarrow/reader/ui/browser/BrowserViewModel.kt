@@ -23,6 +23,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -61,21 +64,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         _browserActions.trySend(BrowserAction.EvaluateJavascript(script, callback))
     }
 
-    private suspend fun evaluateJsWithTimeout(script: String, timeoutMs: Long = 3000L): String? {
-        return try {
-            withTimeoutOrNull(timeoutMs) {
-                suspendCancellableCoroutine { continuation ->
-                    dispatchEvaluateJs(script) { result ->
-                        if (continuation.isActive) {
-                            continuation.resume(result)
-                        }
-                    }
-                }
+    private suspend fun evaluateJsWithTimeout(script: String, timeoutMs: Long = 3000L): String? = try {
+        withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { cont ->
+                dispatchEvaluateJs(script) { result -> if (cont.isActive) cont.resume(result) }
             }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error evaluating JS with timeout: ${e.message}", e)
-            null
         }
+    } catch (e: Exception) {
+        AppLogger.w(TAG, "Error evaluating JS with timeout: ${e.message}", e)
+        null
     }
 
     // Delegates
@@ -207,15 +204,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch {
-            settingsRepository.browserSettingsFlow.collect { newSettings ->
-                AudioPlaybackCoordinator.autoNextOnFinishedPage = newSettings.autoNextOnFinishedPage
-                _uiState.update {
-                    it.copy(
-                        settings = newSettings,
-                        sleepTimerMinutes = newSettings.sleepTimerMinutes,
-                        sleepTimerRemainingSeconds = if (it.sleepTimerRemainingSeconds == 0) newSettings.sleepTimerMinutes * 60 else it.sleepTimerRemainingSeconds
-                    )
-                }
+            settingsRepository.browserSettingsFlow.collect { s ->
+                AudioPlaybackCoordinator.autoNextOnFinishedPage = s.autoNextOnFinishedPage
+                _uiState.update { it.copy(settings = s, sleepTimerMinutes = s.sleepTimerMinutes, sleepTimerRemainingSeconds = if (it.sleepTimerRemainingSeconds == 0) s.sleepTimerMinutes * 60 else it.sleepTimerRemainingSeconds) }
             }
         }
 
@@ -232,8 +223,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
 
         viewModelScope.launch {
-            browserHistoryRepository.historyFlow.collect { history ->
-                _uiState.update { it.copy(historyEntries = history) }
+            combine(
+                browserHistoryRepository.historyFlow,
+                _uiState.map { it.currentTabId }.distinctUntilChanged()
+            ) { history, tabId ->
+                val firstTabId = _uiState.value.tabs.firstOrNull()?.id
+                history.filter { it.tabId == tabId || (it.tabId.isBlank() && tabId == firstTabId) }
+            }.collect { tabFilteredHistory ->
+                _uiState.update { it.copy(historyEntries = tabFilteredHistory) }
             }
         }
 
@@ -345,16 +342,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setDialogDelayMs(delayMs: Long) = downloadDelegate.setDialogDelayMs(delayMs)
     fun saveDownloadedChapterFromScript(novelTitle: String, chapterTitle: String, chapterNumber: Int, htmlContent: String) = downloadDelegate.saveDownloadedChapterFromScript(novelTitle, chapterTitle, chapterNumber, htmlContent)
     fun onLoopButtonClicked() = downloadDelegate.onLoopButtonClicked()
-    fun toggleAutoLoop() = downloadDelegate.onLoopButtonClicked()
+    fun toggleAutoLoop() = onLoopButtonClicked()
     fun startDownloadLoop() = downloadDelegate.startDownloadLoop()
     fun stopDownloadLoop() = downloadDelegate.stopDownloadLoop()
-    fun stopAutoLoop() = downloadDelegate.stopDownloadLoop()
+    fun stopAutoLoop() = stopDownloadLoop()
     fun extractAndSaveChapter(isBatch: Boolean) = downloadDelegate.extractAndSaveChapter(isBatch)
     fun saveSingleChapter() = downloadDelegate.saveSingleChapter()
-    fun saveFrozenHtml() = downloadDelegate.saveSingleChapter()
+    fun saveFrozenHtml() = saveSingleChapter()
     val downloadHistoryFlow = downloadDelegate.downloadHistoryRepository.downloadHistoryFlow
     fun handleGenericFileDownload(url: String, userAgent: String, contentDisposition: String, mimetype: String, contentLength: Long) =
         downloadDelegate.handleGenericFileDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+    fun handleBase64Download(dataUri: String, fileName: String, mimeType: String) =
+        downloadDelegate.handleBase64Download(dataUri, fileName, mimeType)
+    fun syncFolder(novelTitle: String?) = downloadDelegate.syncFolder(novelTitle)
+    fun onAutoLoopStateChanged(active: Boolean, remainingCount: Int, status: String) =
+        downloadDelegate.onAutoLoopStateChanged(active, remainingCount, status)
     fun deleteDownloadEntry(id: String) { viewModelScope.launch { downloadDelegate.downloadHistoryRepository.deleteEntry(id) } }
     fun clearDownloadHistory() { viewModelScope.launch { downloadDelegate.downloadHistoryRepository.clearHistory() } }
 

@@ -147,59 +147,77 @@ class BrowserDownloadDelegate(
     fun saveDownloadedChapterFromScript(novelTitle: String, chapterTitle: String, chapterNumber: Int, htmlContent: String) =
         chapterExtractor.saveDownloadedChapterFromScript(novelTitle, chapterTitle, chapterNumber, htmlContent)
 
+    private val genericDownloadHandler: BrowserGenericDownloadHandler = BrowserGenericDownloadHandler(
+        application = application,
+        scope = scope,
+        uiState = uiState,
+        downloadHistoryRepository = downloadHistoryRepository,
+        dispatchEvaluateJs = dispatchEvaluateJs
+    )
+
     fun handleGenericFileDownload(
         url: String,
         userAgent: String,
         contentDisposition: String,
         mimetype: String,
         contentLength: Long
-    ) {
-        try {
-            val fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype)
-            val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
-                setMimeType(mimetype)
-                addRequestHeader("User-Agent", userAgent)
-                val cookies = android.webkit.CookieManager.getInstance().getCookie(url)
-                if (!cookies.isNullOrBlank()) {
-                    addRequestHeader("Cookie", cookies)
+    ) = genericDownloadHandler.handleGenericFileDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+
+    fun handleBase64Download(dataUri: String, fileName: String, mimeType: String) =
+        genericDownloadHandler.handleBase64Download(dataUri, fileName, mimeType)
+
+    fun syncFolder(novelTitle: String?) {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                AppLogger.i(TAG, "Triggering folder sync for novel: $novelTitle")
+                if (!novelTitle.isNullOrBlank()) {
+                    libraryRepository.commitBatch(novelTitle)
                 }
-                setDescription("Downloading $fileName")
-                setTitle(fileName)
-                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+                libraryRepository.refreshEntireLibrary()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    uiState.update {
+                        it.copy(
+                            isAutoLoopActive = false,
+                            toastMessage = if (!novelTitle.isNullOrBlank()) "Library synced: $novelTitle" else "Library synced"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error syncing novel folder: ${e.message}", e)
             }
-            val dm = application.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
-            dm?.enqueue(request)
+        }
+    }
 
-            val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-            val targetFile = java.io.File(downloadDir, fileName)
-
-            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                downloadHistoryRepository.recordDownload(
-                    com.novelarrow.reader.data.model.DownloadHistoryEntry(
-                        fileName = fileName,
-                        filePath = targetFile.absolutePath,
-                        fileSizeBytes = if (contentLength > 0) contentLength else 0L,
-                        downloadUrl = url,
-                        isBatchNovelChapter = false,
-                        mimeType = mimetype
-                    )
-                )
-            }
-            uiState.update { it.copy(toastMessage = "Downloading $fileName to Downloads...") }
-            AppLogger.i(TAG, "Enqueued generic download: $fileName ($url)")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed enqueuing download: ${e.message}", e)
-            uiState.update { it.copy(toastMessage = "Download failed: ${e.message}") }
+    fun onAutoLoopStateChanged(active: Boolean, remainingCount: Int, status: String) {
+        uiState.update {
+            it.copy(
+                isAutoLoopActive = active,
+                autoLoopRemainingCount = remainingCount,
+                autoLoopStatus = status
+            )
         }
     }
 
     fun onLoopButtonClicked() {
-        if (uiState.value.isDownloading) {
-            stopDownloadLoop()
-        } else {
-            dispatchEvaluateJs("window.__triggerCustomToolbarButton('multi_download');", null)
-        }
+        dispatchEvaluateJs(
+            """
+            (function() {
+                if (typeof window.__triggerCustomToolbarButton === 'function' && window.__gmCustomButtons && window.__gmCustomButtons['multi_download']) {
+                    window.__triggerCustomToolbarButton('multi_download');
+                } else if (typeof window.__novelMultiDownloadToggle === 'function') {
+                    window.__novelMultiDownloadToggle();
+                } else {
+                    var btn = document.getElementById('na-dl-btn');
+                    if (btn) {
+                        btn.click();
+                    } else if (typeof window.__triggerCustomToolbarButton === 'function') {
+                        window.__triggerCustomToolbarButton('multi_download');
+                    }
+                }
+            })();
+            """.trimIndent(),
+            null
+        )
     }
 
     fun startDownloadLoop() {

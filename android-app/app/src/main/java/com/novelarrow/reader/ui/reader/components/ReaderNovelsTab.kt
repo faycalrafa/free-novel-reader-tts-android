@@ -228,19 +228,6 @@ internal fun ReaderNovelsTab(
                                 )
                             }
                         }
-                        if (onOpenDownloads != null) {
-                            IconButton(
-                                onClick = onOpenDownloads,
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.CloudDownload,
-                                    contentDescription = "Downloads History",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
                         IconButton(
                             onClick = onNewTab,
                             modifier = Modifier.size(28.dp)

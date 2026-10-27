@@ -284,6 +284,7 @@ data class CustomToolbarButton(
 @Serializable
 data class BrowserHistoryEntry(
     val id: String = java.util.UUID.randomUUID().toString(),
+    val tabId: String = "",
     val url: String,
     val title: String,
     val timestamp: Long = System.currentTimeMillis()

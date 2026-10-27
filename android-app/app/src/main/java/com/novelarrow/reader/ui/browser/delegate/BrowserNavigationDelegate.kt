@@ -109,6 +109,9 @@ class BrowserNavigationDelegate(
             )
         }
         saveTabsState()
+        scope.launch(Dispatchers.IO) {
+            browserHistoryRepository.clearHistoryForTab(tabId)
+        }
 
         if (uiState.value.currentTabId != newActiveTab.id) {
             dispatchLoadUrl(newActiveTab.url)
@@ -138,8 +141,9 @@ class BrowserNavigationDelegate(
     }
 
     fun clearHistory() {
+        val activeTabId = uiState.value.currentTabId
         scope.launch(Dispatchers.IO) {
-            browserHistoryRepository.clearHistory()
+            browserHistoryRepository.clearHistoryForTab(activeTabId)
         }
     }
 
@@ -264,8 +268,9 @@ class BrowserNavigationDelegate(
         saveLastUrl(url)
 
         if (url.isNotBlank() && url != "about:blank") {
+            val activeTabId = uiState.value.currentTabId
             scope.launch(Dispatchers.IO) {
-                browserHistoryRepository.recordVisit(url, safeTitle)
+                browserHistoryRepository.recordVisit(url, safeTitle, activeTabId)
             }
         }
 
