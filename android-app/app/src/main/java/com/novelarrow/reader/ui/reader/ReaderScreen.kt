@@ -48,6 +48,7 @@ fun ReaderScreen(
     onNavigateToHeaderFooterSkips: (() -> Unit)? = null,
     onNavigateToContentSelector: (() -> Unit)? = null,
     onOpenAudioStudio: (() -> Unit)? = null,
+    onResumeBrowserSession: ((com.novelarrow.reader.data.repository.BrowserPlaybackSession) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -200,7 +201,8 @@ fun ReaderScreen(
                     onLoadSampleNovel = { viewModel.loadSampleNovel() },
                     onResumeNovel = { viewModel.selectNovel(it) },
                     onOpenDrawer = onOpenDrawer,
-                    onOpenBrowser = { onNavigateToBrowser(false) }
+                    onOpenBrowser = { onNavigateToBrowser(false) },
+                    onResumeBrowserSession = onResumeBrowserSession
                 )
             } else {
                 ReaderContentView(

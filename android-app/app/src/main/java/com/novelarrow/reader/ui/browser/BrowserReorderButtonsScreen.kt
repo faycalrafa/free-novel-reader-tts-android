@@ -115,7 +115,8 @@ fun BrowserReorderButtonsScreen(
             ReorderableToolbarItem("back", "Navigate Back", Icons.Default.ChevronLeft),
             ReorderableToolbarItem("save", "Save Chapter HTML", Icons.Default.Save),
             ReorderableToolbarItem("extensions", "Extensions / Scripts", Icons.Default.Extension),
-            ReorderableToolbarItem("inspect_clickables", "Inspect Page Clickables", Icons.Default.FindInPage)
+            ReorderableToolbarItem("inspect_clickables", "Inspect Page Clickables", Icons.Default.FindInPage),
+            ReorderableToolbarItem("downloads", "Downloads History", Icons.Default.CloudDownload)
         )
     }
 

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Extension
@@ -29,6 +30,7 @@ fun BrowserOverflowMenu(
     overflowedVisibleItems: List<TopBarActionItem>,
     onReorderButtonsClicked: () -> Unit,
     onHistoryClicked: () -> Unit,
+    onDownloadsClicked: () -> Unit = {},
     onInspectClickables: () -> Unit,
     onManageShortcuts: () -> Unit,
     onRawCodeClicked: () -> Unit,
@@ -95,6 +97,23 @@ fun BrowserOverflowMenu(
             onClick = {
                 onDismissRequest()
                 onHistoryClicked()
+            }
+        )
+
+        // Downloads option
+        DropdownMenuItem(
+            text = { Text("Downloads") },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.CloudDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            onClick = {
+                onDismissRequest()
+                onDownloadsClicked()
             }
         )
 

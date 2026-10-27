@@ -3,6 +3,7 @@ package com.novelarrow.reader.ui.reader
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -46,7 +48,8 @@ fun EmptyState(
     onLoadSampleNovel: () -> Unit,
     onResumeNovel: (Novel) -> Unit,
     onOpenDrawer: () -> Unit,
-    onOpenBrowser: () -> Unit = {}
+    onOpenBrowser: () -> Unit = {},
+    onResumeBrowserSession: ((com.novelarrow.reader.data.repository.BrowserPlaybackSession) -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -136,7 +139,65 @@ fun EmptyState(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Open Library (${novels.size})")
             }
+        }
 
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val lastSource = remember { com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.getLastPlaybackSource(context) }
+        val browserSession = remember { com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.getLastSession(context) }
+        val hasBrowserSession = browserSession != null && (browserSession.url.isNotBlank() || browserSession.chapterTitle.isNotBlank())
+        val shouldShowBrowserResume = (lastSource == com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.SOURCE_BROWSER || novels.isEmpty()) && hasBrowserSession && onResumeBrowserSession != null
+
+        if (shouldShowBrowserResume) {
+            val session = browserSession ?: return
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(0.85f)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "CONTINUE READING (WEB NOVEL)",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = session.novelTitle.ifBlank { session.chapterTitle.ifBlank { "Web Novel" } },
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${session.chapterTitle.ifBlank { "Chapter" }} • Paragraph ${session.paragraphIndex + 1}${if (session.totalParagraphs > 0) " of ${session.totalParagraphs}" else ""}",
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { onResumeBrowserSession(session) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Resume")
+                    }
+                }
+            }
+        } else if (novels.isNotEmpty()) {
             Spacer(modifier = Modifier.height(16.dp))
             val activeProgress by AudioPlaybackCoordinator.playbackProgressState.collectAsState()
             val isPlayingActive = activeProgress.source == PlaybackSource.READER && activeProgress.novelId != null

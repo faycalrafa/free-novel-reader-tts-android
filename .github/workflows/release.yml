@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.1.0"
+          DATE_TAG="v4.2.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.1.0"
-        run: ./gradlew assembleRelease -PappVersionName=4.1.0 --no-daemon
+          APP_VERSION_NAME: "4.2.0"
+        run: ./gradlew assembleRelease -PappVersionName=4.2.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,15 +53,28 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.1.0 (Stable)
+          name: BookReader v4.2.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.1.0 (Browser TTS Persistence, Docked Bottom Bar & Multi-Download Fixes) 📚🎙️⚡
+            ### BookReader v4.2.0 (Seamless Browser TTS Resume, Tab Audio Isolation, Pure JS Batch Downloader & Universal Download History) 📚🎙️⚡
 
-            #### 🔄 Browser TTS Progress Persistence & Offline Resume Prompt
-            - **Startup Resume Prompt**: When opening the app, if the last playback source was browser TTS, BookReader now detects the unfinished reading session and offers an immediate option to resume from where you left off.
-            - **Offline Reading Memory**: Resuming opens the cached clean chapter HTML from local storage memory regardless of internet connectivity, automatically scrolling to the exact paragraph and resuming TTS speech.
-            - **Seamless Progress Tracking**: Browser paragraph playback progress is continually persisted via `BrowserPlaybackSessionManager` with atomic file persistence.
+            #### 🔄 Seamless Browser TTS Resume Card
+            - **Native Library Resume Integration**: Replaced the startup popup dialog with the Library screen's "CONTINUE READING" card. When the last playback session was Browser TTS (or when the library has no local novels), the card prompts you to resume your web novel directly.
+            - **Full DOM HTML Caching**: Offline resumption now caches the complete page DOM (`document.documentElement.outerHTML`) instead of synthetic plain text. Resuming renders full styles, interactive elements, scripts, and functioning auto-next.
+
+            #### 🎧 Context-Aware Page-Load TTS & Tab Isolation
+            - **Active Session Requirement**: "Auto-start TTS on page load" only triggers if a TTS reading session was already actively playing. Browsing normally without pressing read-aloud will never start reading unexpectedly.
+            - **Multi-Tab Isolation**: Switching pages in the active tab cleanly updates audio reading to the current page. Background tabs loading pages will never hijack or interrupt the active reading session.
+
+            #### 📥 Pure JS Batch Downloader & Next Chapter Resolution
+            - **Robust Candidate Resolution**: Rewrote candidate button selection to inspect all interactive elements and child links with strict negative filtering, rejecting container links to Home, TOC, Index, Catalog, Prev, or novel root pages.
+            - **Preserved Novel IDs in URLs**: Optimized URL chapter incrementing to target only the last chapter number segment, preventing corruption of book/novel numeric IDs.
+            - **Autonomous JS Loop**: Download execution logic runs autonomously client-side in pure JS, relying on Android native bridges solely for persistent chapter storage.
+
+            #### 📂 Universal Download History Screen & Dedicated Folder Routing
+            - **Universal Download History**: New screen accessible from Browser Top Bar, Overflow Menu, and Navigation Drawer displaying all downloaded items with real-time search, file size, timestamps, open action, and delete/clear.
+            - **Dedicated Folder Routing**: Batch novel chapters are neatly saved into `Downloads/NovelReader/<NovelTitle>/`, while generic file downloads (e.g., PDFs from external websites) route directly to the standard `Downloads` root directory.
+
 
             #### ⚓ Docked Bottom Media Bar
             - **Flush Bottom Attachment**: Re-anchored the bottom media dock (`TtsDock`) so its surface background extends flush behind the system navigation bar, eliminating the floating transparent gap above Android system buttons/gestures.

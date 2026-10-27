@@ -225,28 +225,69 @@ internal object DefaultUserscriptTemplates {
                 }
             }
 
+            function isCandidateValidNext(el) {
+                if (!el) return false;
+                var txt = (el.innerText || el.textContent || el.title || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                var href = (el.getAttribute('href') || '').trim().toLowerCase();
+
+                // Negative filter: Never match Home, Index, TOC, Prev, or novel root pages
+                if (/home|index|toc|contents|catalog|chapter\s*list|all\s*chapters|prev|previous|back/i.test(txt)) return false;
+                if (href === '#' || href === '' || href.indexOf('javascript:') === 0) return false;
+                if (href === '/' || href === location.pathname.toLowerCase() || href === location.href.toLowerCase()) return false;
+                var hasChapterIdentifier = /chapter|chap|ch\d+|\d+/i.test(href);
+                if (!hasChapterIdentifier && (/\/novel\/[^\/]+\/?${'$'}/i.test(href) || /\/book\/[^\/]+\/?${'$'}/i.test(href))) return false;
+
+                return true;
+            }
+
+            function resolveNextElement(rawEl) {
+                if (!rawEl) return null;
+                var tag = (rawEl.tagName || '').toLowerCase();
+                if (tag === 'a' || tag === 'button') {
+                    if (isCandidateValidNext(rawEl)) return rawEl;
+                    return null;
+                }
+                var childLinks = Array.from(rawEl.querySelectorAll('a, button'));
+                for (var i = 0; i < childLinks.length; i++) {
+                    var link = childLinks[i];
+                    if (isCandidateValidNext(link)) {
+                        var txt = (link.innerText || link.textContent || link.title || link.getAttribute('aria-label') || '').trim().toLowerCase();
+                        var rel = (link.getAttribute('rel') || '').toLowerCase();
+                        if (rel === 'next' || /^(next(\s*(chapter|chap|page|part)?)?|\s*»|\s*>)\s*${'$'}/i.test(txt) || txt.indexOf('next') !== -1) {
+                            return link;
+                        }
+                    }
+                }
+                return null;
+            }
+
             function getNextChapterElement() {
                 var selectors = [
-                    'button[title*="Next Chapter"]', 'a[title*="Next Chapter"]',
-                    'button[title="Next chapter"]', 'a[title="Next chapter"]',
-                    '#next_chap', '.next-chap', '.next-chapter', '.btn-next', 'a.next',
-                    'a.next_page', 'a#next_chapter', '.nav-next a', '.next a',
-                    'a[rel="next"]', '#next_button'
+                    'a[rel="next"]',
+                    'button[title*="Next Chapter" i]', 'a[title*="Next Chapter" i]',
+                    'button[title*="Next chapter" i]', 'a[title*="Next chapter" i]',
+                    'button[title="Next" i]', 'a[title="Next" i]',
+                    'a.next_page', 'a#next_chapter', 'a.next-chapter', 'a.btn-next', 'a.next',
+                    '.nav-next a', '.chapter-next a', '#next-chapter a', '.next a', '.nav-links .nav-next a',
+                    '#next_chap', '.next-chap', '.next-chapter', '.btn-next'
                 ];
                 for (var i = 0; i < selectors.length; i++) {
                     try {
                         var el = document.querySelector(selectors[i]);
-                        if (el && el.offsetParent !== null) return el;
+                        var resolved = resolveNextElement(el);
+                        if (resolved && resolved.offsetParent !== null) return resolved;
                     } catch(e) {}
                 }
 
                 try {
-                    var clickables = Array.from(document.querySelectorAll('a, button'));
+                    var clickables = Array.from(document.querySelectorAll('a, button, span[role="button"], div[role="button"]'));
                     for (var j = 0; j < clickables.length; j++) {
                         var item = clickables[j];
-                        var txt = (item.innerText || item.title || item.textContent || '').trim().toLowerCase();
-                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next' || txt.indexOf('next chapter') !== -1 || /^(next(\s*(chapter|chap|page|part)?)?|\s*»|\s*>)\s*${'$'}/i.test(txt)) {
-                            if (item.offsetParent !== null) return item;
+                        if (isCandidateValidNext(item)) {
+                            var txt = (item.innerText || item.title || item.textContent || item.getAttribute('aria-label') || '').trim().toLowerCase();
+                            if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1 || /^(next(\s*(chapter|chap|page|part)?)?|\s*»|\s*>)\s*${'$'}/i.test(txt)) {
+                                if (item.offsetParent !== null) return item;
+                            }
                         }
                     }
                 } catch(e) {}
@@ -254,24 +295,33 @@ internal object DefaultUserscriptTemplates {
             }
 
             function incrementUrlNext() {
-                var urlObj;
-                try { urlObj = new URL(window.location.href); } catch(e) { return false; }
-                var pathname = urlObj.pathname;
-                var regex = /(\d+)(?=\.html?${'$'})/i;
-                if (!regex.test(pathname)) {
-                    regex = /(\d+)(?!.*\d)/;
-                }
-                if (regex.test(pathname)) {
-                    urlObj.pathname = pathname.replace(regex, function(match) {
-                        var len = match.length;
-                        var nextNum = parseInt(match, 10) + 1;
+                try {
+                    var urlObj = new URL(window.location.href);
+                    var pathname = urlObj.pathname;
+                    var chapRegex = /(chapter[-_]?|chap[-_]?|ch[-_]?|c[-_]?)(\d+)(?=(\.html?|\/|${'$'}))/gi;
+                    var chapMatches = Array.from(pathname.matchAll(chapRegex));
+                    var match = chapMatches.length > 0 ? chapMatches[chapMatches.length - 1] : null;
+
+                    if (!match) {
+                        var numRegex = /(\/|-|_)?(\d+)(?=(\.html?|\/|${'$'}))/gi;
+                        var numMatches = Array.from(pathname.matchAll(numRegex));
+                        if (numMatches.length > 0) {
+                            match = numMatches[numMatches.length - 1];
+                        }
+                    }
+
+                    if (match && match.index !== undefined) {
+                        var prefix = match[1] || '';
+                        var digits = match[2];
+                        var len = digits.length;
+                        var nextNum = parseInt(digits, 10) + 1;
                         var nextStr = nextNum.toString();
                         while (nextStr.length < len) nextStr = '0' + nextStr;
-                        return nextStr;
-                    });
-                    window.location.href = urlObj.href;
-                    return true;
-                }
+                        urlObj.pathname = pathname.substring(0, match.index) + prefix + nextStr + pathname.substring(match.index + match[0].length);
+                        window.location.href = urlObj.href;
+                        return true;
+                    }
+                } catch(e) {}
                 return false;
             }
 
@@ -369,12 +419,18 @@ internal object DefaultUserscriptTemplates {
                         var isLocalFile = (location.protocol === 'file:' || /\.html?${'$'}/i.test(location.pathname));
                         if (nextEl) {
                             var oldUrl = window.location.href;
-                            try { nextEl.click(); } catch(e) {}
-                            setTimeout(function() {
-                                if (window.location.href === oldUrl && nextEl.href) {
-                                    window.location.href = nextEl.href;
-                                }
-                            }, 1200);
+                            var aTag = (nextEl.tagName && nextEl.tagName.toLowerCase() === 'a') ? nextEl : nextEl.closest('a');
+                            var fullHref = (aTag && aTag.href && aTag.href.indexOf('http') === 0 && !aTag.href.startsWith('javascript:')) ? aTag.href : '';
+                            if (fullHref && fullHref !== oldUrl) {
+                                window.location.href = fullHref;
+                            } else {
+                                try { nextEl.click(); } catch(e) {}
+                                setTimeout(function() {
+                                    if (window.location.href === oldUrl && fullHref && fullHref !== oldUrl) {
+                                        window.location.href = fullHref;
+                                    }
+                                }, 1200);
+                            }
                         } else if (isLocalFile || incrementUrlNext()) {
                             // URL digit increment handled
                         } else {

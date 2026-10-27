@@ -178,13 +178,6 @@ class MainActivity : ComponentActivity() {
             val shouldOpenCssSelector by openCssSelectorEvent
             var showCssSelectorDialog by remember { mutableStateOf(false) }
             var showGlobalAudioSettings by remember { mutableStateOf(false) }
-            var pendingResumeBrowserSession by remember {
-                mutableStateOf(
-                    if (BrowserPlaybackSessionManager.shouldProposeResume(context)) {
-                        BrowserPlaybackSessionManager.getLastSession(context)
-                    } else null
-                )
-            }
 
             LaunchedEffect(shouldOpenCssSelector) {
                 if (shouldOpenCssSelector) {
@@ -208,7 +201,8 @@ class MainActivity : ComponentActivity() {
                 AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS,
                 AppScreen.SETTINGS_BROWSER_NEXT_SELECTOR,
                 AppScreen.BROWSER_REORDER_BUTTONS,
-                AppScreen.BROWSER_HISTORY
+                AppScreen.BROWSER_HISTORY,
+                AppScreen.BROWSER_DOWNLOADS
             )) {
                 currentScreen = subScreenSourceScreen
             }
@@ -321,6 +315,10 @@ class MainActivity : ComponentActivity() {
                                         navigateToSubScreen(AppScreen.BROWSER_HISTORY)
                                         scope.launch { drawerState.close() }
                                     },
+                                    onOpenDownloads = {
+                                        navigateToSubScreen(AppScreen.BROWSER_DOWNLOADS)
+                                        scope.launch { drawerState.close() }
+                                    },
                                     onOpenSettings = {
                                         currentScreen = AppScreen.SETTINGS
                                         scope.launch { drawerState.close() }
@@ -388,17 +386,7 @@ class MainActivity : ComponentActivity() {
                                 showGlobalAudioSettings = showGlobalAudioSettings,
                                 onDismissGlobalAudioSettings = { showGlobalAudioSettings = false },
                                 navigateToSubScreen = navigateToSubScreen,
-                                onOpenDevLogs = { currentScreen = AppScreen.DEV_LOGS },
-                                resumeBrowserSession = pendingResumeBrowserSession,
-                                onResumeBrowserSession = { session ->
-                                    pendingResumeBrowserSession = null
-                                    currentScreen = AppScreen.BROWSER
-                                    browserViewModel.resumeSavedSession(session)
-                                },
-                                onDismissResumeBrowserSession = { session ->
-                                    BrowserPlaybackSessionManager.dismissPrompt(context, session)
-                                    pendingResumeBrowserSession = null
-                                }
+                                onOpenDevLogs = { currentScreen = AppScreen.DEV_LOGS }
                             )
 
                             IncomingShareDialogs(

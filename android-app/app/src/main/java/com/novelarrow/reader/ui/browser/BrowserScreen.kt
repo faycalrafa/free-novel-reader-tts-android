@@ -55,6 +55,7 @@ fun BrowserScreen(
     onNavigateToIgnoredSelectors: (() -> Unit)? = null,
     onNavigateToReorderButtons: (() -> Unit)? = null,
     onNavigateToHistory: (() -> Unit)? = null,
+    onNavigateToDownloads: (() -> Unit)? = null,
     onNavigateToDevLogs: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -158,7 +159,8 @@ fun BrowserScreen(
                 customButtons = uiState.customToolbarButtons,
                 onCustomButtonClicked = { viewModel.onCustomToolbarButtonClicked(it) },
                 onReorderButtonsClicked = { onNavigateToReorderButtons?.invoke() },
-                onHistoryClicked = { onNavigateToHistory?.invoke() ?: viewModel.openHistoryDialog() }
+                onHistoryClicked = { onNavigateToHistory?.invoke() ?: viewModel.openHistoryDialog() },
+                onDownloadsClicked = { onNavigateToDownloads?.invoke() }
             )
 
             // Linear Progress Indicator
@@ -191,7 +193,7 @@ fun BrowserScreen(
                     },
                     update = { wv ->
                         webViewInstance = wv
-                        (wv as? BackgroundAwareWebView)?.keepAliveInBackground = uiState.isLiveReading || uiState.isDownloading
+                        wv.keepAliveInBackground = uiState.isLiveReading || uiState.isDownloading
                         wv.isEnabled = isActive
                         wv.visibility = if (isActive) android.view.View.VISIBLE else android.view.View.INVISIBLE
                     },

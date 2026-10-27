@@ -404,36 +404,77 @@ object WebScriptInjector {
                 setTimeout(function() { window.__na_next_clicking = false; }, 2000);
 
                 var prioritizedSelectors = $safeSelectorsJson;
+                function isCandidateValidNext(el) {
+                    if (!el) return false;
+                    var txt = (el.innerText || el.textContent || el.title || el.getAttribute('aria-label') || '').trim().toLowerCase();
+                    var href = (el.getAttribute('href') || '').trim().toLowerCase();
+
+                    // Negative filter: Never match Home, Index, TOC, Prev, or novel root pages
+                    if (/home|index|toc|contents|catalog|chapter\s*list|all\s*chapters|prev|previous|back/i.test(txt)) return false;
+                    if (href === '#' || href === '' || href.indexOf('javascript:') === 0) return false;
+                    if (href === '/' || href === location.pathname.toLowerCase() || href === location.href.toLowerCase()) return false;
+                    var hasChapterIdentifier = /chapter|chap|ch\d+|\d+/i.test(href);
+                    if (!hasChapterIdentifier && (/\/novel\/[^\/]+\/?$/i.test(href) || /\/book\/[^\/]+\/?$/i.test(href))) return false;
+
+                    return true;
+                }
+
+                function resolveNextElement(rawEl) {
+                    if (!rawEl) return null;
+                    var tag = (rawEl.tagName || '').toLowerCase();
+                    if (tag === 'a' || tag === 'button') {
+                        if (isCandidateValidNext(rawEl)) return rawEl;
+                        return null;
+                    }
+                    var childLinks = Array.from(rawEl.querySelectorAll('a, button'));
+                    for (var i = 0; i < childLinks.length; i++) {
+                        var link = childLinks[i];
+                        if (isCandidateValidNext(link)) {
+                            var txt = (link.innerText || link.textContent || link.title || link.getAttribute('aria-label') || '').trim().toLowerCase();
+                            var rel = (link.getAttribute('rel') || '').toLowerCase();
+                            if (rel === 'next' || /^(next(\s*(chapter|chap|page|part)?)?|\s*»|\s*>)\s*$/i.test(txt) || txt.indexOf('next') !== -1) {
+                                return link;
+                            }
+                        }
+                    }
+                    return null;
+                }
+
                 function getNextEl() {
                     for (var p = 0; p < prioritizedSelectors.length; p++) {
                         var pSel = prioritizedSelectors[p];
                         if (pSel && pSel.length > 0) {
                             try {
                                 var el = document.querySelector(pSel);
-                                if (el) return el;
+                                var resolved = resolveNextElement(el);
+                                if (resolved) return resolved;
                             } catch(e) {}
                         }
                     }
                     var selectors = [
-                        'button[title*="Next Chapter"]', 'a[title*="Next Chapter"]',
-                        'button[title*="Next chapter"]', 'a[title*="Next chapter"]',
-                        'button[title="Next"]', 'a[title="Next"]',
-                        '#next_chap', '.next-chap', '.next-chapter', '.btn-next', 'a.next',
-                        'a[rel="next"]', '.chapter-next a', '#next-chapter', '.nav-next a',
-                        '.next a', '.nav-links .nav-next a'
+                        'a[rel="next"]',
+                        'button[title*="Next Chapter" i]', 'a[title*="Next Chapter" i]',
+                        'button[title*="Next chapter" i]', 'a[title*="Next chapter" i]',
+                        'button[title="Next" i]', 'a[title="Next" i]',
+                        'a.next_page', 'a#next_chapter', 'a.next-chapter', 'a.btn-next', 'a.next',
+                        '.nav-next a', '.chapter-next a', '#next-chapter a', '.next a', '.nav-links .nav-next a',
+                        '#next_chap', '.next-chap', '.next-chapter', '.btn-next'
                     ];
                     for (var s = 0; s < selectors.length; s++) {
                         try {
                             var selEl = document.querySelector(selectors[s]);
-                            if (selEl) return selEl;
+                            var resolved = resolveNextElement(selEl);
+                            if (resolved) return resolved;
                         } catch(e) {}
                     }
                     var candidates = Array.from(document.querySelectorAll('a, button, span[role="button"], div[role="button"]'));
                     for (var i = 0; i < candidates.length; i++) {
                         var c = candidates[i];
-                        var txt = (c.innerText || c.textContent || c.title || '').trim().toLowerCase();
-                        if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1 || txt === 'next chapter »') {
-                            return c;
+                        if (isCandidateValidNext(c)) {
+                            var txt = (c.innerText || c.textContent || c.title || c.getAttribute('aria-label') || '').trim().toLowerCase();
+                            if (txt === 'next chapter' || txt === 'next >' || txt === 'next »' || txt === 'next' || txt.indexOf('next chapter') !== -1 || txt === 'next chapter »' || /^(next(\s*(chapter|chap|page|part)?)?|\s*»|\s*>)\s*$/i.test(txt)) {
+                                return c;
+                            }
                         }
                     }
                     return null;
@@ -443,14 +484,26 @@ object WebScriptInjector {
                     try {
                         var urlObj = new URL(window.location.href);
                         var pathname = urlObj.pathname;
-                        var regex = /(\d+)(?=\.html?$)/i;
-                        if (!regex.test(pathname)) { regex = /(\d+)(?!.*\d)/; }
-                        if (regex.test(pathname)) {
-                            urlObj.pathname = pathname.replace(regex, function(match) {
-                                var len = match.length;
-                                var nextNum = parseInt(match, 10) + 1;
-                                return nextNum.toString().padStart(len, '0');
-                            });
+                        var chapRegex = /(chapter[-_]?|chap[-_]?|ch[-_]?|c[-_]?)(\d+)(?=(\.html?|\/|$))/gi;
+                        var chapMatches = Array.from(pathname.matchAll(chapRegex));
+                        var match = chapMatches.length > 0 ? chapMatches[chapMatches.length - 1] : null;
+
+                        if (!match) {
+                            var numRegex = /(\/|-|_)?(\d+)(?=(\.html?|\/|$))/gi;
+                            var numMatches = Array.from(pathname.matchAll(numRegex));
+                            if (numMatches.length > 0) {
+                                match = numMatches[numMatches.length - 1];
+                            }
+                        }
+
+                        if (match && match.index !== undefined) {
+                            var prefix = match[1] || '';
+                            var digits = match[2];
+                            var len = digits.length;
+                            var nextNum = parseInt(digits, 10) + 1;
+                            var nextStr = nextNum.toString();
+                            while (nextStr.length < len) nextStr = '0' + nextStr;
+                            urlObj.pathname = pathname.substring(0, match.index) + prefix + nextStr + pathname.substring(match.index + match[0].length);
                             window.location.href = urlObj.href;
                             return true;
                         }
@@ -460,7 +513,7 @@ object WebScriptInjector {
 
                 var target = getNextEl();
                 if (target) {
-                    var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : (target.closest('a') || target.querySelector('a'));
+                    var aTag = target.tagName && target.tagName.toLowerCase() === 'a' ? target : target.closest('a');
                     if (aTag) {
                         try {
                             aTag.removeAttribute('target');
@@ -470,13 +523,13 @@ object WebScriptInjector {
 
                     var oldUrl = window.location.href;
                     var fullHref = (aTag && aTag.href && aTag.href.indexOf('http') === 0 && !aTag.href.startsWith('javascript:')) ? aTag.href : '';
-                    if (fullHref) {
+                    if (fullHref && fullHref !== oldUrl) {
                         window.location.href = fullHref;
                     } else {
                         try {
                             target.click();
                         } catch(e) {}
-                        if (aTag && aTag.href && aTag.href.indexOf('http') === 0 && window.location.href === oldUrl) {
+                        if (aTag && aTag.href && aTag.href.indexOf('http') === 0 && aTag.href !== oldUrl && window.location.href === oldUrl) {
                             window.location.href = aTag.href;
                         }
                     }

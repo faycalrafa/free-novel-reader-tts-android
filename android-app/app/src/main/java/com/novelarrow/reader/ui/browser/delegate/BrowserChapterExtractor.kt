@@ -30,7 +30,8 @@ class BrowserChapterExtractor(
     private val setLastExtractedHeading: (String) -> Unit,
     private val getLastExtractedSample: () -> String,
     private val setLastExtractedSample: (String) -> Unit,
-    private val setPreExtractedNextChapterUrl: ((String?) -> Unit)? = null
+    private val setPreExtractedNextChapterUrl: ((String?) -> Unit)? = null,
+    private val downloadHistoryRepository: com.novelarrow.reader.data.repository.DownloadHistoryRepository = com.novelarrow.reader.data.repository.DownloadHistoryRepository(application)
 ) {
     companion object {
         private const val TAG = "BrowserChapterExtractor"
@@ -59,6 +60,19 @@ class BrowserChapterExtractor(
                     chapterNumber = chapterNumber,
                     sourceUrl = uiState.value.currentUrl,
                     commitNow = true
+                )
+                downloadHistoryRepository.recordDownload(
+                    com.novelarrow.reader.data.model.DownloadHistoryEntry(
+                        fileName = savedFile.name,
+                        filePath = savedFile.absolutePath,
+                        fileSizeBytes = savedFile.length(),
+                        downloadUrl = uiState.value.currentUrl,
+                        novelTitle = novelTitle,
+                        chapterTitle = chapterTitle,
+                        chapterNumber = chapterNumber,
+                        isBatchNovelChapter = true,
+                        mimeType = "text/html"
+                    )
                 )
                 withContext(Dispatchers.Main) {
                     uiState.update {
@@ -147,6 +161,19 @@ class BrowserChapterExtractor(
                         sourceUrl = currentUrl,
                         commitNow = true
                     )
+                    downloadHistoryRepository.recordDownload(
+                        com.novelarrow.reader.data.model.DownloadHistoryEntry(
+                            fileName = savedFile.name,
+                            filePath = savedFile.absolutePath,
+                            fileSizeBytes = savedFile.length(),
+                            downloadUrl = currentUrl,
+                            novelTitle = detected.novelTitle,
+                            chapterTitle = chapterTitle,
+                            chapterNumber = detected.chapterNumber,
+                            isBatchNovelChapter = true,
+                            mimeType = "text/html"
+                        )
+                    )
                     uiState.update {
                         it.copy(
                             lastDownloadedNovel = updatedNovel,
@@ -234,6 +261,19 @@ class BrowserChapterExtractor(
                         chapterNumber = chapterNum,
                         sourceUrl = currentUrl,
                         commitNow = false
+                    )
+                    downloadHistoryRepository.recordDownload(
+                        com.novelarrow.reader.data.model.DownloadHistoryEntry(
+                            fileName = savedFile.name,
+                            filePath = savedFile.absolutePath,
+                            fileSizeBytes = savedFile.length(),
+                            downloadUrl = currentUrl,
+                            novelTitle = novelTitle,
+                            chapterTitle = chapterTitle,
+                            chapterNumber = chapterNum,
+                            isBatchNovelChapter = true,
+                            mimeType = "text/html"
+                        )
                     )
                     setLastBatchDownloadedUrl(currentUrl)
                     setLastBatchDownloadedChapterNum(chapterNum)

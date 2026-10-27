@@ -31,7 +31,8 @@ class BrowserDownloadDelegate(
     private val onClearLiveHighlight: () -> Unit,
     private val preExtractedNextChapterUrlProvider: () -> String?,
     private val setPreExtractedNextChapterUrl: (String?) -> Unit,
-    private val clearPreExtractedNextChapterUrl: () -> Unit
+    private val clearPreExtractedNextChapterUrl: () -> Unit,
+    val downloadHistoryRepository: com.novelarrow.reader.data.repository.DownloadHistoryRepository = com.novelarrow.reader.data.repository.DownloadHistoryRepository(application)
 ) {
     companion object {
         private const val TAG = "BrowserDownloadDelegate"
@@ -145,6 +146,53 @@ class BrowserDownloadDelegate(
 
     fun saveDownloadedChapterFromScript(novelTitle: String, chapterTitle: String, chapterNumber: Int, htmlContent: String) =
         chapterExtractor.saveDownloadedChapterFromScript(novelTitle, chapterTitle, chapterNumber, htmlContent)
+
+    fun handleGenericFileDownload(
+        url: String,
+        userAgent: String,
+        contentDisposition: String,
+        mimetype: String,
+        contentLength: Long
+    ) {
+        try {
+            val fileName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype)
+            val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
+                setMimeType(mimetype)
+                addRequestHeader("User-Agent", userAgent)
+                val cookies = android.webkit.CookieManager.getInstance().getCookie(url)
+                if (!cookies.isNullOrBlank()) {
+                    addRequestHeader("Cookie", cookies)
+                }
+                setDescription("Downloading $fileName")
+                setTitle(fileName)
+                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, fileName)
+            }
+            val dm = application.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+            dm?.enqueue(request)
+
+            val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val targetFile = java.io.File(downloadDir, fileName)
+
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                downloadHistoryRepository.recordDownload(
+                    com.novelarrow.reader.data.model.DownloadHistoryEntry(
+                        fileName = fileName,
+                        filePath = targetFile.absolutePath,
+                        fileSizeBytes = if (contentLength > 0) contentLength else 0L,
+                        downloadUrl = url,
+                        isBatchNovelChapter = false,
+                        mimeType = mimetype
+                    )
+                )
+            }
+            uiState.update { it.copy(toastMessage = "Downloading $fileName to Downloads...") }
+            AppLogger.i(TAG, "Enqueued generic download: $fileName ($url)")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed enqueuing download: ${e.message}", e)
+            uiState.update { it.copy(toastMessage = "Download failed: ${e.message}") }
+        }
+    }
 
     fun onLoopButtonClicked() {
         if (uiState.value.isDownloading) {

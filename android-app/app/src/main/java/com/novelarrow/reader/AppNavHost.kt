@@ -6,6 +6,8 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.zIndex
@@ -14,6 +16,7 @@ import com.novelarrow.reader.ui.about.ChangelogScreen
 import com.novelarrow.reader.ui.about.DevLogsScreen
 import com.novelarrow.reader.ui.archive.ArchiveScreen
 import com.novelarrow.reader.ui.browser.BrowserHistoryScreen
+import com.novelarrow.reader.ui.browser.DownloadsHistoryScreen
 import com.novelarrow.reader.ui.browser.BrowserReorderButtonsScreen
 import com.novelarrow.reader.ui.browser.BrowserScreen
 import com.novelarrow.reader.ui.browser.BrowserUiState
@@ -81,6 +84,7 @@ fun AppNavHost(
                     onNavigateToIgnoredSelectors = { navigateToSubScreen(AppScreen.SETTINGS_BROWSER_IGNORED_SELECTORS) },
                     onNavigateToReorderButtons = { navigateToSubScreen(AppScreen.BROWSER_REORDER_BUTTONS) },
                     onNavigateToHistory = { navigateToSubScreen(AppScreen.BROWSER_HISTORY) },
+                    onNavigateToDownloads = { navigateToSubScreen(AppScreen.BROWSER_DOWNLOADS) },
                     onNavigateToDevLogs = { onCurrentScreenChange(AppScreen.DEV_LOGS) }
                 )
             }
@@ -108,7 +112,11 @@ fun AppNavHost(
                             onNavigateToSkipWords = { navigateToSubScreen(AppScreen.SETTINGS_SKIP_WORDS) },
                             onNavigateToHeaderFooterSkips = { navigateToSubScreen(AppScreen.SETTINGS_HEADER_FOOTER_SKIPS) },
                             onNavigateToContentSelector = { navigateToSubScreen(AppScreen.SETTINGS_CONTENT_SELECTOR) },
-                            onOpenAudioStudio = { onCurrentScreenChange(AppScreen.TEXT_TO_MP3) }
+                            onOpenAudioStudio = { onCurrentScreenChange(AppScreen.TEXT_TO_MP3) },
+                            onResumeBrowserSession = { session ->
+                                onCurrentScreenChange(AppScreen.BROWSER)
+                                browserViewModel.resumeSavedSession(session)
+                            }
                         )
                     }
                     AppScreen.ABOUT -> {
@@ -280,6 +288,15 @@ fun AppNavHost(
                             },
                             onDeleteEntry = { id -> browserViewModel.deleteHistoryEntry(id) },
                             onClearHistory = { browserViewModel.clearHistory() },
+                            onNavigateBack = { onCurrentScreenChange(subScreenSourceScreen) }
+                        )
+                    }
+                    AppScreen.BROWSER_DOWNLOADS -> {
+                        val downloadEntries by browserViewModel.downloadHistoryFlow.collectAsState()
+                        DownloadsHistoryScreen(
+                            downloads = downloadEntries,
+                            onDeleteEntry = { id -> browserViewModel.deleteDownloadEntry(id) },
+                            onClearHistory = { browserViewModel.clearDownloadHistory() },
                             onNavigateBack = { onCurrentScreenChange(subScreenSourceScreen) }
                         )
                     }

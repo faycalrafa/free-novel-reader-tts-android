@@ -100,7 +100,8 @@ fun BrowserTopBar(
     customButtons: List<CustomToolbarButton> = emptyList(),
     onCustomButtonClicked: (String) -> Unit = {},
     onReorderButtonsClicked: () -> Unit = {},
-    onHistoryClicked: () -> Unit = {}
+    onHistoryClicked: () -> Unit = {},
+    onDownloadsClicked: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -308,6 +309,13 @@ fun BrowserTopBar(
                     tint = primaryColor,
                     onClick = onInspectClickables
                 )
+                map["downloads"] = TopBarActionItem(
+                    id = "downloads",
+                    title = "Downloads History",
+                    icon = Icons.Default.CloudDownload,
+                    tint = primaryColor,
+                    onClick = onDownloadsClicked
+                )
 
                 customButtons.forEach { btn ->
                     map[btn.id] = TopBarActionItem(
@@ -423,6 +431,7 @@ fun BrowserTopBar(
                             overflowedVisibleItems = overflowedVisibleItems,
                             onReorderButtonsClicked = onReorderButtonsClicked,
                             onHistoryClicked = onHistoryClicked,
+                            onDownloadsClicked = onDownloadsClicked,
                             onInspectClickables = onInspectClickables,
                             onManageShortcuts = onManageShortcuts,
                             onRawCodeClicked = onRawCodeClicked,

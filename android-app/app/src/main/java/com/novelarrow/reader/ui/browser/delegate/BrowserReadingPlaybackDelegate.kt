@@ -134,9 +134,7 @@ class BrowserReadingPlaybackDelegate(
                     paragraphs = paragraphs.map { it.rawText },
                     sourceUrl = currentUrl
                 )
-                scope.launch(Dispatchers.IO) {
-                    com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.saveOfflineHtml(application, cleanHtml)
-                }
+                captureAndSaveOfflineHtml(cleanHtml)
             }
             uiState.update {
                 it.copy(
@@ -277,9 +275,7 @@ class BrowserReadingPlaybackDelegate(
                         paragraphs = readableParagraphs.map { it.rawText },
                         sourceUrl = currentUrl
                     )
-                    scope.launch(Dispatchers.IO) {
-                        com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.saveOfflineHtml(application, cleanHtml)
-                    }
+                    captureAndSaveOfflineHtml(cleanHtml)
 
                     val targetIndex = (initialIndex ?: if (forceStartAtBeginning) {
                         0
@@ -452,6 +448,23 @@ class BrowserReadingPlaybackDelegate(
                 showSleepTimerDialog = false,
                 toastMessage = if (minutes > 0) "Sleep timer set for $minutes minutes" else "Sleep timer turned off"
             )
+        }
+    }
+
+    private fun captureAndSaveOfflineHtml(cleanHtml: String) {
+        dispatchEvaluateJs("(function() { try { return document.documentElement.outerHTML; } catch(e) { return ''; } })()") { result ->
+            val fullHtml = try {
+                if (!result.isNullOrBlank() && result != "null") {
+                    org.json.JSONTokener(result).nextValue().toString()
+                } else null
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed decoding full HTML string: ${e.message}", e)
+                null
+            }
+            val htmlToSave = if (!fullHtml.isNullOrBlank()) fullHtml else cleanHtml
+            scope.launch(Dispatchers.IO) {
+                com.novelarrow.reader.data.repository.BrowserPlaybackSessionManager.saveOfflineHtml(application, htmlToSave)
+            }
         }
     }
 

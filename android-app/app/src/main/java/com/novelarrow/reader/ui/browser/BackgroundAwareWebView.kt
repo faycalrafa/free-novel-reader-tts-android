@@ -84,6 +84,10 @@ fun createConfiguredWebView(
         addJavascriptInterface(bridge, BrowserBridge.INTERFACE_NAME)
         addJavascriptInterface(bridge, BrowserBridge.INTERFACE_NAME_BROWSER)
 
+        setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+            viewModel.handleGenericFileDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+        }
+
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
@@ -44,6 +45,7 @@ internal fun ReaderNovelsTab(
     onDeleteNovelRequest: (Novel) -> Unit,
     onAddFolder: () -> Unit,
     onOpenHistory: (() -> Unit)?,
+    onOpenDownloads: (() -> Unit)? = null,
     onNewTab: () -> Unit,
     onSelectTab: (String) -> Unit,
     onCloseTab: (String) -> Unit,
@@ -221,6 +223,19 @@ internal fun ReaderNovelsTab(
                                 Icon(
                                     Icons.Default.History,
                                     contentDescription = "Browsing History",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        if (onOpenDownloads != null) {
+                            IconButton(
+                                onClick = onOpenDownloads,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.CloudDownload,
+                                    contentDescription = "Downloads History",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
