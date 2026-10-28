@@ -95,8 +95,26 @@ internal class CoordinatorSpeechQueue(
 
     fun speakCurrentParagraph() {
         val paras = paragraphsProvider()
-        val idx = currentParagraphIndexProvider()
+        var idx = currentParagraphIndexProvider()
         if (idx !in paras.indices) return
+
+        // If current paragraph has blank spoken text, skip forward to next readable paragraph
+        if (paras[idx].spokenText.trim().isBlank()) {
+            val nextReadable = (idx until paras.size).firstOrNull { paras[it].spokenText.trim().isNotBlank() }
+            if (nextReadable != null) {
+                idx = nextReadable
+                onParagraphChanged(idx, paras.getOrNull(idx))
+            } else {
+                if (currentSourceProvider() == PlaybackSource.READER && autoNextChapterProvider()) {
+                    onChapterAdvanceNeeded()
+                } else if (currentSourceProvider() == PlaybackSource.BROWSER && autoNextBrowserPageProvider()) {
+                    onBrowserNextPageNeeded()
+                } else {
+                    onPauseRequested()
+                }
+                return
+            }
+        }
 
         ttsManagerProvider()?.stop()
         lastEnqueuedParagraphIndex = idx
@@ -104,8 +122,8 @@ internal class CoordinatorSpeechQueue(
 
         enqueueParagraph(idx, TextToSpeech.QUEUE_FLUSH)
 
-        val lookaheadIdx = idx + 1
-        if (lookaheadIdx < paras.size) {
+        val lookaheadIdx = ((idx + 1) until paras.size).firstOrNull { paras[it].spokenText.trim().isNotBlank() }
+        if (lookaheadIdx != null) {
             enqueueParagraph(lookaheadIdx, TextToSpeech.QUEUE_ADD)
         }
 
@@ -121,6 +139,11 @@ internal class CoordinatorSpeechQueue(
     }
 
     fun handleParagraphDone(index: Int) {
+        val currentIdx = currentParagraphIndexProvider()
+        if (index != currentIdx) {
+            AppLogger.d(TAG, "Ignoring handleParagraphDone for stale paragraph $index (current is $currentIdx)")
+            return
+        }
         lastProgressTimestamp = System.currentTimeMillis()
         val paras = paragraphsProvider()
         val total = paras.size
@@ -152,6 +175,15 @@ internal class CoordinatorSpeechQueue(
     }
 
     fun handleParagraphError(index: Int, error: String) {
+        val currentIdx = currentParagraphIndexProvider()
+        if (index != currentIdx) {
+            AppLogger.d(TAG, "Ignoring handleParagraphError for stale paragraph $index (current is $currentIdx)")
+            return
+        }
+        if (error.contains("-2") || error.contains("interrupted", ignoreCase = true)) {
+            AppLogger.d(TAG, "Ignoring interrupted error for paragraph $index: $error")
+            return
+        }
         AppLogger.w(TAG, "TTS Error on paragraph $index: $error")
         consecutiveErrorCount++
         if (consecutiveErrorCount >= 3) {

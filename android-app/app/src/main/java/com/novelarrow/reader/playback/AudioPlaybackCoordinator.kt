@@ -40,7 +40,7 @@ object AudioPlaybackCoordinator {
 
     private val _isPlayingState = MutableStateFlow(false)
     val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
-
+    val isPlaying: Boolean get() = _isPlayingState.value
     private val _currentInfo = MutableStateFlow("Ready")
     val currentInfo: StateFlow<String> = _currentInfo.asStateFlow()
 
@@ -344,12 +344,12 @@ object AudioPlaybackCoordinator {
         if (!_isPlayingState.value) {
             _isPlayingState.value = true
             _playbackProgressState.update { it.copy(isPlaying = true) }
+            appContext?.let { ensureServiceRunning(it) }
             updateServiceState()
 
             if (sleepTimer.sleepTimerMinutesState.value > 0) {
                 sleepTimer.startSleepTimerCountdown()
             }
-
             if (navigator.currentSource == PlaybackSource.AUDIO_FILE) {
                 attachedService?.resumeAudioFile()
                 audioFileDelegate.startAudioFileProgressTicker()

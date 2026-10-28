@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +34,7 @@ fun ReaderTopBar(
     progressText: String,
     isTtsDockVisible: Boolean,
     isTextChapter: Boolean,
+    isPlaying: Boolean = false,
     currentParagraphIndex: Int = 0,
     totalParagraphs: Int = 0,
     onSeekParagraph: (Int) -> Unit = {},
@@ -91,9 +93,9 @@ fun ReaderTopBar(
                     modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
-                        Icons.Default.Headphones,
-                        contentDescription = "Toggle TTS Dock",
-                        tint = if (isTtsDockVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.Headphones,
+                        contentDescription = if (isPlaying) "Stop Reading Session" else "Start Reading Aloud",
+                        tint = if (isPlaying) MaterialTheme.colorScheme.error else if (isTtsDockVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(20.dp)
                     )
                 }

@@ -249,6 +249,10 @@ class TtsManager(
                 onError?.invoke(index, "Playback error")
             }
 
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                AppLogger.d(TAG, "Utterance $utteranceId stopped (interrupted: $interrupted)")
+            }
+
             override fun onError(utteranceId: String?, errorCode: Int) {
                 if (utteranceId?.startsWith("preview_") == true) {
                     AppLogger.w(TAG, "Voice preview error code $errorCode: $utteranceId")

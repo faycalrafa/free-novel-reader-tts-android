@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,11 +48,11 @@ fun ReaderContentView(
     autoScroll: Boolean,
     chapterTitle: String = "Chapter",
     speechRate: Float = 1.0f,
+    listState: LazyListState = rememberLazyListState(),
     onOpenAudioStudio: (() -> Unit)? = null,
     onParagraphClick: (Int) -> Unit
 ) {
     val context = LocalContext.current
-    val listState = rememberLazyListState()
     var selectedIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val isSelectionMode = selectedIndices.isNotEmpty()
 

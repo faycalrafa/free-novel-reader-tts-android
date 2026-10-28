@@ -393,6 +393,9 @@ class BrowserReadingPlaybackDelegate(
             savedReadingPositions[curUrl] = target
         }
         AudioPlaybackCoordinator.seekToParagraph(target)
+        if (!AudioPlaybackCoordinator.isPlaying) {
+            AudioPlaybackCoordinator.play()
+        }
         uiState.update {
             it.copy(
                 liveCurrentParagraphIndex = target,

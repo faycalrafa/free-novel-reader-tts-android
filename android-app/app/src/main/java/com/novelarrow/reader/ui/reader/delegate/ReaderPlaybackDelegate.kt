@@ -23,13 +23,12 @@ class ReaderPlaybackDelegate(
     private val selectChapter: (index: Int, forceStartAtBeginning: Boolean) -> Unit,
     private val reloadCurrentChapter: (Chapter) -> Unit
 ) {
-    fun playTts() {
+    fun playTts(startIndex: Int? = null) {
         val state = uiState.value
         val novel = state.currentNovel ?: return
         val chapter = state.currentChapter ?: return
         val paragraphs = state.paragraphs
-        val readableParagraphs = paragraphs.filter { it.spokenText.isNotBlank() }
-        if (readableParagraphs.isEmpty()) {
+        if (paragraphs.none { it.spokenText.isNotBlank() }) {
             uiState.update {
                 it.copy(
                     flashHandleRed = true,
@@ -40,7 +39,8 @@ class ReaderPlaybackDelegate(
             return
         }
 
-        uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true, flashHandleRed = false) }
+        val targetIndex = (startIndex ?: state.currentParagraphIndex).coerceIn(0, (paragraphs.size - 1).coerceAtLeast(0))
+        uiState.update { it.copy(isPlaying = true, isTtsDockVisible = true, flashHandleRed = false, currentParagraphIndex = targetIndex) }
 
         AudioPlaybackCoordinator.playReaderChapter(
             context = application,
@@ -50,8 +50,8 @@ class ReaderPlaybackDelegate(
             chapterTitle = chapter.title,
             chapterIndex = chapter.orderIndex,
             totalChapters = state.chapters.size,
-            paragraphs = readableParagraphs,
-            startParagraphIndex = state.currentParagraphIndex.coerceIn(0, readableParagraphs.size - 1),
+            paragraphs = paragraphs,
+            startParagraphIndex = targetIndex,
             autoNext = state.settings.autoNextChapter || state.isAutoLoopActive,
             rate = state.settings.speechRate,
             pitch = state.settings.speechPitch,
@@ -121,20 +121,33 @@ class ReaderPlaybackDelegate(
     }
 
     fun speakAtParagraph(index: Int) {
-        val total = uiState.value.paragraphs.size
-        if (index !in 0 until total) return
         val state = uiState.value
+        val paragraphs = state.paragraphs
+        if (paragraphs.isEmpty() || index !in paragraphs.indices) return
         val novel = state.currentNovel ?: return
         val chapter = state.currentChapter ?: return
 
-        uiState.update { it.copy(currentParagraphIndex = index, isPlaying = true, isTtsDockVisible = true) }
+        // Find the first readable paragraph starting from index, or backwards if none after
+        val targetIndex = (index until paragraphs.size).firstOrNull { paragraphs[it].spokenText.isNotBlank() }
+            ?: (index downTo 0).firstOrNull { paragraphs[it].spokenText.isNotBlank() }
+            ?: index
+
+        uiState.update {
+            it.copy(
+                currentParagraphIndex = targetIndex,
+                isPlaying = true,
+                isTtsDockVisible = true,
+                flashHandleRed = false
+            )
+        }
 
         val progress = AudioPlaybackCoordinator.playbackProgressState.value
-        if (progress.source == PlaybackSource.READER &&
+        val isSameChapter = progress.source == PlaybackSource.READER &&
             progress.novelId == novel.id &&
             progress.chapterId == chapter.id
-        ) {
-            AudioPlaybackCoordinator.seekToParagraph(index)
+
+        if (isSameChapter && AudioPlaybackCoordinator.isPlaying) {
+            AudioPlaybackCoordinator.seekToParagraph(targetIndex)
         } else {
             AudioPlaybackCoordinator.playReaderChapter(
                 context = application,
@@ -144,8 +157,8 @@ class ReaderPlaybackDelegate(
                 chapterTitle = chapter.title,
                 chapterIndex = chapter.orderIndex,
                 totalChapters = state.chapters.size,
-                paragraphs = state.paragraphs,
-                startParagraphIndex = index,
+                paragraphs = paragraphs,
+                startParagraphIndex = targetIndex,
                 autoNext = state.settings.autoNextChapter || state.isAutoLoopActive,
                 rate = state.settings.speechRate,
                 pitch = state.settings.speechPitch,

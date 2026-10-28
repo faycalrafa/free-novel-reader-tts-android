@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SkipNext
@@ -53,6 +54,7 @@ fun ReaderScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showUnifiedAudioSettings by remember { mutableStateOf(false) }
@@ -77,13 +79,19 @@ fun ReaderScreen(
             ReaderTopBar(
                 progressText = progressText,
                 isTtsDockVisible = uiState.isTtsDockVisible,
+                isPlaying = uiState.isPlaying,
                 isTextChapter = uiState.currentChapter?.isTextBased() == true,
                 currentParagraphIndex = uiState.currentParagraphIndex,
                 totalParagraphs = uiState.paragraphs.size,
                 onSeekParagraph = { viewModel.seekToParagraph(it) },
                 onMenuClick = onOpenDrawer,
                 onTtsToggleClick = {
-                    viewModel.toggleTtsDock()
+                    if (uiState.isPlaying) {
+                        viewModel.stopTts()
+                    } else {
+                        val firstVisible = listState.firstVisibleItemIndex.coerceIn(0, (uiState.paragraphs.size - 1).coerceAtLeast(0))
+                        viewModel.speakAtParagraph(firstVisible)
+                    }
                 },
                 onRawCodeClick = { viewModel.openRawChapterEditor() },
                 onSettingsClick = { showSettingsDialog = true }
@@ -214,6 +222,7 @@ fun ReaderScreen(
                     autoScroll = uiState.settings.autoScroll,
                     chapterTitle = uiState.currentChapter?.title ?: "Chapter",
                     speechRate = uiState.settings.speechRate,
+                    listState = listState,
                     onOpenAudioStudio = onOpenAudioStudio,
                     onParagraphClick = { index -> viewModel.speakAtParagraph(index) }
                 )

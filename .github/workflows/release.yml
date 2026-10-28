@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.3.0"
+          DATE_TAG="v4.4.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.3.0"
-        run: ./gradlew assembleRelease -PappVersionName=4.3.0 --no-daemon
+          APP_VERSION_NAME: "4.4.0"
+        run: ./gradlew assembleRelease -PappVersionName=4.4.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.3.0 (Stable)
+          name: BookReader v4.4.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.3.0 (Tab-Scoped Browsing History, Multi-Chapter Downloader Pro Integration & Blob Downloads) 📚🚀✨
+            ### BookReader v4.4.0 (Viewport-Aware TTS Start, Session Stop & Instant Paragraph Tapping) 🎧📖🛑
+
+            #### 🎧 Viewport-Aware Start/Stop TTS Toggle
+            - **Start from Viewport**: Pressing the top bar TTS button starts reading aloud immediately from the first paragraph visible on the screen (`firstVisibleItemIndex`) instead of jumping to the top of the chapter.
+            - **Stop Session (Stop 🛑, Not Pause)**: Pressing the top bar button a second time while TTS is active immediately stops the reading session completely (dismissing playback, tearing down the background foreground service, and closing the dock).
+            - **Visual State Transition**: The top bar button dynamically transitions between the Headphones icon (`Icons.Default.Headphones`) when stopped, and the Stop icon (`Icons.Default.Stop`) with alert tinting when active.
+
+            #### ⚡ Instant Paragraph Tapping & Stall Resolution
+            - **Zero-Stall Paragraph Tapping**: Fixed the stall issue where tapping a paragraph failed to speak until pause/play was pressed twice. Tapping any paragraph now immediately begins audio playback at that paragraph from both stopped and playing states.
+            - **Error Callback Isolation**: Interrupted synthesis error codes (`-2`) and stale utterance callbacks from previous paragraphs are cleanly filtered out, preventing accidental queue resets or backward paragraph jumps.
+            - **Paragraph Index Alignment**: Preserved 1:1 index mapping between the UI viewport and the audio playback queue across empty and filtered lines.
 
             #### 📑 Tab-Scoped Browsing History
             - **Per-Tab Isolation**: Browsing history dialogs and history screens now display only visits associated with the active tab instead of mixing pages across tabs.
