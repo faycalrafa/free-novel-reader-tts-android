@@ -37,6 +37,8 @@ object AudioPlaybackCoordinator {
 
     private var ttsManager: TtsManager? = null
     private var attachedService: NovelAudioPlaybackService? = null
+    var interruptionCoordinator: TelephonyAudioInterruptionCoordinator? = null
+        internal set
 
     private val _isPlayingState = MutableStateFlow(false)
     val isPlayingState: StateFlow<Boolean> = _isPlayingState.asStateFlow()
@@ -168,21 +170,10 @@ object AudioPlaybackCoordinator {
     val currentSpeechPitch: Float get() = voiceEngine.currentSpeechPitch
     val currentVoiceName: String? get() = voiceEngine.currentVoiceName
 
-    var autoNextChapterEnabled: Boolean
-        get() = navigator.autoNextChapterEnabled
-        set(value) { navigator.autoNextChapterEnabled = value }
-
-    var autoNextOnFinishedPage: Boolean
-        get() = navigator.autoNextOnFinishedPage
-        set(value) { navigator.autoNextOnFinishedPage = value }
-
-    var browserNextChapterCallback: (() -> Unit)?
-        get() = navigator.browserNextChapterCallback
-        set(value) { navigator.browserNextChapterCallback = value }
-
-    var browserPrevChapterCallback: (() -> Unit)?
-        get() = navigator.browserPrevChapterCallback
-        set(value) { navigator.browserPrevChapterCallback = value }
+    var autoNextChapterEnabled: Boolean get() = navigator.autoNextChapterEnabled; set(value) { navigator.autoNextChapterEnabled = value }
+    var autoNextOnFinishedPage: Boolean get() = navigator.autoNextOnFinishedPage; set(value) { navigator.autoNextOnFinishedPage = value }
+    var browserNextChapterCallback: (() -> Unit)? get() = navigator.browserNextChapterCallback; set(value) { navigator.browserNextChapterCallback = value }
+    var browserPrevChapterCallback: (() -> Unit)? get() = navigator.browserPrevChapterCallback; set(value) { navigator.browserPrevChapterCallback = value }
 
     fun initialize(context: Context) {
         if (appContext != null) return
@@ -190,6 +181,14 @@ object AudioPlaybackCoordinator {
         appContext = application
         settingsRepository = SettingsRepository(application)
         libraryRepository = LibraryRepository(application)
+
+        interruptionCoordinator = TelephonyAudioInterruptionCoordinator(
+            context = application,
+            scope = coordinatorScope,
+            isPlayingProvider = { _isPlayingState.value },
+            onPauseRequested = { pause(isInterruption = true) },
+            onResumeRequested = { play() }
+        ).also { it.start() }
 
         val initialEngine = settingsRepository?.getSettings()?.selectedTtsEnginePackage
         AudioCueManager.initialize(application, settingsRepository)
@@ -319,29 +318,19 @@ object AudioPlaybackCoordinator {
         isPreMerged = isPreMerged
     )
 
-    fun updateActiveParagraphs(newParas: List<Paragraph>, isPreMerged: Boolean = false) =
-        navigator.updateActiveParagraphs(newParas, isPreMerged)
-
+    fun updateActiveParagraphs(newParas: List<Paragraph>, isPreMerged: Boolean = false) = navigator.updateActiveParagraphs(newParas, isPreMerged)
     fun saveCurrentReaderProgress() = navigator.saveCurrentReaderProgress()
-
-    fun playAudioFile(file: File, playlist: List<File> = listOf(file), index: Int = 0) =
-        audioFileDelegate.playAudioFile(file, playlist, index)
-
+    fun playAudioFile(file: File, playlist: List<File> = listOf(file), index: Int = 0) = audioFileDelegate.playAudioFile(file, playlist, index)
     fun playAudioFolder(folder: File) = audioFileDelegate.playAudioFolder(folder)
-
     fun onAudioFileCompleted() = audioFileDelegate.onAudioFileCompleted()
-
     fun setSleepTimer(minutes: Int) = sleepTimer.setSleepTimer(minutes)
-
     fun cycleSleepTimer() = sleepTimer.cycleSleepTimer()
-
     fun formatSleepTimerForNotification(): String = sleepTimer.formatSleepTimerForNotification()
-
-    fun restoreLastHearingSession(autoPlay: Boolean = false, callback: (() -> Unit)? = null) =
-        navigator.restoreLastHearingSession(autoPlay, callback)
+    fun restoreLastHearingSession(autoPlay: Boolean = false, callback: (() -> Unit)? = null) = navigator.restoreLastHearingSession(autoPlay, callback)
 
     fun play() {
         if (!_isPlayingState.value) {
+            interruptionCoordinator?.requestAudioFocus()
             _isPlayingState.value = true
             _playbackProgressState.update { it.copy(isPlaying = true) }
             appContext?.let { ensureServiceRunning(it) }
@@ -364,7 +353,10 @@ object AudioPlaybackCoordinator {
         }
     }
 
-    fun pause() {
+    fun pause(isInterruption: Boolean = false) {
+        if (!isInterruption) {
+            interruptionCoordinator?.onUserManuallyPausedOrStopped()
+        }
         speechQueue.stopWatchdog()
         speechQueue.lastEnqueuedParagraphIndex = -1
         ttsManager?.stop()
@@ -385,6 +377,8 @@ object AudioPlaybackCoordinator {
 
     fun stop() {
         pause()
+        interruptionCoordinator?.onUserManuallyPausedOrStopped()
+        interruptionCoordinator?.abandonAudioFocus()
         speechQueue.stopWatchdog()
         speechQueue.lastEnqueuedParagraphIndex = -1
         sleepTimer.cancel(resetRemaining = true)
@@ -398,19 +392,12 @@ object AudioPlaybackCoordinator {
     }
 
     fun seekAudioFile(positionMs: Long) = audioFileDelegate.seekAudioFile(positionMs)
-
     fun nextParagraph() = navigator.nextParagraph()
-
     fun previousParagraph() = navigator.previousParagraph()
-
     fun seekToParagraph(targetPara: Int) = navigator.seekToParagraph(targetPara)
-
     fun nextChapter() = navigator.nextChapter()
-
     fun previousChapter() = navigator.previousChapter()
-
     fun triggerSiteNextChapter() = navigator.triggerSiteNextChapter()
-
     fun triggerSitePrevChapter() = navigator.triggerSitePrevChapter()
 
     fun updateMetadata(

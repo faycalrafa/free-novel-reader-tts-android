@@ -306,6 +306,15 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             } else novels
 
             _uiState.update { it.copy(novels = sortedNovels, archivedNovels = archivedNovels, isLoading = false) }
+
+            if (_uiState.value.currentNovel == null && sortedNovels.isNotEmpty()) {
+                val targetNovel = (if (lastActiveId != null) sortedNovels.firstOrNull { it.id == lastActiveId } else null)
+                    ?: sortedNovels.firstOrNull()
+                if (targetNovel != null) {
+                    AppLogger.i("ReaderViewModel", "Auto-restoring last active novel on access: ${targetNovel.title} (${targetNovel.id})")
+                    selectNovel(targetNovel)
+                }
+            }
         }
     }
 

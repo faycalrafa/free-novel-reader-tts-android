@@ -79,7 +79,7 @@ class UserscriptRepository(private val context: Context) {
             val scriptsDir = UserscriptFileManager.ensureScriptsDirectory(context)
             val targetFile = File(scriptsDir, fileName)
             val parsed = UserscriptMetadataParser.parse(scriptCode.trimIndent(), fallbackName = fallbackName)
-            if (!targetFile.exists() || (fileName == "Multi-Download.user.js" && !targetFile.readText().contains("@version      4.0.0"))) {
+            if (!targetFile.exists() || (fileName == "Multi-Download.user.js" && !targetFile.readText().contains("@version      4.1.0"))) {
                 targetFile.writeText(scriptCode.trimIndent(), Charsets.UTF_8)
             }
 

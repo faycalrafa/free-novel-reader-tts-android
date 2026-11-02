@@ -447,11 +447,14 @@ class NovelAudioPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         AudioPlaybackCoordinator.detachService(this)
+        AudioPlaybackCoordinator.interruptionCoordinator?.abandonAudioFocus()
         if (noisyReceiverRegistered) {
             try {
                 unregisterReceiver(noisyReceiver)
                 noisyReceiverRegistered = false
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                AppLogger.w("NovelAudioPlaybackService", "Error unregistering noisy receiver: ${e.message}", e)
+            }
         }
         instance = null
         releaseWakeLock()

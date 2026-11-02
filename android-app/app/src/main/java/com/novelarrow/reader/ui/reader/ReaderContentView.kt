@@ -56,6 +56,15 @@ fun ReaderContentView(
     var selectedIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val isSelectionMode = selectedIndices.isNotEmpty()
 
+    LaunchedEffect(paragraphs.size) {
+        if (paragraphs.isNotEmpty() && currentIndex in paragraphs.indices && currentIndex > 0) {
+            listState.scrollToItem(
+                index = (currentIndex - 1).coerceAtLeast(0),
+                scrollOffset = 0
+            )
+        }
+    }
+
     LaunchedEffect(currentIndex) {
         if (autoScroll && !isSelectionMode && currentIndex in paragraphs.indices) {
             listState.animateScrollToItem(

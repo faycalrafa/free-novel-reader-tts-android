@@ -109,8 +109,14 @@ class MainActivity : ComponentActivity() {
             val browserViewModel: BrowserViewModel = viewModel()
             val uiState by viewModel.uiState.collectAsState()
             val browserUiState by browserViewModel.uiState.collectAsState()
-            var currentScreen by rememberSaveable { mutableStateOf(AppScreen.READER) }
-            var hasVisitedBrowser by rememberSaveable { mutableStateOf(false) }
+            val context = LocalContext.current
+            val initialScreen = rememberSaveable {
+                val isBrowserLast = BrowserPlaybackSessionManager.getLastPlaybackSource(context) == BrowserPlaybackSessionManager.SOURCE_BROWSER
+                val hasBrowserSession = BrowserPlaybackSessionManager.loadLastSession(context) != null
+                if (isBrowserLast && hasBrowserSession) AppScreen.BROWSER else AppScreen.READER
+            }
+            var currentScreen by rememberSaveable { mutableStateOf(initialScreen) }
+            var hasVisitedBrowser by rememberSaveable { mutableStateOf(initialScreen == AppScreen.BROWSER) }
             LaunchedEffect(currentScreen) {
                 if (currentScreen == AppScreen.BROWSER) {
                     hasVisitedBrowser = true
@@ -123,7 +129,6 @@ class MainActivity : ComponentActivity() {
                 }
                 currentScreen = target
             }
-            val context = LocalContext.current
             val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
             val scope = rememberCoroutineScope()
 
@@ -136,6 +141,11 @@ class MainActivity : ComponentActivity() {
                 QuickToolbarNotificationManager.updateToolbar(context)
                 if (intent?.getBooleanExtra(EXTRA_RESUME_PLAYBACK, false) == true) {
                     AudioPlaybackCoordinator.restoreLastHearingSession(autoPlay = true)
+                } else if (initialScreen == AppScreen.BROWSER) {
+                    val session = BrowserPlaybackSessionManager.loadLastSession(context)
+                    if (session != null && session.url.isNotBlank()) {
+                        browserViewModel.resumeSavedSession(session, autoPlay = false)
+                    }
                 }
             }
 

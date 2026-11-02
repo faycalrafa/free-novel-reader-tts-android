@@ -54,5 +54,14 @@ abstract class AppDatabase : RoomDatabase() {
                 .allowMainThreadQueries()
                 .build()
         }
+
+        fun resetForTesting() {
+            synchronized(this) {
+                try {
+                    instance?.close()
+                } catch (_: Throwable) {}
+                instance = null
+            }
+        }
     }
 }

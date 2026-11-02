@@ -451,7 +451,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun onCustomToolbarButtonClicked(buttonId: String) = userscriptDelegate.onCustomToolbarButtonClicked(buttonId)
     fun updateToolbarButtonOrder(order: List<String>) = userscriptDelegate.updateToolbarButtonOrder(order)
 
-    fun resumeSavedSession(session: BrowserPlaybackSession) {
+    fun resumeSavedSession(session: BrowserPlaybackSession, autoPlay: Boolean = false) {
         viewModelScope.launch {
             val offlineHtml = BrowserPlaybackSessionManager.getOfflineHtml(getApplication<Application>())
             _uiState.update {
@@ -478,9 +478,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 _browserActions.send(BrowserAction.LoadUrl(session.url))
             }
 
-            delay(800)
             savedReadingPositions[session.url] = session.paragraphIndex
-            playbackDelegate.startLiveReadingInternal(forceStartAtBeginning = false, initialIndex = session.paragraphIndex)
+            if (autoPlay) {
+                delay(800)
+                playbackDelegate.startLiveReadingInternal(forceStartAtBeginning = false, initialIndex = session.paragraphIndex)
+            }
         }
     }
 

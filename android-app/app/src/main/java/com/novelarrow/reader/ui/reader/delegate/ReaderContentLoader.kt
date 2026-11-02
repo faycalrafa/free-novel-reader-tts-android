@@ -113,7 +113,8 @@ class ReaderContentLoader(
                 it.copy(
                     chapters = chapters,
                     currentChapter = currentChapter,
-                    isLoading = false
+                    isLoading = false,
+                    isTtsDockVisible = true
                 )
             }
 
@@ -245,7 +246,8 @@ class ReaderContentLoader(
                     paragraphs = paragraphs,
                     currentParagraphIndex = targetIndex,
                     isLoading = false,
-                    activeRuleImpacts = parseResult.ruleImpacts
+                    activeRuleImpacts = parseResult.ruleImpacts,
+                    isTtsDockVisible = true
                 )
             }
 

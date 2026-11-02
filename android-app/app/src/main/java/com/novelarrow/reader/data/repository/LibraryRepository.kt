@@ -68,6 +68,7 @@ class LibraryRepository(private val context: Context) {
 
         fun clearCacheForTesting() {
             LibraryStateManager.clearCache()
+            com.novelarrow.reader.data.db.AppDatabase.resetForTesting()
         }
 
         fun normalizeForMatching(s: String): String = NovelDeduplicator.normalizeForMatching(s)

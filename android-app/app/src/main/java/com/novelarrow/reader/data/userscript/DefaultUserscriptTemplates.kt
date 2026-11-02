@@ -41,7 +41,7 @@ internal object DefaultUserscriptTemplates {
         // ==UserScript==
         // @name         Novel Multi-Chapter Downloader Pro
         // @namespace    http://tampermonkey.net/
-        // @version      4.0.0
+        // @version      4.1.0
         // @description  Compact floating button on the right to auto-download novel chapters (full frozen HTML or clean minimal reader HTML) with auto-next chapter loop
         // @author       You
         // @match        *://*/*
@@ -1111,6 +1111,7 @@ internal object DefaultUserscriptTemplates {
                         <div class="na-dl-modal-header">
                             <h2><i class="fa-solid fa-rotate"></i> Multi-Chapter Downloader</h2>
                             <span class="na-dl-domain-tag">${'$'}{escapeHtml(DOMAIN)}</span>
+                            <button class="na-dl-btn-sm primary" id="na-dl-top-start-btn" style="padding: 5px 12px; font-size: 11px; margin-left: auto; flex-shrink: 0;"><i class="fa-solid fa-play"></i> Start</button>
                             <button class="na-dl-close" id="na-dl-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                         <div class="na-dl-modal-body">
@@ -1211,6 +1212,10 @@ internal object DefaultUserscriptTemplates {
                 };
 
                 modalEl.querySelector('#na-dl-start-btn').addEventListener('click', startAction);
+                const topStartBtn = modalEl.querySelector('#na-dl-top-start-btn');
+                if (topStartBtn) {
+                    topStartBtn.addEventListener('click', startAction);
+                }
 
                 modalEl.querySelectorAll('input').forEach(inp => {
                     inp.addEventListener('keydown', (e) => {

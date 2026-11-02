@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.4.0"
+          DATE_TAG="v4.5.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.4.0"
-        run: ./gradlew assembleRelease -PappVersionName=4.4.0 --no-daemon
+          APP_VERSION_NAME: "4.5.0"
+        run: ./gradlew assembleRelease -PappVersionName=4.5.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.4.0 (Stable)
+          name: BookReader v4.5.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.4.0 (Viewport-Aware TTS Start, Session Stop & Instant Paragraph Tapping) 🎧📖🛑
+            ### BookReader v4.5.0 (Startup Auto-Restore, Phone Call TTS Interruption & Multi-Download Modal Header Action) 🎧📞📖
 
             #### 🎧 Viewport-Aware Start/Stop TTS Toggle
             - **Start from Viewport**: Pressing the top bar TTS button starts reading aloud immediately from the first paragraph visible on the screen (`firstVisibleItemIndex`) instead of jumping to the top of the chapter.
