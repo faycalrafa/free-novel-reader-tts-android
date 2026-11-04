@@ -38,13 +38,43 @@ class BrowserChapterExtractor(
         private const val TAG = "BrowserChapterExtractor"
     }
 
+    @Volatile private var lastSavedNovelTitle: String? = null
+    @Volatile private var lastSavedChapterHash: String? = null
+    @Volatile private var lastSavedChapterNumber: Int = -1
+    @Volatile private var lastSaveTimestampMs: Long = 0L
+
+    private fun computeMd5(input: String): String {
+        return try {
+            val md = java.security.MessageDigest.getInstance("MD5")
+            val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+            digest.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to compute MD5 for downloaded content: ${e.message}", e)
+            input.hashCode().toString()
+        }
+    }
+
     fun saveDownloadedChapterFromScript(
         novelTitle: String,
         chapterTitle: String,
         chapterNumber: Int,
         htmlContent: String
     ) {
-        AppLogger.i(TAG, "Received downloaded chapter from script: $novelTitle Ch. $chapterNumber ($chapterTitle), length: ${htmlContent.length}")
+        val contentHash = computeMd5(htmlContent)
+        val now = System.currentTimeMillis()
+        if (novelTitle.equals(lastSavedNovelTitle, ignoreCase = true) &&
+            contentHash == lastSavedChapterHash &&
+            (chapterNumber == lastSavedChapterNumber || (now - lastSaveTimestampMs) < 15000L)
+        ) {
+            AppLogger.w(TAG, "Skipping duplicate save request for $novelTitle Ch. $chapterNumber (identical content hash: $contentHash already saved ${now - lastSaveTimestampMs}ms ago)")
+            return
+        }
+        lastSavedNovelTitle = novelTitle
+        lastSavedChapterHash = contentHash
+        lastSavedChapterNumber = chapterNumber
+        lastSaveTimestampMs = now
+
+        AppLogger.i(TAG, "Received downloaded chapter from script: $novelTitle Ch. $chapterNumber ($chapterTitle), length: ${htmlContent.length}, hash: $contentHash")
         scope.launch(Dispatchers.IO) {
             try {
                 val savedFile = WebNovelDownloader.saveCleanHtml(

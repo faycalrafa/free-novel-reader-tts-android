@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.6.0"
+          DATE_TAG="v4.6.1"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.6.0"
-        run: ./gradlew assembleRelease -PappVersionName=4.6.0 --no-daemon
+          APP_VERSION_NAME: "4.6.1"
+        run: ./gradlew assembleRelease -PappVersionName=4.6.1 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.6.0 (Stable)
+          name: BookReader v4.6.1 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.6.0 (Browser Redirect Prevention, Multi-Download MD5 Deduplication & Parser Fix) 🛡️⚡📖
+            ### BookReader v4.6.1 (Multi-Download First Chapter Triple-Save & Duplicate Content Fix) 🛡️⚡📖
+
+            #### 🔄 Resolved Multi-Download First Chapter Triple-Save Bug
+            - **Script Idempotency Guard**: Added a global injection lock (`window.__novelMultiDownloaderInjected`) to prevent `Novel Multi-Chapter Downloader Pro` (v4.2.0) from being evaluated and creating multiple concurrent timer instances when WebView triggers multiple `onPageFinished` events for ad iframes.
+            - **Eliminated Background Interval Race Condition**: On starting a download loop, `LAST_URL_KEY` is now immediately seeded to the current window location, and any pending SPA navigation timers (`scheduledRunTimer`, `navWatchdog`) are cleanly canceled. This prevents the background 500ms poller from scheduling a redundant, racing `runSaveSequence()` call.
+            - **Session-Wide Execution Lock**: Introduced `novel_dl_is_saving` session storage lock, ensuring only a single save sequence can execute at any time across asynchronous and timer boundaries, with a guaranteed `finally` cleanup block.
+            - **Native Content Fingerprint Deduplication**: In `BrowserChapterExtractor`, added MD5 content hash checking and consecutive chapter deduplication to catch and reject any duplicate chapter save requests within 15 seconds.
 
             #### 🛡️ Tab-Scoped Prevent Redirects Protection (On by Default)
             - **Prevent Redirects**: Each browser tab now includes a "Prevent Redirects" security setting (enabled by default) that blocks unexpected external navigations, rogue ad redirects, and background popups while preserving user-initiated navigation and active batch chapter downloads.

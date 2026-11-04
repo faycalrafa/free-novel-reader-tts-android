@@ -41,7 +41,7 @@ internal object DefaultUserscriptTemplates {
         // ==UserScript==
         // @name         Novel Multi-Chapter Downloader Pro
         // @namespace    http://tampermonkey.net/
-        // @version      4.1.0
+        // @version      4.2.0
         // @description  Compact floating button on the right to auto-download novel chapters (full frozen HTML or clean minimal reader HTML) with auto-next chapter loop
         // @author       You
         // @match        *://*/*
@@ -59,6 +59,8 @@ internal object DefaultUserscriptTemplates {
             'use strict';
 
             if (window.top !== window.self) return;
+            if (window.__novelMultiDownloaderInjected) return;
+            window.__novelMultiDownloaderInjected = true;
 
             // =============================================================
             // 0. CONSTANTS & DOMAIN-SCOPED SETTINGS
@@ -76,6 +78,7 @@ internal object DefaultUserscriptTemplates {
             const DELAY_MS_KEY = 'novel_dl_delay_ms';
             const RAN_HASHES_KEY = 'novel_dl_ran_hashes';
             const SAME_HASH_RETRIES_KEY = 'novel_dl_same_hash_retries';
+            const SAVING_LOCK_KEY = 'novel_dl_is_saving';
 
             function getRanHashes() {
                 try {
@@ -1491,6 +1494,7 @@ internal object DefaultUserscriptTemplates {
                 sessionStorage.removeItem(DELAY_MS_KEY);
                 sessionStorage.removeItem(RAN_HASHES_KEY);
                 sessionStorage.removeItem(SAME_HASH_RETRIES_KEY);
+                sessionStorage.removeItem(SAVING_LOCK_KEY);
                 if (activeTimer) {
                     clearInterval(activeTimer);
                     activeTimer = null;
@@ -1686,7 +1690,18 @@ internal object DefaultUserscriptTemplates {
                         // Reset ran hashes and retries for new run
                         sessionStorage.removeItem(RAN_HASHES_KEY);
                         sessionStorage.setItem(SAME_HASH_RETRIES_KEY, '0');
+                        sessionStorage.removeItem(SAVING_LOCK_KEY);
 
+                        if (scheduledRunTimer) {
+                            clearTimeout(scheduledRunTimer);
+                            scheduledRunTimer = null;
+                        }
+                        if (navWatchdog) {
+                            clearTimeout(navWatchdog);
+                            navWatchdog = null;
+                        }
+
+                        sessionStorage.setItem(LAST_URL_KEY, window.location.href);
                         sessionStorage.setItem(ACTIVE_KEY, 'true');
                         const countLimit = loopCount > 0 ? loopCount : 999999;
                         sessionStorage.setItem(COUNT_KEY, countLimit);
@@ -1771,7 +1786,7 @@ internal object DefaultUserscriptTemplates {
                 if (navWatchdog) clearTimeout(navWatchdog);
                 navWatchdog = setTimeout(() => {
                     navWatchdog = null;
-                    if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving && !activeTimer) {
+                    if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving && !activeTimer && sessionStorage.getItem(SAVING_LOCK_KEY) !== 'true') {
                         runSaveSequence();
                     }
                 }, delayMs || 4000);
@@ -1779,7 +1794,7 @@ internal object DefaultUserscriptTemplates {
 
             async function runSaveSequence() {
                 if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') return;
-                if (isSaving) return;
+                if (isSaving || sessionStorage.getItem(SAVING_LOCK_KEY) === 'true') return;
 
                 if (navWatchdog) {
                     clearTimeout(navWatchdog);
@@ -1788,6 +1803,10 @@ internal object DefaultUserscriptTemplates {
                 if (activeTimer) {
                     clearInterval(activeTimer);
                     activeTimer = null;
+                }
+                if (scheduledRunTimer) {
+                    clearTimeout(scheduledRunTimer);
+                    scheduledRunTimer = null;
                 }
 
                 // 1. Compute hash of current page content
@@ -1842,12 +1861,12 @@ internal object DefaultUserscriptTemplates {
                 saveRanHashes(ranHashes);
 
                 isSaving = true;
+                sessionStorage.setItem(SAVING_LOCK_KEY, 'true');
                 setButtonState('working');
 
                 try {
                     sessionStorage.setItem(LAST_URL_KEY, window.location.href);
                     await executeSaveHTML();
-                    isSaving = false;
 
                     const curChap = sessionStorage.getItem(CHAP_NUM_KEY);
                     if (curChap) {
@@ -1899,8 +1918,10 @@ internal object DefaultUserscriptTemplates {
                     }, tick);
                 } catch (err) {
                     console.error('Error during auto-save cycle', err);
-                    isSaving = false;
                     stopAutorun('error');
+                } finally {
+                    isSaving = false;
+                    sessionStorage.removeItem(SAVING_LOCK_KEY);
                 }
             }
 
@@ -1916,7 +1937,7 @@ internal object DefaultUserscriptTemplates {
                     if (scheduledRunTimer) clearTimeout(scheduledRunTimer);
                     scheduledRunTimer = setTimeout(() => {
                         scheduledRunTimer = null;
-                        if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving) {
+                        if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving && sessionStorage.getItem(SAVING_LOCK_KEY) !== 'true') {
                             runSaveSequence();
                         }
                     }, 1200);
@@ -1947,7 +1968,7 @@ internal object DefaultUserscriptTemplates {
                     }
                     scheduledRunTimer = setTimeout(() => {
                         scheduledRunTimer = null;
-                        if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving) {
+                        if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving && sessionStorage.getItem(SAVING_LOCK_KEY) !== 'true') {
                             runSaveSequence();
                         }
                     }, 1200);
