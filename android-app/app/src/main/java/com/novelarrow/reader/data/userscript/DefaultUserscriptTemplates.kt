@@ -51,11 +51,14 @@ internal object DefaultUserscriptTemplates {
         // @grant        GM_addStyle
         // @grant        GM_registerToolbarButton
         // @grant        GM_notification
+        // @noframes
         // @run-at       document-idle
         // ==/UserScript==
 
         (function () {
             'use strict';
+
+            if (window.top !== window.self) return;
 
             // =============================================================
             // 0. CONSTANTS & DOMAIN-SCOPED SETTINGS
@@ -90,12 +93,38 @@ internal object DefaultUserscriptTemplates {
 
             function getPageContentForHash() {
                 try {
-                    const clone = (document.body || document.documentElement).cloneNode(true);
-                    const toRemove = clone.querySelectorAll('#na-dl-root, .na-dl-modal-backdrop, #na-floating-next, script, style, noscript');
+                    let container = null;
+                    if (settings.contentSelector) {
+                        try {
+                            container = document.querySelector(settings.contentSelector);
+                        } catch (e) {}
+                    }
+                    if (!container) {
+                        const fallbacks = [
+                            '#chapter-content', '.chapter-content', '#content', '.content-area',
+                            '.reading-content', '.entry-content', '.text-content', '#article', 'article', 'main', '.chapter-body'
+                        ];
+                        for (const sel of fallbacks) {
+                            try {
+                                const el = document.querySelector(sel);
+                                if (el && (el.innerText || el.textContent || '').trim().length > 80) {
+                                    container = el;
+                                    break;
+                                }
+                            } catch (e) {}
+                        }
+                    }
+                    if (!container) container = document.body || document.documentElement;
+
+                    const clone = container.cloneNode(true);
+                    const toRemove = clone.querySelectorAll(
+                        '#na-dl-root, .na-dl-modal-backdrop, #na-floating-next, #na-toast-container, ' +
+                        'script, style, noscript, nav, header, footer, aside, .ads, .ad, [class*="ad-"], ins'
+                    );
                     toRemove.forEach(el => el.remove());
-                    return (clone.innerText || clone.textContent || '').trim();
+                    return (clone.innerText || clone.textContent || '').replace(/\s+/g, ' ').trim();
                 } catch (e) {
-                    return (document.body ? (document.body.innerText || '') : '').trim();
+                    return (document.body ? (document.body.innerText || '') : '').replace(/\s+/g, ' ').trim();
                 }
             }
 
@@ -691,6 +720,101 @@ internal object DefaultUserscriptTemplates {
                     .na-dl-modal { border-radius: 16px 16px 0 0; max-height: 100vh; }
                     .na-dl-modal-backdrop { align-items: flex-end; padding: 0; }
                 }
+
+                /* Toast Notifications */
+                #na-toast-container {
+                    position: fixed;
+                    top: 24px;
+                    right: 24px;
+                    z-index: 2147483647;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    pointer-events: none;
+                    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+                }
+                .na-toast {
+                    pointer-events: auto;
+                    cursor: pointer;
+                    min-width: 220px;
+                    max-width: 380px;
+                    padding: 10px 14px;
+                    border-radius: 12px;
+                    font-size: 13px;
+                    line-height: 1.4;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    color: #f1f5f9;
+                    background: rgba(15, 23, 42, 0.95);
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.2);
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    animation: naToastSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                    transition: opacity 0.25s, transform 0.25s;
+                }
+                .na-toast.hide {
+                    opacity: 0;
+                    transform: translateY(-10px) scale(0.95);
+                }
+                .na-toast-icon {
+                    font-size: 16px;
+                    flex-shrink: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .na-toast.info {
+                    border-color: rgba(59, 130, 246, 0.45);
+                }
+                .na-toast.info .na-toast-icon {
+                    color: #60a5fa;
+                }
+                .na-toast.success {
+                    border-color: rgba(16, 185, 129, 0.45);
+                }
+                .na-toast.success .na-toast-icon {
+                    color: #34d399;
+                }
+                .na-toast.warn, .na-toast.warning {
+                    border-color: rgba(245, 158, 11, 0.55);
+                }
+                .na-toast.warn .na-toast-icon, .na-toast.warning .na-toast-icon {
+                    color: #fbbf24;
+                }
+                .na-toast.error {
+                    border-color: rgba(239, 68, 68, 0.55);
+                }
+                .na-toast.error .na-toast-icon {
+                    color: #f87171;
+                }
+                .na-toast-msg {
+                    flex: 1 1 auto;
+                    font-weight: 500;
+                }
+                @keyframes naToastSlideIn {
+                    from {
+                        opacity: 0;
+                        transform: translateY(-16px) scale(0.92);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                }
+                @media (max-width: 560px) {
+                    #na-toast-container {
+                        top: 14px;
+                        left: 14px;
+                        right: 14px;
+                        align-items: center;
+                    }
+                    .na-toast {
+                        width: 100%;
+                        max-width: 100%;
+                    }
+                }
             `;
 
             if (typeof GM_addStyle === 'function') {
@@ -700,6 +824,62 @@ internal object DefaultUserscriptTemplates {
                     const style = document.createElement('style');
                     style.textContent = scopedCss;
                     document.head.appendChild(style);
+                } catch (e) {}
+            }
+
+            // Toast notification dispatcher (DOM overlay + GM_notification / native bridge)
+            function showToast(message, type, durationMs) {
+                const toastType = type || 'info';
+                const ttl = durationMs || 3500;
+                try {
+                    let container = document.getElementById('na-toast-container');
+                    if (!container) {
+                        container = document.createElement('div');
+                        container.id = 'na-toast-container';
+                        (document.body || document.documentElement).appendChild(container);
+                    }
+
+                    const toast = document.createElement('div');
+                    toast.className = 'na-toast ' + toastType;
+
+                    let iconHtml = '<i class="fa-solid fa-circle-info"></i>';
+                    if (toastType === 'success') {
+                        iconHtml = '<i class="fa-solid fa-circle-check"></i>';
+                    } else if (toastType === 'warn' || toastType === 'warning') {
+                        iconHtml = '<i class="fa-solid fa-triangle-exclamation"></i>';
+                    } else if (toastType === 'error') {
+                        iconHtml = '<i class="fa-solid fa-circle-xmark"></i>';
+                    }
+
+                    toast.innerHTML =
+                        '<span class="na-toast-icon">' + iconHtml + '</span>' +
+                        '<span class="na-toast-msg">' + escapeHtml(message) + '</span>';
+
+                    toast.addEventListener('click', function() {
+                        toast.classList.add('hide');
+                        setTimeout(function() { toast.remove(); }, 250);
+                    });
+
+                    container.appendChild(toast);
+
+                    setTimeout(function() {
+                        if (toast.parentNode) {
+                            toast.classList.add('hide');
+                            setTimeout(function() { toast.remove(); }, 250);
+                        }
+                    }, ttl);
+                } catch (e) {
+                    console.log('[NovelDownloader Toast]', message);
+                }
+
+                try {
+                    if (typeof GM_notification === 'function') {
+                        GM_notification({ text: message, title: 'Novel Downloader', timeout: ttl });
+                    } else if (window.BrowserBridge && typeof window.BrowserBridge.gmNotification === 'function') {
+                        window.BrowserBridge.gmNotification(message);
+                    } else if (window.AndroidBridge && typeof window.AndroidBridge.gmNotification === 'function') {
+                        window.AndroidBridge.gmNotification(message);
+                    }
                 } catch (e) {}
             }
 
@@ -871,6 +1051,32 @@ internal object DefaultUserscriptTemplates {
                     window.location.href = urlObj.href;
                 } else {
                     alert('No digit found in URL to increment.');
+                }
+            }
+
+            function triggerNextNavigation() {
+                const targetElement = getNextChapterElement();
+                const isLocalFile = (location.protocol === 'file:' || /\.html?${'$'}/i.test(location.pathname));
+                if (targetElement) {
+                    const oldUrl = window.location.href;
+                    try {
+                        targetElement.click();
+                    } catch (e) {
+                        console.warn('Click on next chapter failed', e);
+                    }
+                    setTimeout(() => {
+                        if (window.location.href === oldUrl && targetElement.href) {
+                            try {
+                                window.location.href = targetElement.href;
+                            } catch (e) {}
+                        }
+                    }, 1200);
+                    return true;
+                } else if (isLocalFile) {
+                    incrementUrlNext();
+                    return true;
+                } else {
+                    return false;
                 }
             }
 
@@ -1238,6 +1444,8 @@ internal object DefaultUserscriptTemplates {
             // 4. AUTO-DOWNLOAD LOOP & MODAL UI
             // =============================================================
             let activeTimer = null;
+            let navWatchdog = null;
+            let scheduledRunTimer = null;
             let isSaving = false;
             let modalEl = null;
 
@@ -1273,7 +1481,8 @@ internal object DefaultUserscriptTemplates {
                 }
             }
 
-            function stopAutorun() {
+            function stopAutorun(reason) {
+                const wasActive = sessionStorage.getItem(ACTIVE_KEY) === 'true';
                 const lastNovel = sessionStorage.getItem(NOVEL_NAME_KEY) || '';
                 sessionStorage.setItem(ACTIVE_KEY, 'false');
                 sessionStorage.removeItem(NOVEL_NAME_KEY);
@@ -1282,13 +1491,37 @@ internal object DefaultUserscriptTemplates {
                 sessionStorage.removeItem(DELAY_MS_KEY);
                 sessionStorage.removeItem(RAN_HASHES_KEY);
                 sessionStorage.removeItem(SAME_HASH_RETRIES_KEY);
-                if (activeTimer) clearInterval(activeTimer);
-                activeTimer = null;
+                if (activeTimer) {
+                    clearInterval(activeTimer);
+                    activeTimer = null;
+                }
+                if (navWatchdog) {
+                    clearTimeout(navWatchdog);
+                    navWatchdog = null;
+                }
+                if (scheduledRunTimer) {
+                    clearTimeout(scheduledRunTimer);
+                    scheduledRunTimer = null;
+                }
                 isSaving = false;
                 setButtonState('idle');
                 notifyLoopState(false, 0, '');
 
                 triggerFolderSync(lastNovel);
+
+                if (wasActive) {
+                    if (reason === 'completed') {
+                        showToast('✅ Auto-download completed! All chapters saved.', 'success', 5000);
+                    } else if (reason === 'unchanged_retries') {
+                        showToast('🛑 Auto-download stopped: Page content remained unchanged after 3 retries.', 'error', 6000);
+                    } else if (reason === 'no_next_btn') {
+                        showToast('⚠️ Auto-download stopped: Next chapter button not found.', 'warn', 5000);
+                    } else if (reason === 'error') {
+                        showToast('❌ Auto-download stopped due to error.', 'error', 5000);
+                    } else if (reason === 'user') {
+                        showToast('⏹️ Auto-download stopped.', 'info', 3000);
+                    }
+                }
             }
 
             function closeSetupModal() {
@@ -1465,6 +1698,7 @@ internal object DefaultUserscriptTemplates {
                         closeSetupModal();
                         setButtonState('active');
                         notifyLoopState(true, countLimit, 'Starting loop...');
+                        showToast('🚀 Starting auto-download loop (' + (loopCount > 0 ? loopCount + ' chapters' : 'infinite') + ')...', 'info', 3000);
                         runSaveSequence();
                     };
 
@@ -1513,7 +1747,7 @@ internal object DefaultUserscriptTemplates {
             function toggleAutoLoop() {
                 const isActive = sessionStorage.getItem(ACTIVE_KEY) === 'true';
                 if (isActive) {
-                    stopAutorun();
+                    stopAutorun('user');
                     return;
                 }
                 openSetupModal();
@@ -1533,50 +1767,76 @@ internal object DefaultUserscriptTemplates {
                 });
             }
 
+            function scheduleNavWatchdog(delayMs) {
+                if (navWatchdog) clearTimeout(navWatchdog);
+                navWatchdog = setTimeout(() => {
+                    navWatchdog = null;
+                    if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving && !activeTimer) {
+                        runSaveSequence();
+                    }
+                }, delayMs || 4000);
+            }
+
             async function runSaveSequence() {
                 if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') return;
                 if (isSaving) return;
 
+                if (navWatchdog) {
+                    clearTimeout(navWatchdog);
+                    navWatchdog = null;
+                }
+                if (activeTimer) {
+                    clearInterval(activeTimer);
+                    activeTimer = null;
+                }
+
+                // 1. Compute hash of current page content
                 const bodyContent = getPageContentForHash();
                 const currentHash = md5(bodyContent);
                 let ranHashes = getRanHashes();
 
+                // 2. Compare current page hash with hashes from the current run
                 if (ranHashes.includes(currentHash)) {
                     let retries = parseInt(sessionStorage.getItem(SAME_HASH_RETRIES_KEY) || '0', 10);
                     if (retries < 3) {
                         retries++;
                         sessionStorage.setItem(SAME_HASH_RETRIES_KEY, String(retries));
+                        showToast('⏳ Page content unchanged. Pressing Next again and waiting 5s (retry ' + retries + '/3)...', 'warn', 5000);
                         notifyLoopState(true, parseInt(sessionStorage.getItem(COUNT_KEY), 10) || 0, 'Page unchanged. Waiting 5s (retry ' + retries + '/3)...');
+
+                        // Press next again
+                        const navOk = triggerNextNavigation();
+                        if (!navOk) {
+                            stopAutorun('no_next_btn');
+                            return;
+                        }
+
+                        // Wait for 5 seconds with live countdown
+                        let waitRemaining = 5.0;
                         setButtonState('countdown', '5.0');
-                        setTimeout(() => {
-                            if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') return;
-                            const targetElement = getNextChapterElement();
-                            const isLocalFile = (location.protocol === 'file:' || /\.html?${'$'}/i.test(location.pathname));
-                            if (targetElement) {
-                                const oldUrl = window.location.href;
-                                try { targetElement.click(); } catch (e) {}
-                                setTimeout(() => {
-                                    if (window.location.href === oldUrl && targetElement.href) {
-                                        window.location.href = targetElement.href;
-                                    }
-                                }, 1200);
-                            } else if (isLocalFile) {
-                                incrementUrlNext();
+                        activeTimer = setInterval(() => {
+                            if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') {
+                                clearInterval(activeTimer);
+                                activeTimer = null;
+                                return;
                             }
-                            setTimeout(() => {
-                                if (sessionStorage.getItem(ACTIVE_KEY) === 'true') {
-                                    runSaveSequence();
-                                }
-                            }, 3000);
-                        }, 5000);
+                            waitRemaining = Math.max(0, waitRemaining - 0.1);
+                            setButtonState('countdown', waitRemaining.toFixed(1));
+                            if (waitRemaining <= 0) {
+                                clearInterval(activeTimer);
+                                activeTimer = null;
+                                runSaveSequence();
+                            }
+                        }, 100);
                         return;
                     } else {
-                        alert('Failed to load next chapter: page content remained unchanged after 3 retries.');
-                        stopAutorun();
+                        // Stopped because page content remained unchanged after 3 retries
+                        stopAutorun('unchanged_retries');
                         return;
                     }
                 }
 
+                // New page content detected! Reset retries and record hash
                 sessionStorage.setItem(SAME_HASH_RETRIES_KEY, '0');
                 ranHashes.push(currentHash);
                 saveRanHashes(ranHashes);
@@ -1594,43 +1854,53 @@ internal object DefaultUserscriptTemplates {
                         sessionStorage.setItem(CHAP_NUM_KEY, getNextChapterNumber(curChap));
                     }
 
+                    const sessionNovel = sessionStorage.getItem(NOVEL_NAME_KEY);
+                    const detected = detectNovelInfo();
+                    const novelTitle = sessionNovel || detected.novelName || 'Novel';
+                    const savedChapNum = curChap || detected.chapterNum || '1';
+
+                    // Toast info: page downloaded
+                    showToast('📥 Downloaded: ' + novelTitle + ' Chapter ' + savedChapNum, 'success', 3500);
+
                     const currentCount = parseInt(sessionStorage.getItem(COUNT_KEY), 10) || 1;
                     const remaining = currentCount - 1;
                     sessionStorage.setItem(COUNT_KEY, remaining);
                     notifyLoopState(true, remaining, 'Waiting for next chapter...');
 
+                    if (remaining <= 0) {
+                        stopAutorun('completed');
+                        return;
+                    }
+
+                    // Respect configured delay between chapters
                     const delayMs = Math.max(50, parseInt(sessionStorage.getItem(DELAY_MS_KEY) || settings.countdownMs, 10) || 1000);
                     let remainingMs = delayMs;
                     const tick = 100;
+                    if (activeTimer) clearInterval(activeTimer);
                     activeTimer = setInterval(() => {
-                        if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') { clearInterval(activeTimer); return; }
+                        if (sessionStorage.getItem(ACTIVE_KEY) !== 'true') {
+                            clearInterval(activeTimer);
+                            activeTimer = null;
+                            return;
+                        }
                         remainingMs -= tick;
                         setButtonState('countdown', Math.max(0, Math.ceil(remainingMs / 100) / 10).toFixed(1));
                         if (remainingMs <= 0) {
                             clearInterval(activeTimer);
+                            activeTimer = null;
                             setButtonState('working');
-                            const targetElement = getNextChapterElement();
-                            const isLocalFile = (location.protocol === 'file:' || /\.html?${'$'}/i.test(location.pathname));
-                            if (targetElement) {
-                                const oldUrl = window.location.href;
-                                try { targetElement.click(); } catch(e) {}
-                                setTimeout(() => {
-                                    if (window.location.href === oldUrl && targetElement.href) {
-                                        window.location.href = targetElement.href;
-                                    }
-                                }, 1200);
-                            } else if (isLocalFile) {
-                                incrementUrlNext();
+                            const navOk = triggerNextNavigation();
+                            if (!navOk) {
+                                stopAutorun('no_next_btn');
                             } else {
-                                alert('Next chapter button not found!');
+                                scheduleNavWatchdog(4000);
                             }
-                            if (remaining <= 0 || (!targetElement && !isLocalFile)) stopAutorun();
                         }
                     }, tick);
                 } catch (err) {
-                    console.error(err);
-                    alert('Error during auto-save cycle');
-                    stopAutorun();
+                    console.error('Error during auto-save cycle', err);
+                    isSaving = false;
+                    stopAutorun('error');
                 }
             }
 
@@ -1639,17 +1909,48 @@ internal object DefaultUserscriptTemplates {
             // =============================================================
             if (sessionStorage.getItem(ACTIVE_KEY) === 'true') {
                 setButtonState('active');
+                const lastUrl = sessionStorage.getItem(LAST_URL_KEY);
+                const currentUrl = window.location.href;
+                if (!lastUrl || lastUrl !== currentUrl) {
+                    sessionStorage.setItem(LAST_URL_KEY, currentUrl);
+                    if (scheduledRunTimer) clearTimeout(scheduledRunTimer);
+                    scheduledRunTimer = setTimeout(() => {
+                        scheduledRunTimer = null;
+                        if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving) {
+                            runSaveSequence();
+                        }
+                    }, 1200);
+                }
             }
 
             setInterval(() => {
                 const isActive = sessionStorage.getItem(ACTIVE_KEY) === 'true';
                 if (!isActive) return;
-                if (!loopBtn.classList.contains('active')) setButtonState('active');
+                if (!loopBtn.classList.contains('active') && !loopBtn.classList.contains('working')) {
+                    setButtonState('active');
+                }
                 const lastUrl = sessionStorage.getItem(LAST_URL_KEY);
                 const currentUrl = window.location.href;
                 if (lastUrl !== currentUrl) {
                     sessionStorage.setItem(LAST_URL_KEY, currentUrl);
-                    setTimeout(runSaveSequence, 2000);
+                    if (navWatchdog) {
+                        clearTimeout(navWatchdog);
+                        navWatchdog = null;
+                    }
+                    if (activeTimer) {
+                        clearInterval(activeTimer);
+                        activeTimer = null;
+                    }
+                    if (scheduledRunTimer) {
+                        clearTimeout(scheduledRunTimer);
+                        scheduledRunTimer = null;
+                    }
+                    scheduledRunTimer = setTimeout(() => {
+                        scheduledRunTimer = null;
+                        if (sessionStorage.getItem(ACTIVE_KEY) === 'true' && !isSaving) {
+                            runSaveSequence();
+                        }
+                    }, 1200);
                 }
             }, 500);
 
