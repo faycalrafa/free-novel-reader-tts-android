@@ -35,15 +35,15 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          DATE_TAG="v4.5.0"
+          DATE_TAG="v4.6.0"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_OUTPUT
 
       - name: Build Release APK
         working-directory: android-app
         env:
-          APP_VERSION_NAME: "4.5.0"
-        run: ./gradlew assembleRelease -PappVersionName=4.5.0 --no-daemon
+          APP_VERSION_NAME: "4.6.0"
+        run: ./gradlew assembleRelease -PappVersionName=4.6.0 --no-daemon
 
       - name: Prepare APK Assets
         run: |
@@ -53,10 +53,31 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: BookReader v4.5.0 (Stable)
+          name: BookReader v4.6.0 (Stable)
           prerelease: false
           body: |
-            ### BookReader v4.5.0 (Startup Auto-Restore, Phone Call TTS Interruption & Multi-Download Modal Header Action) 🎧📞📖
+            ### BookReader v4.6.0 (Browser Redirect Prevention, Multi-Download MD5 Deduplication & Parser Fix) 🛡️⚡📖
+
+            #### 🛡️ Tab-Scoped Prevent Redirects Protection (On by Default)
+            - **Prevent Redirects**: Each browser tab now includes a "Prevent Redirects" security setting (enabled by default) that blocks unexpected external navigations, rogue ad redirects, and background popups while preserving user-initiated navigation and active batch chapter downloads.
+            - **Per-Tab & Global Toggle**: Control redirect protection individually per tab from the top overflow menu or configure the global default in Browser Settings.
+
+            #### 🔄 Multi-Download MD5 Body Hashing & Retry Mechanism
+            - **MD5 Content Hashing**: The batch multi-downloader now calculates an MD5 hash of the clean novel page body text for every downloaded chapter and tracks all hashes in a session array.
+            - **Stall & Duplicate Detection**: If the downloader encounters the exact same page hash on navigation, it adds 5 seconds of delay and re-attempts next-page loading up to 3 times.
+            - **Graceful Termination**: If the page content remains unchanged after 3 retries, the loop stops gracefully and alerts the user ("Failed to load next chapter: page content remained unchanged after 3 retries").
+
+            #### 📑 Per-Tab Download Choice Memory & Auto-Increment
+            - **Tab State Memory**: When opening the multi-download setup modal, the tab's previously chosen novel title and starting chapter are remembered and automatically prefilled.
+            - **Continuous Auto-Increment**: As chapters are downloaded, the tab's starting point automatically advances to the last saved chapter + 1, enabling effortless continuation without losing place.
+
+            #### ⚠️ Duplicate Chapter Warning Dialog
+            - **Library Pre-Check**: Before starting a batch download loop, the script synchronously checks whether the starting chapter already exists in your library.
+            - **In-Modal Confirmation**: If a duplicate is detected, an in-modal warning prompt appears giving you the option to "Download Anyways" or "Cancel" to adjust chapter numbers.
+
+            #### 🛠️ Chapter Parser Nested Container Repetition Fix
+            - **Zero Paragraph Repetition**: Resolved a bug where chapters downloaded with nested wrapper elements (e.g. `.reader-container > .reader-content > div`) emitted whole chapters 3 to 5 times in the reader.
+            - **Strict Leaf Block Extraction**: Nested container elements are now properly identified and bypassed, extracting only true leaf text paragraphs without duplication.
 
             #### 🎧 Viewport-Aware Start/Stop TTS Toggle
             - **Start from Viewport**: Pressing the top bar TTS button starts reading aloud immediately from the first paragraph visible on the screen (`firstVisibleItemIndex`) instead of jumping to the top of the chapter.

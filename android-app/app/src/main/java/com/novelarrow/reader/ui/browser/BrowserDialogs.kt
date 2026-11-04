@@ -133,6 +133,7 @@ fun BrowserDialogs(
             onToggleTtsAutoStart = { viewModel.toggleTtsAutoStart(it) },
             onToggleAutoClickOnScroll = { viewModel.toggleAutoClickOnScroll(it) },
             onToggleAutoNextOnFinishedPage = { viewModel.toggleAutoNextOnFinishedPage(it) },
+            onToggleDefaultPreventRedirects = { viewModel.toggleDefaultPreventRedirects(it) },
             onUpdateLoopCount = { viewModel.updateLoopCount(it) },
             onUpdateDelay = { viewModel.updateCountdownDelayMs(it) },
             onNavigateToContentSelector = onNavigateToContentSelector,

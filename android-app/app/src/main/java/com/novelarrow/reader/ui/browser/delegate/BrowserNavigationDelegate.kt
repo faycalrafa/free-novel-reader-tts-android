@@ -8,6 +8,7 @@ import com.novelarrow.reader.data.repository.SettingsRepository
 import com.novelarrow.reader.playback.AudioPlaybackCoordinator
 import com.novelarrow.reader.ui.browser.BrowserAction
 import com.novelarrow.reader.ui.browser.BrowserUiState
+import com.novelarrow.reader.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +33,7 @@ class BrowserNavigationDelegate(
 ) {
     companion object {
         const val DEFAULT_URL = "https://www.google.com"
+        private const val TAG = "BrowserNavigationDelegate"
     }
 
     fun saveTabsState() {
@@ -42,7 +44,12 @@ class BrowserNavigationDelegate(
     }
 
     fun openNewTab(url: String = DEFAULT_URL) {
-        val newTab = BrowserTab(url = url, title = if (url.contains("google")) "Google" else "New Tab")
+        val defaultPrevent = uiState.value.settings.defaultPreventRedirects
+        val newTab = BrowserTab(
+            url = url,
+            title = if (url.contains("google")) "Google" else "New Tab",
+            preventRedirects = defaultPrevent
+        )
         val updatedTabs = uiState.value.tabs + newTab
         uiState.update {
             it.copy(
@@ -76,7 +83,8 @@ class BrowserNavigationDelegate(
     fun closeTab(tabId: String) {
         val currentTabs = uiState.value.tabs
         if (currentTabs.size <= 1) {
-            val resetTab = BrowserTab(url = DEFAULT_URL, title = "Google")
+            val defaultPrevent = uiState.value.settings.defaultPreventRedirects
+            val resetTab = BrowserTab(url = DEFAULT_URL, title = "Google", preventRedirects = defaultPrevent)
             uiState.update {
                 it.copy(
                     tabs = listOf(resetTab),
@@ -295,5 +303,49 @@ class BrowserNavigationDelegate(
         }
         injectFileUserscripts(url, "document-end")
         injectFileUserscripts(url, "document-idle")
+    }
+
+    fun togglePreventRedirectsForCurrentTab() {
+        val currentTabId = uiState.value.currentTabId
+        var newState = false
+        val updatedTabs = uiState.value.tabs.map { tab ->
+            if (tab.id == currentTabId) {
+                newState = !tab.preventRedirects
+                tab.copy(preventRedirects = newState)
+            } else tab
+        }
+        uiState.update {
+            it.copy(
+                tabs = updatedTabs,
+                toastMessage = if (newState) "Prevent Redirects: ON for this tab" else "Prevent Redirects: OFF for this tab"
+            )
+        }
+        AppLogger.i(TAG, "Toggled preventRedirects for tab $currentTabId to $newState")
+        saveTabsState()
+    }
+
+    fun updateCurrentTabDownloadChoice(title: String, startChapter: String) {
+        val currentTabId = uiState.value.currentTabId
+        val updatedTabs = uiState.value.tabs.map { tab ->
+            if (tab.id == currentTabId) {
+                tab.copy(lastDownloadTitle = title, lastDownloadChapter = startChapter)
+            } else tab
+        }
+        uiState.update { it.copy(tabs = updatedTabs) }
+        AppLogger.d(TAG, "Saved download choice for tab $currentTabId: title='$title', chapter='$startChapter'")
+        saveTabsState()
+    }
+
+    fun incrementCurrentTabDownloadChapter(novelTitle: String, completedChapter: Int) {
+        val currentTabId = uiState.value.currentTabId
+        val nextChapterStr = (completedChapter + 1).toString()
+        val updatedTabs = uiState.value.tabs.map { tab ->
+            if (tab.id == currentTabId) {
+                tab.copy(lastDownloadTitle = novelTitle, lastDownloadChapter = nextChapterStr)
+            } else tab
+        }
+        uiState.update { it.copy(tabs = updatedTabs) }
+        AppLogger.d(TAG, "Advanced download starting point for tab $currentTabId to $nextChapterStr for '$novelTitle'")
+        saveTabsState()
     }
 }

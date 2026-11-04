@@ -160,7 +160,9 @@ fun BrowserScreen(
                 onCustomButtonClicked = { viewModel.onCustomToolbarButtonClicked(it) },
                 onReorderButtonsClicked = { onNavigateToReorderButtons?.invoke() },
                 onHistoryClicked = { onNavigateToHistory?.invoke() ?: viewModel.openHistoryDialog() },
-                onDownloadsClicked = { onNavigateToDownloads?.invoke() }
+                onDownloadsClicked = { onNavigateToDownloads?.invoke() },
+                preventRedirects = viewModel.getCurrentTabPreventRedirects(),
+                onTogglePreventRedirects = { viewModel.togglePreventRedirectsForCurrentTab() }
             )
 
             // Linear Progress Indicator

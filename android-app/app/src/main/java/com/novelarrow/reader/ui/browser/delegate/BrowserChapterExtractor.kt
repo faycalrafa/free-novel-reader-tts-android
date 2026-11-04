@@ -31,7 +31,8 @@ class BrowserChapterExtractor(
     private val getLastExtractedSample: () -> String,
     private val setLastExtractedSample: (String) -> Unit,
     private val setPreExtractedNextChapterUrl: ((String?) -> Unit)? = null,
-    private val downloadHistoryRepository: com.novelarrow.reader.data.repository.DownloadHistoryRepository = com.novelarrow.reader.data.repository.DownloadHistoryRepository(application)
+    private val downloadHistoryRepository: com.novelarrow.reader.data.repository.DownloadHistoryRepository = com.novelarrow.reader.data.repository.DownloadHistoryRepository(application),
+    private val onChapterSavedCallback: ((String, Int) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "BrowserChapterExtractor"
@@ -74,6 +75,7 @@ class BrowserChapterExtractor(
                         mimeType = "text/html"
                     )
                 )
+                onChapterSavedCallback?.invoke(novelTitle, chapterNumber)
                 withContext(Dispatchers.Main) {
                     uiState.update {
                         it.copy(

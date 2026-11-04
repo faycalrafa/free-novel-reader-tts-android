@@ -89,7 +89,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         onClearLiveHighlight = { playbackDelegate.clearWebHighlight() },
         preExtractedNextChapterUrlProvider = { preExtractedNextChapterUrl },
         setPreExtractedNextChapterUrl = { preExtractedNextChapterUrl = it },
-        clearPreExtractedNextChapterUrl = { preExtractedNextChapterUrl = null }
+        clearPreExtractedNextChapterUrl = { preExtractedNextChapterUrl = null },
+        onChapterSaved = { title, chNum -> navigationDelegate.incrementCurrentTabDownloadChapter(title, chNum) }
     )
 
     private val playbackDelegate: BrowserReadingPlaybackDelegate = BrowserReadingPlaybackDelegate(
@@ -330,6 +331,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun onPageStarted(url: String, canGoBack: Boolean = false, canGoForward: Boolean = false) = navigationDelegate.onPageStarted(url, canGoBack, canGoForward)
     fun onPageProgress(progress: Int) = navigationDelegate.onPageProgress(progress)
     fun onPageFinished(url: String, title: String?, canGoBack: Boolean = false, canGoForward: Boolean = false) = navigationDelegate.onPageFinished(url, title, canGoBack, canGoForward)
+    fun getCurrentTabPreventRedirects(): Boolean = _uiState.value.tabs.firstOrNull { it.id == _uiState.value.currentTabId }?.preventRedirects != false
+    fun togglePreventRedirectsForCurrentTab() = navigationDelegate.togglePreventRedirectsForCurrentTab()
+    fun getCurrentTabDownloadInfoJson(): String {
+        val tab = _uiState.value.tabs.firstOrNull { it.id == _uiState.value.currentTabId }
+        val title = tab?.lastDownloadTitle.orEmpty()
+        val chapter = tab?.lastDownloadChapter.orEmpty()
+        return "{\"title\":\"${title.replace("\"", "\\\"")}\",\"chapter\":\"${chapter.replace("\"", "\\\"")}\"}"
+    }
+    fun saveCurrentTabDownloadChoice(title: String, chap: String) = navigationDelegate.updateCurrentTabDownloadChoice(title, chap)
+    fun showToast(msg: String) { _uiState.update { it.copy(toastMessage = msg) } }
 
     // Download facade
     fun clickNextChapter() = downloadDelegate.clickNextChapter()
@@ -345,18 +356,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun toggleAutoLoop() = onLoopButtonClicked()
     fun startDownloadLoop() = downloadDelegate.startDownloadLoop()
     fun stopDownloadLoop() = downloadDelegate.stopDownloadLoop()
-    fun stopAutoLoop() = stopDownloadLoop()
     fun extractAndSaveChapter(isBatch: Boolean) = downloadDelegate.extractAndSaveChapter(isBatch)
     fun saveSingleChapter() = downloadDelegate.saveSingleChapter()
-    fun saveFrozenHtml() = saveSingleChapter()
     val downloadHistoryFlow = downloadDelegate.downloadHistoryRepository.downloadHistoryFlow
-    fun handleGenericFileDownload(url: String, userAgent: String, contentDisposition: String, mimetype: String, contentLength: Long) =
-        downloadDelegate.handleGenericFileDownload(url, userAgent, contentDisposition, mimetype, contentLength)
-    fun handleBase64Download(dataUri: String, fileName: String, mimeType: String) =
-        downloadDelegate.handleBase64Download(dataUri, fileName, mimeType)
+    fun handleGenericFileDownload(url: String, userAgent: String, contentDisposition: String, mimetype: String, contentLength: Long) = downloadDelegate.handleGenericFileDownload(url, userAgent, contentDisposition, mimetype, contentLength)
+    fun handleBase64Download(dataUri: String, fileName: String, mimeType: String) = downloadDelegate.handleBase64Download(dataUri, fileName, mimeType)
     fun syncFolder(novelTitle: String?) = downloadDelegate.syncFolder(novelTitle)
-    fun onAutoLoopStateChanged(active: Boolean, remainingCount: Int, status: String) =
-        downloadDelegate.onAutoLoopStateChanged(active, remainingCount, status)
+    fun onAutoLoopStateChanged(active: Boolean, remainingCount: Int, status: String) = downloadDelegate.onAutoLoopStateChanged(active, remainingCount, status)
     fun deleteDownloadEntry(id: String) { viewModelScope.launch { downloadDelegate.downloadHistoryRepository.deleteEntry(id) } }
     fun clearDownloadHistory() { viewModelScope.launch { downloadDelegate.downloadHistoryRepository.clearHistory() } }
 
@@ -396,6 +402,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun toggleTtsAutoStart(enabled: Boolean) = settingsDelegate.toggleTtsAutoStart(enabled)
     fun toggleTtsAutoScroll(enabled: Boolean) = settingsDelegate.toggleTtsAutoScroll(enabled)
     fun toggleTtsSynthByParagraph(enabled: Boolean) = settingsDelegate.toggleTtsSynthByParagraph(enabled)
+    fun toggleDefaultPreventRedirects(enabled: Boolean) = settingsDelegate.toggleDefaultPreventRedirects(enabled)
     fun updateVoice(voiceName: String?) = settingsDelegate.updateVoice(voiceName)
     fun updateRate(rate: Float) = settingsDelegate.updateRate(rate)
     fun updatePitch(pitch: Float) = settingsDelegate.updatePitch(pitch)
@@ -464,15 +471,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             }
             if (!offlineHtml.isNullOrBlank()) {
                 AppLogger.i(TAG, "Resuming browser session from offline memory: ${session.chapterTitle} at paragraph ${session.paragraphIndex}")
-                _browserActions.send(
-                    BrowserAction.LoadDataWithBaseUrl(
-                        baseUrl = session.url,
-                        data = offlineHtml,
-                        mimeType = "text/html",
-                        encoding = "UTF-8",
-                        historyUrl = session.url
-                    )
-                )
+                _browserActions.send(BrowserAction.LoadDataWithBaseUrl(session.url, offlineHtml, historyUrl = session.url))
             } else {
                 AppLogger.i(TAG, "Resuming browser session from URL: ${session.url} at paragraph ${session.paragraphIndex}")
                 _browserActions.send(BrowserAction.LoadUrl(session.url))

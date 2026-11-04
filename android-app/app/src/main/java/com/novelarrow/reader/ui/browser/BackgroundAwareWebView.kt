@@ -3,10 +3,12 @@ package com.novelarrow.reader.ui.browser
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Message
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -88,6 +90,12 @@ fun createConfiguredWebView(
             },
             onAutoLoopStateChangedCallback = { active, remaining, status ->
                 viewModel.onAutoLoopStateChanged(active, remaining, status)
+            },
+            onGetTabDownloadInfoCallback = {
+                viewModel.getCurrentTabDownloadInfoJson()
+            },
+            onSaveTabDownloadInfoCallback = { title, chap ->
+                viewModel.saveCurrentTabDownloadChoice(title, chap)
             }
         )
         addJavascriptInterface(bridge, BrowserBridge.INTERFACE_NAME)
@@ -98,6 +106,40 @@ fun createConfiguredWebView(
         }
 
         webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                if (request == null || view == null) return false
+                val targetUri = request.url ?: return false
+                val targetUrl = targetUri.toString()
+                val currentUrl = view.url.orEmpty()
+
+                val preventRedirects = viewModel.getCurrentTabPreventRedirects()
+                if (preventRedirects) {
+                    val isBatchActive = viewModel.uiState.value.isDownloading || viewModel.uiState.value.isAutoLoopActive
+                    if (!isBatchActive) {
+                        val currentHost = try { Uri.parse(currentUrl).host?.lowercase() } catch (e: Exception) { null }
+                        val targetHost = try { targetUri.host?.lowercase() } catch (e: Exception) { null }
+
+                        val isExternalHost = currentHost != null && targetHost != null &&
+                                targetHost != currentHost &&
+                                !targetHost.endsWith(".$currentHost") &&
+                                !currentHost.endsWith(".$targetHost")
+
+                        if (request.isRedirect && isExternalHost) {
+                            AppLogger.i(TAG, "Prevented server redirect from $currentHost to $targetHost ($targetUrl)")
+                            viewModel.showToast("Redirect prevented: $targetHost")
+                            return true
+                        }
+
+                        if (!request.hasGesture() && isExternalHost) {
+                            AppLogger.i(TAG, "Prevented script redirect without gesture from $currentHost to $targetHost ($targetUrl)")
+                            viewModel.showToast("Redirect prevented: $targetHost")
+                            return true
+                        }
+                    }
+                }
+                return super.shouldOverrideUrlLoading(view, request)
+            }
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
                 url?.let { viewModel.onPageStarted(it) }
@@ -133,6 +175,10 @@ fun createConfiguredWebView(
                 isUserGesture: Boolean,
                 resultMsg: Message?
             ): Boolean {
+                if (viewModel.getCurrentTabPreventRedirects() && !isUserGesture) {
+                    AppLogger.i(TAG, "Blocked popup window creation without user gesture")
+                    return false
+                }
                 if (resultMsg != null) {
                     val transport = resultMsg.obj as? WebView.WebViewTransport
                     if (transport != null) {

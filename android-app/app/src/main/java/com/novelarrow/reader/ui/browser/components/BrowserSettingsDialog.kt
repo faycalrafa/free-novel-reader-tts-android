@@ -50,6 +50,7 @@ fun BrowserSettingsDialog(
     onToggleTtsAutoStart: (Boolean) -> Unit,
     onToggleAutoClickOnScroll: (Boolean) -> Unit,
     onToggleAutoNextOnFinishedPage: (Boolean) -> Unit = {},
+    onToggleDefaultPreventRedirects: (Boolean) -> Unit = {},
     onUpdateLoopCount: (Int) -> Unit,
     onUpdateDelay: (Long) -> Unit,
     onNavigateToContentSelector: (() -> Unit)? = null,
@@ -266,6 +267,29 @@ fun BrowserSettingsDialog(
                     Switch(
                         checked = settings.autoNextOnFinishedPage,
                         onCheckedChange = onToggleAutoNextOnFinishedPage
+                    )
+                }
+
+                // Prevent redirects by default
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Prevent redirects by default",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                        Text(
+                            text = "Block unexpected redirects and popups on newly opened tabs",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Switch(
+                        checked = settings.defaultPreventRedirects,
+                        onCheckedChange = onToggleDefaultPreventRedirects
                     )
                 }
 

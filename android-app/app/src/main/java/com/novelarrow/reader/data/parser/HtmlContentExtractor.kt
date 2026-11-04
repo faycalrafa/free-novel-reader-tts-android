@@ -69,15 +69,15 @@ internal object HtmlContentExtractor {
         // 1c. Fallback to well-known novel container candidates if no explicit rule matched
         if (selectedElement == null) {
             val defaultCandidates = listOf(
-                "#chapter-content", "#content", ".chapter-content", ".entry-content",
+                ".reader-content", "#chapter-content", "#content", ".chapter-content", ".entry-content",
                 ".post-content", ".read-content", ".reading-content", ".chapter-c",
                 ".text-left", "article", ".content", "#chapter_content", ".novel-content",
-                "main", ".chapter-container", "#read-area"
+                "main", ".chapter-container", ".reader-container", "#read-area"
             )
             for (candidate in defaultCandidates) {
                 try {
                     val cand = doc.selectFirst(candidate)
-                    if (cand != null && cand.select("p").size >= 2) {
+                    if (cand != null && (cand.select("p").size >= 2 || cand.select("div").size >= 2)) {
                         selectedElement = cand
                         matchedRuleId = "candidate_$candidate"
                         matchedSelectorName = candidate
@@ -147,9 +147,9 @@ internal object HtmlContentExtractor {
         val pairs = mutableListOf<Pair<String, Boolean>>()
 
         for (el in elements) {
-            // Skip container divs that contain nested block children
-            if (el.tagName() in listOf("div", "blockquote", "li") &&
-                el.select("p, h1, h2, h3, h4, h5, h6, li, blockquote").isNotEmpty()
+            // Skip container elements that contain nested block children
+            if (el.tagName() in listOf("div", "blockquote", "li", "article", "section") &&
+                el.select("p, div, h1, h2, h3, h4, h5, h6, li, blockquote, article, section").any { it != el }
             ) {
                 continue
             }

@@ -20,7 +20,9 @@ class BrowserBridge(
     private val onSaveDownloadedChapterCallback: (novelTitle: String, chapterTitle: String, chapterNumber: Int, htmlContent: String) -> Unit = { _, _, _, _ -> },
     private val onSyncFolderCallback: (String?) -> Unit = {},
     private val onBase64DownloadCallback: (dataUri: String, fileName: String, mimeType: String) -> Unit = { _, _, _ -> },
-    private val onAutoLoopStateChangedCallback: (active: Boolean, remaining: Int, status: String) -> Unit = { _, _, _ -> }
+    private val onAutoLoopStateChangedCallback: (active: Boolean, remaining: Int, status: String) -> Unit = { _, _, _ -> },
+    private val onGetTabDownloadInfoCallback: () -> String = { "{}" },
+    private val onSaveTabDownloadInfoCallback: (title: String, chapter: String) -> Unit = { _, _ -> }
 ) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -100,6 +102,40 @@ class BrowserBridge(
     fun onAutoLoopStateChanged(active: Boolean, remaining: Int, status: String) {
         mainHandler.post {
             onAutoLoopStateChangedCallback.invoke(active, remaining, status)
+        }
+    }
+
+    @JavascriptInterface
+    fun checkChapterExists(novelTitle: String, chapterNumber: Int): Boolean {
+        val ctx = context ?: return false
+        return try {
+            val exists = com.novelarrow.reader.data.browser.WebNovelDownloader.chapterAlreadyExists(ctx, novelTitle, chapterNumber)
+            com.novelarrow.reader.util.AppLogger.d("BrowserBridge", "checkChapterExists: '$novelTitle' Ch.$chapterNumber -> exists=$exists")
+            exists
+        } catch (e: Exception) {
+            com.novelarrow.reader.util.AppLogger.w("BrowserBridge", "Error checking chapter existence: ${e.message}", e)
+            false
+        }
+    }
+
+    @JavascriptInterface
+    fun getTabDownloadInfo(): String {
+        return try {
+            onGetTabDownloadInfoCallback.invoke()
+        } catch (e: Exception) {
+            com.novelarrow.reader.util.AppLogger.w("BrowserBridge", "Error getting tab download info: ${e.message}", e)
+            "{}"
+        }
+    }
+
+    @JavascriptInterface
+    fun saveTabDownloadInfo(novelTitle: String, chapterNumber: String) {
+        mainHandler.post {
+            try {
+                onSaveTabDownloadInfoCallback.invoke(novelTitle, chapterNumber)
+            } catch (e: Exception) {
+                com.novelarrow.reader.util.AppLogger.w("BrowserBridge", "Error saving tab download info: ${e.message}", e)
+            }
         }
     }
 

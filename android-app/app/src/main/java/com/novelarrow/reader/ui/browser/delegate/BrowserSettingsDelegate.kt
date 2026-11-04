@@ -129,6 +129,12 @@ class BrowserSettingsDelegate(
         }
     }
 
+    fun toggleDefaultPreventRedirects(enabled: Boolean) {
+        scope.launch {
+            settingsRepository.updateBrowserSettings { it.copy(defaultPreventRedirects = enabled) }
+        }
+    }
+
     fun updateVoice(voiceName: String?) {
         AudioPlaybackCoordinator.updateVoice(voiceName)
     }

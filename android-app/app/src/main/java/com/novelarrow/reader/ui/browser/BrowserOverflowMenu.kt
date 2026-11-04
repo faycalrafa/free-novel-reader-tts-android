@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.FindInPage
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DropdownMenu
@@ -31,6 +32,8 @@ fun BrowserOverflowMenu(
     onReorderButtonsClicked: () -> Unit,
     onHistoryClicked: () -> Unit,
     onDownloadsClicked: () -> Unit = {},
+    preventRedirects: Boolean = true,
+    onTogglePreventRedirects: () -> Unit = {},
     onInspectClickables: () -> Unit,
     onManageShortcuts: () -> Unit,
     onRawCodeClicked: () -> Unit,
@@ -114,6 +117,22 @@ fun BrowserOverflowMenu(
             onClick = {
                 onDismissRequest()
                 onDownloadsClicked()
+            }
+        )
+
+        DropdownMenuItem(
+            text = { Text(if (preventRedirects) "Prevent Redirects: ON" else "Prevent Redirects: OFF") },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.Security,
+                    contentDescription = null,
+                    tint = if (preventRedirects) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            onClick = {
+                onDismissRequest()
+                onTogglePreventRedirects()
             }
         )
 

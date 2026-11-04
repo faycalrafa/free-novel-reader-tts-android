@@ -32,7 +32,8 @@ class BrowserDownloadDelegate(
     private val preExtractedNextChapterUrlProvider: () -> String?,
     private val setPreExtractedNextChapterUrl: (String?) -> Unit,
     private val clearPreExtractedNextChapterUrl: () -> Unit,
-    val downloadHistoryRepository: com.novelarrow.reader.data.repository.DownloadHistoryRepository = com.novelarrow.reader.data.repository.DownloadHistoryRepository(application)
+    val downloadHistoryRepository: com.novelarrow.reader.data.repository.DownloadHistoryRepository = com.novelarrow.reader.data.repository.DownloadHistoryRepository(application),
+    private val onChapterSaved: ((String, Int) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "BrowserDownloadDelegate"
@@ -40,11 +41,9 @@ class BrowserDownloadDelegate(
 
     private var downloadCountdownJob: Job? = null
     private var domVerificationJob: Job? = null
-
     private var lastBatchDownloadedUrl: String = ""
     private var lastBatchDownloadedChapterNum: Int = -1
     private var duplicatePageRetryCount: Int = 0
-
     private var lastExtractedHeading: String = ""
     private var lastExtractedSample: String = ""
     var isNavigatingNextChapter: Boolean = false
@@ -64,7 +63,8 @@ class BrowserDownloadDelegate(
         setLastExtractedHeading = { lastExtractedHeading = it },
         getLastExtractedSample = { lastExtractedSample },
         setLastExtractedSample = { lastExtractedSample = it },
-        setPreExtractedNextChapterUrl = setPreExtractedNextChapterUrl
+        setPreExtractedNextChapterUrl = setPreExtractedNextChapterUrl,
+        onChapterSavedCallback = { title, chNum -> onChapterSaved?.invoke(title, chNum) }
     )
 
     fun clickNextChapter() {

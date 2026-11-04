@@ -294,7 +294,10 @@ data class BrowserHistoryEntry(
 data class BrowserTab(
     val id: String = java.util.UUID.randomUUID().toString(),
     val url: String = "https://www.google.com",
-    val title: String = "Google"
+    val title: String = "Google",
+    val preventRedirects: Boolean = true,
+    val lastDownloadTitle: String? = null,
+    val lastDownloadChapter: String? = null
 )
 
 @Serializable
@@ -302,6 +305,7 @@ data class WebBrowserSettings(
     val lastUrl: String = "https://www.google.com",
     val tabs: List<BrowserTab> = listOf(BrowserTab()),
     val currentTabId: String = "",
+    val defaultPreventRedirects: Boolean = true,
     val nextSelector: String = "button[title*=\"Next Chapter\"], a[title*=\"Next Chapter\"], button[title=\"Next chapter\"], a[title=\"Next chapter\"], #next_chap, .next-chap, .next-chapter, .btn-next, a.next",
     val nextChapterRules: List<NextChapterSelectorRule> = listOf(
         NextChapterSelectorRule(

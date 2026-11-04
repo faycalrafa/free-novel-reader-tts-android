@@ -101,7 +101,9 @@ fun BrowserTopBar(
     onCustomButtonClicked: (String) -> Unit = {},
     onReorderButtonsClicked: () -> Unit = {},
     onHistoryClicked: () -> Unit = {},
-    onDownloadsClicked: () -> Unit = {}
+    onDownloadsClicked: () -> Unit = {},
+    preventRedirects: Boolean = true,
+    onTogglePreventRedirects: () -> Unit = {}
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -432,6 +434,8 @@ fun BrowserTopBar(
                             onReorderButtonsClicked = onReorderButtonsClicked,
                             onHistoryClicked = onHistoryClicked,
                             onDownloadsClicked = onDownloadsClicked,
+                            preventRedirects = preventRedirects,
+                            onTogglePreventRedirects = onTogglePreventRedirects,
                             onInspectClickables = onInspectClickables,
                             onManageShortcuts = onManageShortcuts,
                             onRawCodeClicked = onRawCodeClicked,
